@@ -323,7 +323,7 @@ export class ListEditor {
         if (!accel)
             return [];
         const out = [];
-        if (this._o.settings.get_strv('shortcut').includes(accel))
+        if (this._o.settings.get_strv('gnome-launcher-toggle').includes(accel))
             out.push('launcher shortcut');
         for (const other of this._items) {
             if (other !== item && other.shortcut === accel)

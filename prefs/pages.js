@@ -47,11 +47,11 @@ function shortcuts(window, settings) {
     const p = page('Keyboard Shortcuts', 'input-keyboard-symbolic');
     const g = group('Launcher shortcut', 'Used to open and close the launcher. Conflicts with built-in GNOME shortcuts are flagged.');
     g.add(shortcutRow(window, 'Open / close launcher',
-        () => settings.get_strv('shortcut')[0] ?? '',
-        v => settings.set_strv('shortcut', v ? [v] : []),
+        () => settings.get_strv('gnome-launcher-toggle')[0] ?? '',
+        v => settings.set_strv('gnome-launcher-toggle', v ? [v] : []),
         accel => ownShortcuts(settings).filter(([a]) => a === accel).map(([, n]) => `"${n}"`)));
     g.add(switchRow(settings, 'use-super-key', 'Also open with the Super key',
-        'Shell\'s overview reacts to Super too, so it is dismissed right away; a brief flash is possible.'));
+        'While on, the launcher takes over the Super key from the overview (Mutter\'s overlay-key is set to empty and restored when you turn this off). Super+key shortcuts are unaffected.'));
     p.add(g);
 
     const info = group('Per-entry shortcuts', 'Shortcuts for individual commands and actions are set in their own pages. They run the entry directly without opening the launcher.');
@@ -229,8 +229,10 @@ function advanced(window, settings) {
         d.set_response_appearance('reset', Adw.ResponseAppearance.DESTRUCTIVE);
         d.connect('response', (_d, id) => {
             if (id === 'reset') {
-                for (const k of settings.settings_schema.list_keys())
-                    settings.reset(k);
+                for (const k of settings.settings_schema.list_keys()) {
+                    if (k !== 'saved-overlay-key') // needed to restore Mutter's overlay-key
+                        settings.reset(k);
+                }
                 toast(window, 'Settings reset');
             }
         });

@@ -19,8 +19,8 @@ gnome-extensions enable gnome-launcher@maou-nournar
 gnome-extensions prefs gnome-launcher@maou-nournar
 ```
 
-The directory name must equal the UUID (`gnome-launcher@maou-nournar`). Default shortcut: **Alt+Space**
-(this conflicts with GNOME's window menu; the prefs page flags it, change it in *Keyboard Shortcuts*).
+The directory name must equal the UUID (`gnome-launcher@maou-nournar`). Default shortcut: **Ctrl+Alt+Space**
+(change it in *Keyboard Shortcuts*; known GNOME conflicts are flagged there).
 
 ## Compatibility
 
@@ -84,9 +84,8 @@ Keys while open: Up/Down, Ctrl+N/P/J/K, Tab/Shift+Tab, PageUp/PageDown, Enter, A
 - **Blur** uses `Shell.BlurEffect` (background blur). If unavailable or constructed differently on your version, the
   launcher logs once and keeps working with transparency only. The blurred region is rectangular, so a large window
   corner radius shows square blur corners; use a small radius with blur.
-- **Bare Super** opens the launcher but Shell's overview also reacts, so the overview is dismissed immediately and may flash.
-- **Alt+Space** is GNOME's default window-menu key; the prefs page warns about conflicts it can detect, but cannot
-  detect every one (third-party extensions, apps).
+- **Bare Super**: while enabled, the launcher sets Mutter's `org.gnome.mutter overlay-key` to empty (the documented way to disable it) and detects Super itself. The original value is saved in this extension's `saved-overlay-key` and restored when the option is turned off, on disable, or at next start after a crash. Manual recovery: `gsettings reset org.gnome.mutter overlay-key`.
+- Shortcut conflict detection in prefs covers GNOME's own keybinding schemas only, not other extensions or apps.
 - The theme drop-downs list themes at the time the preferences window opens.
 - Fonts: only family and weight (no italics); custom icons are theme names or file paths (no embedded images).
 - Per-entry shortcuts use `grab_accelerator`; a rejected accelerator is reported once as a notification.

@@ -3,8 +3,11 @@
   <schema id="org.gnome.shell.extensions.gnome-launcher" path="/org/gnome/shell/extensions/gnome-launcher/">
 
     <!-- General -->
-    <key name="shortcut" type="as"><default>["&lt;Alt&gt;space"]</default></key>
+    <!-- Mutter keeps one global list of keybinding names, so this key name must be unique. -->
+    <key name="gnome-launcher-toggle" type="as"><default>["&lt;Control&gt;&lt;Alt&gt;space"]</default></key>
     <key name="use-super-key" type="b"><default>false</default></key>
+    <!-- Mutter overlay-key value saved while the launcher owns the Super key (crash recovery). -->
+    <key name="saved-overlay-key" type="s"><default>''</default></key>
     <key name="reset-query-on-open" type="b"><default>true</default></key>
     <key name="monitor" type="s"><default>'pointer'</default></key>
     <key name="placeholder" type="s"><default>'Search apps, commands and actions…'</default></key>

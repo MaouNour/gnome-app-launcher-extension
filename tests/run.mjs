@@ -179,6 +179,18 @@ test('prefs-reachable modules are pure (no Shell imports)', () => {
         assert.ok(!/^import /m.test(src), `${f} must not import anything`);
     }
 });
+test('every settings key used in code exists in the schema', () => {
+    const xml = readFileSync(join(root, 'schemas/org.gnome.shell.extensions.gnome-launcher.gschema.xml'), 'utf8');
+    const keys = new Set([...xml.matchAll(/<key name="([^"]+)"/g)].map(m => m[1]));
+    const re = /(?:\.(?:str|int|num|bool|strv|json)|get_string|get_int|get_double|get_boolean|get_strv|set_string|set_int|set_strv|(?:switch|spin|entry|combo)Row\(settings,|bump\(settings,|onChanged\()\(?\s*'([a-z][a-z-]+)'/g;
+    for (const f of jsFiles(root)) {
+        for (const m of readFileSync(f, 'utf8').matchAll(re)) {
+            if (m[1] !== 'color-scheme' && m[1] !== 'overlay-key')
+                assert.ok(keys.has(m[1]), `${f}: unknown settings key "${m[1]}"`);
+        }
+    }
+    assert.ok(keys.has('gnome-launcher-toggle') && !keys.has('shortcut'), 'binding key must be unique and not the generic "shortcut"');
+});
 test('metadata uuid matches the owner', () => {
     const meta = JSON.parse(readFileSync(join(root, 'metadata.json'), 'utf8'));
     assert.equal(meta.uuid, 'gnome-launcher@maou-nournar');

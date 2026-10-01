@@ -18,6 +18,7 @@ import {Debounce, Idle} from './utils/timing.js';
 import {setDebug, dbg, warn} from './utils/log.js';
 
 const NOTIFY_TITLE = 'GNOME Launcher';
+const SHORTCUT_KEY = 'gnome-launcher-toggle';
 
 // Keys that only affect appearance: a change just marks the UI style dirty.
 const STYLE_KEYS = new Set([
@@ -109,9 +110,8 @@ export default class GnomeLauncherExtension extends Extension {
 
     _onConfigChanged(key) {
         switch (key) {
-        case 'shortcut':
         case 'use-super-key':
-            this._bindShortcuts();
+            this._keys.setSuperKey(this._config.bool('use-super-key'), () => this._launcher.toggle(), this._settings);
             break;
         case 'commands':
         case 'actions':
@@ -137,11 +137,11 @@ export default class GnomeLauncherExtension extends Extension {
         }
     }
 
+    // The main shortcut is registered once; Mutter follows later changes to the setting itself.
     _bindShortcuts() {
-        const ok = this._keys.setMain(this._settings, 'shortcut', () => this._launcher.toggle());
-        if (!ok)
-            Main.notify(NOTIFY_TITLE, 'The launcher shortcut conflicts with another binding. Choose a different one in the preferences.');
-        this._keys.setSuperKey(this._config.bool('use-super-key'), () => this._launcher.open());
+        if (!this._keys.setMain(this._settings, SHORTCUT_KEY, () => this._launcher.toggle()))
+            Main.notify(NOTIFY_TITLE, 'Could not register the launcher shortcut. See: journalctl -o cat /usr/bin/gnome-shell | grep gnome-launcher');
+        this._keys.setSuperKey(this._config.bool('use-super-key'), () => this._launcher.toggle(), this._settings);
     }
 
     // Rebuild user commands/actions (cheap; the lists are small) and their shortcuts.
