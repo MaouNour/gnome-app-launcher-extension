@@ -1,0 +1,51 @@
+import {cssColor} from '../themes/themes.js';
+
+// Builds every inline St style string once per settings/theme change (not per
+// keystroke). Pure function: layout numbers + resolved theme in, strings out.
+export function buildStyles(l, t) {
+    const s = l.scale;
+    const px = n => `${Math.max(0, Math.round(n * s))}px`;
+    const pt = n => `${(n * s).toFixed(2)}pt`;
+    const font = (t.fontFamily ? `font-family: ${t.fontFamily}; ` : '') + `font-weight: ${t.fontWeight}; `;
+    const shadow = t.shadowOpacity > 0
+        ? `box-shadow: 0 ${px(t.shadowOffsetY)} ${px(t.shadowBlur)} rgba(0,0,0,${t.shadowOpacity}); `
+        : '';
+    const minH = l.windowHeight > 0 ? `min-height: ${px(l.windowHeight)}; ` : '';
+    const fg = cssColor(t.foreground);
+    const sel = cssColor(t.selectionText);
+    const sec = cssColor(t.secondary);
+    const rowBase = `height: ${px(l.rowHeight)}; padding: 0 ${px(l.padding)}; border-radius: ${px(t.rowRadius)}; spacing: ${px(l.iconSpacing)}; `;
+    const rowH = Math.round(l.rowHeight * s);
+    const gap = Math.round(l.resultSpacing * s);
+
+    return {
+        box: `width: ${px(l.width)}; ${minH}padding: ${px(l.padding)}; spacing: ${px(l.padding * 0.6)}; ` +
+            `background-color: ${cssColor(t.background, t.opacity)}; ` +
+            `border: ${px(t.borderWidth)} solid ${cssColor(t.border)}; border-radius: ${px(t.radius)}; ${shadow}`,
+        entry: `min-height: ${px(l.searchHeight)}; padding: 0 ${px(l.searchPadding)}; spacing: ${px(l.iconSpacing)}; ` +
+            `border-radius: ${px(t.searchRadius)}; background-color: ${cssColor(t.searchBackground)}; ` +
+            `color: ${fg}; caret-color: ${cssColor(t.accent)}; selection-background-color: ${cssColor(t.accent)}; ` +
+            `selected-color: ${sel}; font-size: ${pt(l.fontSize * 1.25)}; ${font}border-width: 0;`,
+        hint: `color: ${sec};`,
+        list: `spacing: ${gap}px;`,
+        row: `${rowBase}background-color: transparent;`,
+        rowSel: `${rowBase}background-color: ${cssColor(t.selection)};`,
+        title: `color: ${fg}; font-size: ${pt(l.fontSize)}; ${font}`,
+        titleSel: `color: ${sel}; font-size: ${pt(l.fontSize)}; ${font}`,
+        sub: `color: ${sec}; font-size: ${pt(l.fontSize * 0.82)};`,
+        subSel: `color: ${cssColor(t.selectionText, 0.75)}; font-size: ${pt(l.fontSize * 0.82)};`,
+        tag: `color: ${sec}; font-size: ${pt(l.fontSize * 0.75)};`,
+        tagSel: `color: ${cssColor(t.selectionText, 0.75)}; font-size: ${pt(l.fontSize * 0.75)};`,
+        icon: `-st-icon-style: ${t.iconStyle};`,
+        empty: `color: ${sec}; font-size: ${pt(l.fontSize)}; padding: ${px(l.padding)};`,
+        iconSize: Math.round(l.iconSize * s),
+        rowH,
+        gap,
+        maxListH: Math.max(rowH, Math.round((l.maxHeight - l.searchHeight - l.padding * 3) * s)),
+        showDesc: l.showDescriptions,
+        showTags: l.showTags,
+        searchPosition: l.searchPosition,
+        blur: t.blur,
+        placeholder: l.placeholder,
+    };
+}

@@ -1,0 +1,140 @@
+import Gio from 'gi://Gio';
+import GLib from 'gi://GLib';
+
+import * as Main from 'resource:///org/gnome/shell/ui/main.js';
+
+import {launchApp} from '../applications/launch.js';
+import {dbg, warn} from '../utils/log.js';
+
+const ENV_RE = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/s;
+
+function expandHome(p) {
+    if (p === '~')
+        return GLib.get_home_dir();
+    if (p.startsWith('~/'))
+        return GLib.build_filenamev([GLib.get_home_dir(), p.slice(2)]);
+    return p;
+}
+
+// Shell-style tokenising (quotes respected) WITHOUT invoking a shell.
+function parseArgv(text) {
+    try {
+        const [ok, argv] = GLib.shell_parse_argv(text);
+        if (!ok || argv.length === 0)
+            throw new Error('empty');
+        return argv.map(expandHome);
+    } catch (_e) {
+        throw new Error(`Invalid command syntax: ${text}`);
+    }
+}
+
+function parseEnv(text) {
+    if (!text)
+        return [];
+    return parseArgv(text).map(pair => {
+        const m = ENV_RE.exec(pair);
+        if (!m)
+            throw new Error(`Bad environment entry: ${pair}`);
+        return [m[1], m[2]];
+    });
+}
+
+function checkExecutable(exe) {
+    if (exe.includes('/')) {
+        if (!GLib.file_test(exe, GLib.FileTest.IS_REGULAR))
+            throw new Error(`"${exe}" does not exist`);
+        if (!GLib.file_test(exe, GLib.FileTest.IS_EXECUTABLE))
+            throw new Error(`"${exe}" is not executable`);
+    } else if (!GLib.find_program_in_path(exe)) {
+        throw new Error(`Command "${exe}" not found in PATH`);
+    }
+}
+
+function spawn(argv, env = []) {
+    checkExecutable(argv[0]);
+    const launcher = new Gio.SubprocessLauncher({flags: Gio.SubprocessFlags.NONE});
+    for (const [k, v] of env)
+        launcher.setenv(k, v, true);
+    const proc = launcher.spawnv(argv);
+    proc.wait_check_async(null, (p, res) => {
+        try {
+            p.wait_check_finish(res);
+        } catch (e) {
+            dbg(`${argv[0]} exited abnormally: ${e.message}`);
+        }
+    });
+}
+
+function openUri(uri) {
+    Gio.AppInfo.launch_default_for_uri_async(uri, global.create_app_launch_context(0, -1), null, (_o, res) => {
+        try {
+            Gio.AppInfo.launch_default_for_uri_finish(res);
+        } catch (e) {
+            warn(`could not open ${uri}: ${e.message}`);
+            Main.notify('GNOME Launcher', `Could not open ${uri}: ${e.message}`);
+        }
+    });
+}
+
+const GNOME = {
+    'overview': () => Main.overview.show(),
+    'app-grid': () => Main.overview.showApps(),
+    'screenshot': () => Main.screenshotUI.open(),
+    'lock-screen': () => Main.screenShield.lock(true),
+    'settings': () => spawn(['gnome-control-center']),
+    'logout': () => spawn(['gnome-session-quit', '--logout']),
+    'suspend': () => spawn(['systemctl', 'suspend']),
+    'power-off': () => spawn(['gnome-session-quit', '--power-off']),
+};
+
+// Executes entries. Every failure path throws an Error with a user-presentable message;
+// the caller catches it, so a broken entry never takes the extension down.
+export class Runner {
+    run(entry) {
+        const p = entry.payload;
+        switch (entry.kind) {
+        case 'app':
+            return launchApp(p.appId);
+        case 'command':
+            return spawn(parseArgv(`${p.command} ${p.args}`.trim()), parseEnv(p.env));
+        case 'action':
+            return this._action(p);
+        default:
+            throw new Error(`Unknown entry kind "${entry.kind}"`);
+        }
+    }
+
+    _action(a) {
+        switch (a.type) {
+        case 'app':
+            return launchApp(a.target.endsWith('.desktop') ? a.target : `${a.target}.desktop`);
+        case 'shell':
+            // Explicit, user-authored shell snippet (the only place a shell is involved).
+            return spawn(['/bin/sh', '-c', `${a.target} ${a.args}`.trim()]);
+        case 'url':
+            return openUri(a.target);
+        case 'file':
+        case 'dir': {
+            const path = expandHome(a.target);
+            const want = a.type === 'dir' ? GLib.FileTest.IS_DIR : GLib.FileTest.IS_REGULAR;
+            if (!GLib.file_test(path, GLib.FileTest.EXISTS))
+                throw new Error(`"${path}" does not exist`);
+            if (!GLib.file_test(path, want))
+                throw new Error(`"${path}" is not a ${a.type === 'dir' ? 'directory' : 'file'}`);
+            return openUri(Gio.File.new_for_path(path).get_uri());
+        }
+        case 'script': {
+            const path = expandHome(a.target);
+            return spawn([path, ...(a.args ? parseArgv(a.args) : [])]);
+        }
+        case 'gnome': {
+            const fn = GNOME[a.target];
+            if (!fn)
+                throw new Error(`Unknown GNOME action "${a.target}"`);
+            return fn();
+        }
+        default:
+            throw new Error(`Unknown action type "${a.type}"`);
+        }
+    }
+}
