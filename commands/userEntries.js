@@ -10,6 +10,7 @@ const KIND_CATEGORY = {command: 'Commands', action: 'Actions'};
 export function buildUserEntries(commands, actions, categoryIcons) {
     const entries = [];
     const shortcuts = [];
+    const windowShortcuts = [];
     const problems = [];
     const seen = new Set();
     const icons = categoryIcons && typeof categoryIcons === 'object' ? categoryIcons : {};
@@ -35,6 +36,8 @@ export function buildUserEntries(commands, actions, categoryIcons) {
         }));
         if (item.shortcut)
             shortcuts.push({id, accel: item.shortcut});
+        if (item.windowShortcut)
+            windowShortcuts.push({id, accel: item.windowShortcut});
     };
 
     (Array.isArray(commands) ? commands : []).forEach((raw, i) => {
@@ -47,5 +50,5 @@ export function buildUserEntries(commands, actions, categoryIcons) {
         if (a)
             add('action', a, validateAction(a), `${a.type}: ${a.target}`);
     });
-    return {entries, shortcuts, problems};
+    return {entries, shortcuts, windowShortcuts, problems};
 }

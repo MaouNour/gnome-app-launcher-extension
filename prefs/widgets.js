@@ -131,7 +131,9 @@ export function captureShortcut(parent, callback) {
 }
 
 // Row with the current accelerator, a "Set" and a "Clear" button, plus a conflict hint.
-export function shortcutRow(window, title, getter, setter, extraConflicts = () => []) {
+// local = a window shortcut (only active while the launcher is open): no GNOME conflict check
+// is needed because it is never grabbed globally, but it must include Ctrl, Alt or Super.
+export function shortcutRow(window, title, getter, setter, extraConflicts = () => [], local = false) {
     const row = new Adw.ActionRow({title});
     const label = new Gtk.Label({css_classes: ['dim-label'], valign: Gtk.Align.CENTER});
     const set = new Gtk.Button({label: 'Set…', valign: Gtk.Align.CENTER});
@@ -139,8 +141,11 @@ export function shortcutRow(window, title, getter, setter, extraConflicts = () =
     const refresh = () => {
         const accel = getter();
         label.label = accelLabel(accel);
-        const c = [...findConflicts(accel), ...extraConflicts(accel)];
-        row.subtitle = c.length ? `⚠ Also used by: ${c.join(', ')}` : '';
+        const c = [...(local ? [] : findConflicts(accel)), ...extraConflicts(accel)];
+        const warn = accel && local && !/<(Control|Ctrl|Primary|Alt|Mod1|Super|Mod4|Meta)>/i.test(accel)
+            ? '⚠ Needs Ctrl, Alt or Super to work. ' : '';
+        row.subtitle = c.length ? `⚠ Also used by: ${c.join(', ')}`
+            : (warn || (local ? 'Only active while the launcher is open.' : ''));
     };
     set.connect('clicked', () => captureShortcut(window, accel => {
         setter(accel);
@@ -310,7 +315,8 @@ export class ListEditor {
             return w;
         }
         case 'shortcut':
-            return shortcutRow(this._o.window, f.label, () => item[f.key] ?? '', v => set(f.key, v), accel => this._ownConflicts(item, accel));
+            return shortcutRow(this._o.window, f.label, () => item[f.key] ?? '', v => set(f.key, v),
+                accel => this._ownConflicts(item, accel, f), !!f.local);
         default: {
             const w = new Adw.EntryRow({title: f.label, text: item[f.key] ?? ''});
             w.connect('changed', () => set(f.key, w.text));
@@ -319,14 +325,14 @@ export class ListEditor {
         }
     }
 
-    _ownConflicts(item, accel) {
+    _ownConflicts(item, accel, field) {
         if (!accel)
             return [];
         const out = [];
-        if (this._o.settings.get_strv('gnome-launcher-toggle').includes(accel))
+        if (!field.local && this._o.settings.get_strv('gnome-launcher-toggle').includes(accel))
             out.push('launcher shortcut');
         for (const other of this._items) {
-            if (other !== item && other.shortcut === accel)
+            if (other !== item && other[field.key] === accel)
                 out.push(`"${other.name || 'Untitled'}"`);
         }
         return out;

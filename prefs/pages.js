@@ -2,6 +2,7 @@ import Adw from 'gi://Adw';
 import Gio from 'gi://Gio';
 import Gtk from 'gi://Gtk';
 
+import {BUILTINS, sanitizeBuiltins} from '../commands/builtins.js';
 import {ACTION_FIELDS, COMMAND_FIELDS, newAction, newCommand, sanitizeAction, sanitizeCommand} from '../commands/schema.js';
 import {THEME_FIELDS, THEME_BASE, builtinThemes, resolveTheme, sanitizeTheme, themeNames} from '../themes/themes.js';
 import {ListEditor, Overrides, comboRow, entryRow, group, shortcutRow, spinRow, switchRow, toast} from './widgets.js';
@@ -28,7 +29,53 @@ function ownShortcuts(settings) {
                 out.push([i.shortcut, i.name || 'Untitled']);
         }
     }
+    const b = sanitizeBuiltins(readJson(settings, 'builtins', {}));
+    for (const def of BUILTINS) {
+        if (b[def.id]?.shortcut && b[def.id].enabled !== false)
+            out.push([b[def.id].shortcut, def.name]);
+    }
     return out;
+}
+
+function builtinsPage(window, settings) {
+    const p = page('Built-in Entries', 'emblem-system-symbolic');
+    const opts = group('Options');
+    opts.add(switchRow(settings, 'clipboard-enabled', 'Remember clipboard history',
+        'Text only, kept in memory (never written to disk), updated when the clipboard changes. Turn off to stop collecting.'));
+    opts.add(spinRow(settings, 'clipboard-max', 'Clipboard items to keep', 5, 200, 1));
+    opts.add(switchRow(settings, 'calculator', 'Quick calculator', 'Typing an expression such as 12*(3+4) shows the result; Enter copies it.'));
+    p.add(opts);
+
+    const read = () => sanitizeBuiltins(readJson(settings, 'builtins', {}));
+    const write = (id, key, value) => {
+        const o = read();
+        const e = {...(o[id] ?? {})};
+        if (value === '' || value === undefined)
+            delete e[key];
+        else
+            e[key] = value;
+        if (Object.keys(e).length)
+            o[id] = e;
+        else
+            delete o[id];
+        settings.set_string('builtins', JSON.stringify(o));
+    };
+
+    const g = group('System and utility entries',
+        'Shut Down, Restart and Log Out use GNOME\'s own confirmation dialog. A global shortcut works anywhere; a window shortcut only while the launcher is open.');
+    for (const b of BUILTINS) {
+        const row = new Adw.ExpanderRow({title: b.name, subtitle: b.desc});
+        const sw = new Gtk.Switch({valign: Gtk.Align.CENTER, active: read()[b.id]?.enabled !== false});
+        sw.connect('notify::active', () => write(b.id, 'enabled', sw.active ? undefined : false));
+        row.add_suffix(sw);
+        row.add_row(shortcutRow(window, 'Global shortcut', () => read()[b.id]?.shortcut ?? '', v => write(b.id, 'shortcut', v),
+            accel => ownShortcuts(settings).filter(([a, n]) => a === accel && n !== b.name).map(([, n]) => `"${n}"`)));
+        row.add_row(shortcutRow(window, 'Window shortcut (only while the launcher is open)',
+            () => read()[b.id]?.windowShortcut ?? '', v => write(b.id, 'windowShortcut', v), () => [], true));
+        g.add(row);
+    }
+    p.add(g);
+    return p;
 }
 
 function general(settings) {
@@ -36,6 +83,9 @@ function general(settings) {
     const g = group('Behaviour');
     g.add(switchRow(settings, 'reset-query-on-open', 'Clear the search when opening'));
     g.add(comboRow(settings, 'monitor', 'Show on', [['pointer', 'Monitor with the pointer'], ['primary', 'Primary monitor']]));
+    g.add(comboRow(settings, 'outside-action', 'Pointer outside the window', [
+        ['click', 'Close when clicking outside'], ['hover', 'Close when the pointer leaves the window'], ['none', 'Never close (keyboard only)'],
+    ], 'Escape and the shortcut always close the launcher.'));
     g.add(entryRow(settings, 'placeholder', 'Placeholder text'));
     g.add(switchRow(settings, 'show-descriptions', 'Show descriptions'));
     g.add(switchRow(settings, 'show-tags', 'Show entry type labels (App / Command / Action)'));
@@ -51,7 +101,7 @@ function shortcuts(window, settings) {
         v => settings.set_strv('gnome-launcher-toggle', v ? [v] : []),
         accel => ownShortcuts(settings).filter(([a]) => a === accel).map(([, n]) => `"${n}"`)));
     g.add(switchRow(settings, 'use-super-key', 'Also open with the Super key',
-        'While on, the launcher takes over the Super key from the overview (Mutter\'s overlay-key is set to empty and restored when you turn this off). Super+key shortcuts are unaffected.'));
+        'While on, runs: gsettings set org.gnome.mutter overlay-key \'\' (the overview no longer opens on Super). Turning it off, or disabling the extension, runs: gsettings reset org.gnome.mutter overlay-key. Super+key shortcuts are unaffected.'));
     p.add(g);
 
     const info = group('Per-entry shortcuts', 'Shortcuts for individual commands and actions are set in their own pages. They run the entry directly without opening the launcher.');
@@ -229,10 +279,8 @@ function advanced(window, settings) {
         d.set_response_appearance('reset', Adw.ResponseAppearance.DESTRUCTIVE);
         d.connect('response', (_d, id) => {
             if (id === 'reset') {
-                for (const k of settings.settings_schema.list_keys()) {
-                    if (k !== 'saved-overlay-key') // needed to restore Mutter's overlay-key
-                        settings.reset(k);
-                }
+                for (const k of settings.settings_schema.list_keys())
+                    settings.reset(k);
                 toast(window, 'Settings reset');
             }
         });
@@ -263,7 +311,7 @@ export function buildPages(window, settings) {
 
     return [
         general(settings), appearance(settings), themes(window, settings), shortcuts(window, settings),
-        applications(settings), commandsPage, actionsPage, search(settings),
+        applications(settings), builtinsPage(window, settings), commandsPage, actionsPage, search(settings),
         performance(window, settings), advanced(window, settings),
     ];
 }

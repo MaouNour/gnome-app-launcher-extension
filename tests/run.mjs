@@ -8,6 +8,8 @@ import {SearchEngine, prepare, fold, frecency} from '../search/engine.js';
 import {sanitizeTheme, resolveTheme, builtinThemes, cssColor} from '../themes/themes.js';
 import {sanitizeCommand, sanitizeAction, validateCommand, validateAction} from '../commands/schema.js';
 import {buildUserEntries} from '../commands/userEntries.js';
+import {calculate} from '../search/calc.js';
+import {BUILTINS, buildBuiltinEntries, sanitizeBuiltins} from '../commands/builtins.js';
 
 let passed = 0;
 function test(name, fn) {
@@ -139,6 +141,64 @@ test('sanitizers strip control characters and cap length', () => {
     assert.ok(c.name.length <= 512);
 });
 
+
+// --- calculator -------------------------------------------------------------
+test('calculator basics', () => {
+    assert.equal(calculate('2+3*4'), '14');
+    assert.equal(calculate('(1+2)^2'), '9');
+    assert.equal(calculate('10/4'), '2.5');
+    assert.equal(calculate('-2^2'), '-4');
+    assert.equal(calculate('2^-1'), '0.5');
+    assert.equal(calculate('1,5+1'), '2.5');
+    assert.equal(calculate('0.1+0.2'), '0.3');
+    assert.equal(calculate('7 % 4 + 2 × 3'), '9');
+});
+test('calculator rejects non-math and unsafe input', () => {
+    for (const bad of ['firefox', '5', '-5', '1/0', '2+', '(1+2', '1+2)', 'process.exit()', '2**3x', '', '1+'.repeat(200)])
+        assert.equal(calculate(bad), null, `should reject ${JSON.stringify(bad).slice(0, 30)}`);
+});
+
+// --- built-in entries -------------------------------------------------------
+test('built-ins include power and clipboard entries', () => {
+    const ids = BUILTINS.map(b => b.id);
+    for (const id of ['power-off', 'reboot', 'logout', 'suspend', 'lock-screen', 'clipboard', 'clear-clipboard'])
+        assert.ok(ids.includes(id), id);
+});
+test('built-ins respect enable flags and clipboard switch', () => {
+    const all = buildBuiltinEntries({}, {clipboard: true});
+    assert.equal(all.entries.length, BUILTINS.length);
+    assert.ok(all.entries.every(e => e.id.startsWith('system:') && ['system', 'mode'].includes(e.kind)));
+    assert.ok(!buildBuiltinEntries({}, {clipboard: false}).entries.some(e => e.category === 'Clipboard'));
+    assert.ok(!buildBuiltinEntries({'power-off': {enabled: false}}, {clipboard: true}).entries.some(e => e.id === 'system:power-off'));
+});
+test('built-in shortcuts: global and window-only are kept apart', () => {
+    const r = buildBuiltinEntries({reboot: {shortcut: '<Control><Alt>r', windowShortcut: '<Control>r'}}, {clipboard: false});
+    assert.deepEqual(r.shortcuts, [{id: 'system:reboot', accel: '<Control><Alt>r'}]);
+    assert.deepEqual(r.windowShortcuts, [{id: 'system:reboot', accel: '<Control>r'}]);
+});
+test('built-in overrides are sanitized', () => {
+    assert.deepEqual(sanitizeBuiltins('x'), {});
+    assert.deepEqual(sanitizeBuiltins({nope: {enabled: false}, reboot: {enabled: 'yes', shortcut: 5}}), {});
+});
+test('built-ins are searchable (shutdown/restart/clipboard)', () => {
+    const e = new SearchEngine();
+    e.setEntries(buildBuiltinEntries({}, {clipboard: true}).entries);
+    assert.equal(e.search('shutdown')[0].id, 'system:power-off');
+    assert.equal(e.search('reboot')[0].id, 'system:reboot');
+    assert.equal(e.search('clip')[0].id, 'system:clipboard');
+});
+test('window shortcuts are collected for commands and actions', () => {
+    const r = buildUserEntries([{id: '1', name: 'A', command: 'a', windowShortcut: '<Control>1'}],
+        [{id: '2', name: 'B', type: 'url', target: 'https://x.org', windowShortcut: '<Alt>2'}], {});
+    assert.deepEqual(r.windowShortcuts.map(w => w.accel), ['<Control>1', '<Alt>2']);
+    assert.deepEqual(r.shortcuts, []);
+});
+test('new GNOME actions accepted for user actions', () => {
+    for (const t of ['reboot', 'toggle-dark-mode', 'toggle-dnd'])
+        assert.equal(validateAction(sanitizeAction({name: 'x', type: 'gnome', target: t})), '');
+    assert.ok(validateAction(sanitizeAction({name: 'x', type: 'gnome', target: 'clear-clipboard'})));
+});
+
 // --- static checks on the Shell-facing code ---------------------------------
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 function jsFiles(dir) {
@@ -173,10 +233,20 @@ test('process separation: shell code never loads GTK, prefs never load Shell lib
             assert.ok(!gtkOnly.test(src), `${f} imports a GTK-only module`);
     }
 });
-test('prefs-reachable modules are pure (no Shell imports)', () => {
-    for (const f of ['themes/themes.js', 'commands/schema.js']) {
+test('prefs-reachable modules are pure (only relative imports)', () => {
+    for (const f of ['themes/themes.js', 'commands/schema.js', 'commands/builtins.js', 'search/engine.js']) {
         const src = readFileSync(join(root, f), 'utf8');
-        assert.ok(!/^import /m.test(src), `${f} must not import anything`);
+        for (const m of src.matchAll(/^import .* from '([^']+)'/gm))
+            assert.ok(m[1].startsWith('.'), `${f} imports ${m[1]}`);
+    }
+});
+test('no APIs that are missing on current Shell versions', () => {
+    // These broke the launcher on a real Shell: keep them out.
+    for (const f of jsFiles(root)) {
+        const src = readFileSync(f, 'utf8');
+        assert.ok(!src.includes('ensureActorVisibleInScrollView'), `${f} uses ensureActorVisibleInScrollView`);
+        assert.ok(!src.includes('keyval_from_name'), `${f} uses Clutter.keyval_from_name`);
+        assert.ok(!/addKeybinding\(\s*'shortcut'/.test(src), `${f} registers the generic "shortcut" binding name`);
     }
 });
 test('every settings key used in code exists in the schema', () => {
@@ -185,11 +255,14 @@ test('every settings key used in code exists in the schema', () => {
     const re = /(?:\.(?:str|int|num|bool|strv|json)|get_string|get_int|get_double|get_boolean|get_strv|set_string|set_int|set_strv|(?:switch|spin|entry|combo)Row\(settings,|bump\(settings,|onChanged\()\(?\s*'([a-z][a-z-]+)'/g;
     for (const f of jsFiles(root)) {
         for (const m of readFileSync(f, 'utf8').matchAll(re)) {
-            if (m[1] !== 'color-scheme' && m[1] !== 'overlay-key')
+            if (!['color-scheme', 'overlay-key', 'show-banners'].includes(m[1])) // keys of GNOME's own schemas
                 assert.ok(keys.has(m[1]), `${f}: unknown settings key "${m[1]}"`);
         }
     }
     assert.ok(keys.has('gnome-launcher-toggle') && !keys.has('shortcut'), 'binding key must be unique and not the generic "shortcut"');
+    for (const k of ['outside-action', 'builtins', 'clipboard-enabled', 'clipboard-max', 'calculator'])
+        assert.ok(keys.has(k), k);
+    assert.ok(!keys.has('saved-overlay-key'));
 });
 test('metadata uuid matches the owner', () => {
     const meta = JSON.parse(readFileSync(join(root, 'metadata.json'), 'utf8'));

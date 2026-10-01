@@ -4,7 +4,6 @@ set -e
 here=$(cd "$(dirname "$0")" && pwd)
 uuid=$(python3 -c "import json,sys;print(json.load(open('$here/metadata.json'))['uuid'])")
 dest="$HOME/.local/share/gnome-shell/extensions/$uuid"
-rm -rf "$dest"
 mkdir -p "$dest"
 cp -r "$here"/. "$dest"/
 rm -rf "$dest/tests" "$dest/tools" "$dest/install.sh" "$dest/gschemas.compiled"

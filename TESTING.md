@@ -3,7 +3,7 @@
 ## Automated (no GNOME needed)
 
 ```sh
-node tests/run.mjs          # 35 tests: search, frecency, themes, validation, sanitizers
+node tests/run.mjs          # 50 tests: search, frecency, themes, validation, calculator, built-ins, static lint
 node tools/bench.mjs 20000  # search latency (use `gjs -m tools/bench.mjs` for SpiderMonkey numbers)
 glib-compile-schemas --strict --dry-run schemas
 ```
@@ -29,4 +29,10 @@ Nested session for safe iteration: `dbus-run-session gnome-shell --nested --wayl
 | Many entries | Import ~2000 generated commands | Typing stays instant; scrolling smooth |
 | Transparency/blur | Opacity 0.5; blur 30 on a busy wallpaper | Translucent; blur applied or one logged warning |
 | Rapid toggling | Hold the shortcut / spam it | No stuck overlay, input always returns to the desktop |
+| Pointer outside | Try each *Pointer outside the window* mode: click outside, move the pointer out, "never" | Closes only as configured; hover mode does not close at open if the pointer starts outside |
+| Window shortcuts | Give a command a window shortcut (e.g. Ctrl+1) and a built-in one; try with the launcher open and closed | Fires only while open; no effect when closed; Ctrl-less shortcuts are ignored with a log line |
+| Super key | Turn on *Also open with the Super key*, press Super alone, Super+key, Super+click; then turn it off | Launcher toggles on a bare press; Super+key unaffected; `gsettings get org.gnome.mutter overlay-key` is `''` while on and the default after turning off |
+| Built-ins | Run Lock Screen, Toggle Dark Mode, Toggle DND, Take Screenshot; Shut Down/Restart/Log Out and cancel the GNOME dialog | Each works; power actions show GNOME's confirmation |
+| Clipboard | Copy several texts, open *Clipboard History*, search, Enter on one, then *Clear Clipboard History* | Newest first; Enter re-copies and closes; Esc leaves the view first; clear empties it |
+| Calculator | Type `12*(3+4)`, `2^10`, `1/0`, `firefox` | Result row for valid math, Enter copies it; nothing for the others |
 | Idle cost | `top`/`gnome-shell` CPU with launcher closed | No wakeups attributable to the extension |

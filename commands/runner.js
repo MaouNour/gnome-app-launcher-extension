@@ -77,6 +77,15 @@ function openUri(uri) {
 }
 
 const GNOME = {
+    'reboot': () => spawn(['gnome-session-quit', '--reboot']),
+    'toggle-dark-mode': () => {
+        const s = new Gio.Settings({schema_id: 'org.gnome.desktop.interface'});
+        s.set_string('color-scheme', s.get_string('color-scheme') === 'prefer-dark' ? 'default' : 'prefer-dark');
+    },
+    'toggle-dnd': () => {
+        const s = new Gio.Settings({schema_id: 'org.gnome.desktop.notifications'});
+        s.set_boolean('show-banners', !s.get_boolean('show-banners'));
+    },
     'overview': () => Main.overview.show(),
     'app-grid': () => Main.overview.showApps(),
     'screenshot': () => Main.screenshotUI.open(),
@@ -90,6 +99,11 @@ const GNOME = {
 // Executes entries. Every failure path throws an Error with a user-presentable message;
 // the caller catches it, so a broken entry never takes the extension down.
 export class Runner {
+    // hooks: {clearClipboard()} provided by the extension for built-in entries.
+    constructor(hooks = {}) {
+        this._hooks = hooks;
+    }
+
     run(entry) {
         const p = entry.payload;
         switch (entry.kind) {
@@ -99,6 +113,8 @@ export class Runner {
             return spawn(parseArgv(`${p.command} ${p.args}`.trim()), parseEnv(p.env));
         case 'action':
             return this._action(p);
+        case 'system':
+            return this._gnome(p.target);
         default:
             throw new Error(`Unknown entry kind "${entry.kind}"`);
         }
@@ -127,14 +143,19 @@ export class Runner {
             const path = expandHome(a.target);
             return spawn([path, ...(a.args ? parseArgv(a.args) : [])]);
         }
-        case 'gnome': {
-            const fn = GNOME[a.target];
-            if (!fn)
-                throw new Error(`Unknown GNOME action "${a.target}"`);
-            return fn();
-        }
+        case 'gnome':
+            return this._gnome(a.target);
         default:
             throw new Error(`Unknown action type "${a.type}"`);
         }
+    }
+
+    _gnome(target) {
+        if (target === 'clear-clipboard')
+            return this._hooks.clearClipboard?.();
+        const fn = GNOME[target];
+        if (!fn)
+            throw new Error(`Unknown GNOME action "${target}"`);
+        return fn();
     }
 }

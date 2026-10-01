@@ -17,7 +17,7 @@ export class Keybindings {
         this._customSig = 0;
 
         this._mutter = null;
-        this._ownSettings = null;
+        this._tookOver = false;
         this._stageSig = 0;
         this._overlaySig = 0;
         this._trigger = new Set();
@@ -60,32 +60,28 @@ export class Keybindings {
         }
     }
 
-    // Open on a bare Super (or whatever Mutter's overlay-key is) press. Shell's overview owns
-    // that key, so while this is enabled Mutter's documented `overlay-key` setting is set to
-    // the empty string (which disables it) and the press/release is detected here instead.
-    // The original value is kept in our own settings (surviving a crash) and restored when
-    // turned off, on disable(), and on the next start if a crash left it empty.
-    setSuperKey(enabled, callback, settings) {
-        this._stopSuper(settings);
+    // Open on a bare Super press. Shell's overview owns that key, so while this is on Mutter's
+    // `overlay-key` is set to '' (what `gsettings set org.gnome.mutter overlay-key ''` does) and
+    // the press/release is detected here. Turning it off (or disabling the extension) runs the
+    // equivalent of `gsettings reset org.gnome.mutter overlay-key`.
+    setSuperKey(enabled, callback) {
+        this._stopSuper();
         if (!enabled)
             return;
         this._superCb = callback;
-        this._ownSettings = settings;
+        this._trigger = new Set([Clutter.KEY_Super_L, Clutter.KEY_Super_R]);
         try {
-            this._mutter = new Gio.Settings({schema_id: 'org.gnome.mutter'});
-            const current = this._mutter.get_string('overlay-key');
-            if (current)
-                settings.set_string('saved-overlay-key', current);
-            const name = settings.get_string('saved-overlay-key') || 'Super_L';
-            this._trigger = new Set([Clutter.keyval_from_name(name)]);
-            if (name.startsWith('Super'))
-                this._trigger.add(Clutter.keyval_from_name('Super_R')).add(Clutter.keyval_from_name('Super_L'));
-            this._mutter.set_string('overlay-key', '');
             this._stageSig = global.stage.connect('captured-event', (_s, ev) => this._onStageEvent(ev));
-            dbg('super key handled by the launcher; saved overlay-key =', name);
+            this._mutter = new Gio.Settings({schema_id: 'org.gnome.mutter'});
+            this._mutter.set_string('overlay-key', '');
+            Gio.Settings.sync();
+            this._tookOver = true;
+            dbg("overlay-key set to ''; Super handled by the launcher");
         } catch (e) {
             // Could not take over the key: fall back to reacting after Shell (overview may flash).
             warn('could not take over overlay-key, using fallback:', e.message);
+            this._stopSuper();
+            this._superCb = callback;
             this._overlaySig = global.display.connect('overlay-key', () => {
                 callback();
                 if (Main.overview.visible || Main.overview.animationInProgress)
@@ -124,7 +120,7 @@ export class Keybindings {
         return Clutter.EVENT_PROPAGATE;
     }
 
-    _stopSuper(settings) {
+    _stopSuper() {
         if (this._stageSig) {
             global.stage.disconnect(this._stageSig);
             this._stageSig = 0;
@@ -133,23 +129,19 @@ export class Keybindings {
             global.display.disconnect(this._overlaySig);
             this._overlaySig = 0;
         }
+        if (this._tookOver) {
+            try {
+                (this._mutter ?? new Gio.Settings({schema_id: 'org.gnome.mutter'})).reset('overlay-key');
+                Gio.Settings.sync();
+                dbg('overlay-key reset');
+            } catch (e) {
+                warn('could not reset overlay-key:', e.message);
+            }
+            this._tookOver = false;
+        }
         this._down = this._clean = false;
         this._superCb = null;
-
-        const s = settings ?? this._ownSettings;
-        const saved = s?.get_string('saved-overlay-key');
-        if (saved) {
-            try {
-                const m = this._mutter ?? new Gio.Settings({schema_id: 'org.gnome.mutter'});
-                m.set_string('overlay-key', saved);
-                s.set_string('saved-overlay-key', '');
-                dbg('overlay-key restored to', saved);
-            } catch (e) {
-                warn('could not restore overlay-key:', e.message);
-            }
-        }
         this._mutter = null;
-        this._ownSettings = null;
     }
 
     // Per-entry shortcuts. `items` = [{id, accel}]. Returns accelerators that could not be
@@ -204,7 +196,7 @@ export class Keybindings {
 
     destroy() {
         this.clearMain();
-        this._stopSuper(this._ownSettings);
+        this._stopSuper();
         this.clearCustom();
     }
 }

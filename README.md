@@ -68,7 +68,21 @@ colours, radius, border, shadow, blur, opacity, animation, overall scale), Theme
 themes, JSON import/export), Keyboard Shortcuts, Applications (default icons by category), Commands, Custom Actions,
 Search, Performance (cache tools), Advanced.
 
-Keys while open: Up/Down, Ctrl+N/P/J/K, Tab/Shift+Tab, PageUp/PageDown, Enter, Alt+1..9, Esc.
+Keys while open: Up/Down, Ctrl+N/P/J/K, Tab/Shift+Tab, PageUp/PageDown, Enter, Alt+1..9, Esc (leaves a sub-view first, then closes), Backspace on an empty sub-view search goes back.
+
+### Built-in entries (Preferences > Built-in Entries)
+
+Shut Down, Restart, Log Out (these use GNOME's own confirmation dialog), Suspend, Lock Screen, Take Screenshot, Show Overview,
+Show All Apps, Toggle Dark Mode, Toggle Do Not Disturb, **Clipboard History** and **Clear Clipboard History**. Each can be disabled and given
+a *global shortcut* (works anywhere) and/or a *window shortcut* (only while the launcher is open, never grabbed globally, must include Ctrl/Alt/Super).
+Commands and custom actions have the same two shortcut fields. A global shortcut on *Clipboard History* opens the launcher directly in that view.
+
+- **Clipboard history** is text only, kept in memory (never written to disk), updated by Mutter's selection-changed signal (no polling). Disable it or clear it from the prefs or the launcher.
+- **Quick calculator**: type `12*(3+4)`; Enter copies the result. Uses a small parser, never `eval`.
+
+### Pointer outside the window
+
+General > *Pointer outside the window*: close on click (default), close when the pointer leaves the window (arms after the pointer has entered once), or never (keyboard only).
 
 ## Security model
 
@@ -84,7 +98,7 @@ Keys while open: Up/Down, Ctrl+N/P/J/K, Tab/Shift+Tab, PageUp/PageDown, Enter, A
 - **Blur** uses `Shell.BlurEffect` (background blur). If unavailable or constructed differently on your version, the
   launcher logs once and keeps working with transparency only. The blurred region is rectangular, so a large window
   corner radius shows square blur corners; use a small radius with blur.
-- **Bare Super**: while enabled, the launcher sets Mutter's `org.gnome.mutter overlay-key` to empty (the documented way to disable it) and detects Super itself. The original value is saved in this extension's `saved-overlay-key` and restored when the option is turned off, on disable, or at next start after a crash. Manual recovery: `gsettings reset org.gnome.mutter overlay-key`.
+- **Bare Super**: turning the option on runs the equivalent of `gsettings set org.gnome.mutter overlay-key ''` and the launcher detects the Super press itself; turning it off or disabling the extension runs `gsettings reset org.gnome.mutter overlay-key`. If the shell crashes while it is on, run that reset command yourself (a custom overlay-key you had set is not preserved).
 - Shortcut conflict detection in prefs covers GNOME's own keybinding schemas only, not other extensions or apps.
 - The theme drop-downs list themes at the time the preferences window opens.
 - Fonts: only family and weight (no italics); custom icons are theme names or file paths (no embedded images).

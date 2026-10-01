@@ -9,7 +9,38 @@ import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import {buildStyles} from './style.js';
 import {dbg, warn} from '../utils/log.js';
 
-const TAGS = {app: 'App', command: 'Command', action: 'Action'};
+const TAGS = {
+    app: 'App', command: 'Command', action: 'Action', system: 'System',
+    mode: 'Mode', clip: 'Clipboard', calc: 'Result',
+};
+const MOD_MASK = Clutter.ModifierType.SHIFT_MASK | Clutter.ModifierType.CONTROL_MASK |
+    Clutter.ModifierType.MOD1_MASK | Clutter.ModifierType.SUPER_MASK;
+const NEEDS_MOD = Clutter.ModifierType.CONTROL_MASK | Clutter.ModifierType.MOD1_MASK | Clutter.ModifierType.SUPER_MASK;
+
+// "<Control><Alt>t" -> {mods, key} using Clutter.KEY_* constants. Window shortcuts must
+// include Ctrl, Alt or Super (otherwise they would swallow normal typing).
+function parseAccel(accel) {
+    let rest = String(accel ?? '').trim();
+    let mods = 0;
+    for (let m = /^<([A-Za-z0-9_]+)>/.exec(rest); m; m = /^<([A-Za-z0-9_]+)>/.exec(rest)) {
+        const t = m[1].toLowerCase();
+        if (t === 'control' || t === 'ctrl' || t === 'primary')
+            mods |= Clutter.ModifierType.CONTROL_MASK;
+        else if (t === 'alt' || t === 'mod1')
+            mods |= Clutter.ModifierType.MOD1_MASK;
+        else if (t === 'shift')
+            mods |= Clutter.ModifierType.SHIFT_MASK;
+        else if (t === 'super' || t === 'mod4' || t === 'meta')
+            mods |= Clutter.ModifierType.SUPER_MASK;
+        else
+            return null;
+        rest = rest.slice(m[0].length);
+    }
+    if (!rest || !(mods & NEEDS_MOD))
+        return null;
+    const key = Clutter[`KEY_${rest.length === 1 ? rest.toLowerCase() : rest}`];
+    return typeof key === 'number' ? {mods, key} : null;
+}
 const FALLBACK_ICON = 'application-x-executable';
 
 // The scroll adjustment lives under different names across Shell versions.
@@ -118,12 +149,13 @@ class Row {
 
 export class Launcher {
     // search(query) -> entries[]; onActivate(entry); getStyle() -> {layout, theme}; onOpen()
-    constructor({config, search, onActivate, getStyle, onOpen}) {
+    constructor({config, search, onActivate, getStyle, onOpen, onWindowShortcut}) {
         this._cfg = config;
         this._search = search;
         this._onActivate = onActivate;
         this._getStyle = getStyle;
         this._onOpen = onOpen;
+        this._onWindowShortcut = onWindowShortcut;
 
         this._built = false;
         this._state = 'hidden'; // hidden | opening | open | closing
@@ -138,6 +170,24 @@ export class Launcher {
         this._blurWarned = false;
         this._suppress = false;
         this._lastListH = '';
+        this._mode = null;
+        this._emptyText = 'No results';
+        this._win = [];
+        this._outside = 'click';
+        this._armed = false;
+    }
+
+    // [{id, accel}] shortcuts that only work while the window is open (no global grab, so
+    // they cannot conflict with anything else). Safe to call before the UI is built.
+    setWindowShortcuts(list) {
+        this._win = [];
+        for (const {id, accel} of list) {
+            const a = parseAccel(accel);
+            if (a)
+                this._win.push({id, ...a});
+            else
+                warn(`window shortcut "${accel}" ignored (needs Ctrl, Alt or Super plus a key)`);
+        }
     }
 
     get isOpen() {
@@ -190,14 +240,68 @@ export class Launcher {
             return this._onKey(ev);
         });
         this._overlay.connect('button-press-event', (_a, ev) => {
-            if (!this._box.contains(ev.get_source()))
-                this.close();
-            else
+            if (this._inside(ev)) {
                 ct.grab_key_focus();
-            return Clutter.EVENT_STOP;
+            } else if (this._outside === 'click') {
+                this.close();
+            }
+            return Clutter.EVENT_STOP; // 'hover' and 'none' ignore outside clicks
         });
+        this._overlay.connect('motion-event', (_a, ev) => this._onMotion(ev));
 
         this._applyStyle();
+    }
+
+    _inside(ev) {
+        const src = ev.get_source();
+        return !!src && this._box.contains(src);
+    }
+
+    // 'hover' mode: close once the pointer leaves the window. It only arms after the pointer
+    // has been inside once, so opening the launcher with the pointer elsewhere does not
+    // close it straight away.
+    _onMotion(ev) {
+        if (this._outside !== 'hover')
+            return Clutter.EVENT_PROPAGATE;
+        if (this._inside(ev))
+            this._armed = true;
+        else if (this._armed)
+            this.close();
+        return Clutter.EVENT_PROPAGATE;
+    }
+
+    // --- modes (sub-views such as clipboard history) ---
+
+    enterMode(mode, {placeholder = '', empty = 'No results'} = {}) {
+        this._mode = mode;
+        this._emptyText = empty;
+        this._empty.text = empty;
+        if (placeholder)
+            this._entry.hint_text = placeholder;
+        this._suppress = true;
+        this._entry.set_text('');
+        this._suppress = false;
+        this._refresh();
+    }
+
+    exitMode() {
+        if (!this._mode)
+            return false;
+        this._resetMode();
+        this._suppress = true;
+        this._entry.set_text('');
+        this._suppress = false;
+        this._refresh();
+        return true;
+    }
+
+    _resetMode() {
+        this._mode = null;
+        this._emptyText = 'No results';
+        if (this._empty)
+            this._empty.text = this._emptyText;
+        if (this._entry && this._st)
+            this._entry.hint_text = this._st.placeholder;
     }
 
     // --- styling -----------------------------------------------------------
@@ -295,6 +399,9 @@ export class Launcher {
         if (this._dirty)
             this._applyStyle();
 
+        this._outside = this._cfg.str('outside-action');
+        this._armed = false;
+        this._resetMode();
         this._place();
         this._overlay.show();
         if (!this._grab) {
@@ -389,7 +496,7 @@ export class Launcher {
     _refresh() {
         let results;
         try {
-            results = this._search(this._entry.get_text());
+            results = this._search(this._entry.get_text(), this._mode);
         } catch (e) {
             warn('search failed:', e.message);
             results = [];
@@ -413,7 +520,7 @@ export class Launcher {
             this._rows[i].setSelected(false);
         }
 
-        const showEmpty = n === 0 && hasQuery;
+        const showEmpty = n === 0 && (hasQuery || this._mode !== null);
         this._empty.visible = showEmpty;
         this._scroll.visible = n > 0 || showEmpty;
 
@@ -484,10 +591,30 @@ export class Launcher {
         const ctrl = (mods & Clutter.ModifierType.CONTROL_MASK) !== 0;
         const alt = (mods & Clutter.ModifierType.MOD1_MASK) !== 0;
 
+        // Window-only shortcuts first, so they can override the built-in navigation keys.
+        if (this._win.length > 0) {
+            const m = mods & MOD_MASK;
+            if (m & NEEDS_MOD) {
+                const k = sym >= 0x41 && sym <= 0x5a ? sym + 0x20 : sym;
+                const hit = this._win.find(w => w.mods === m && w.key === k);
+                if (hit) {
+                    this._onWindowShortcut?.(hit.id);
+                    return Clutter.EVENT_STOP;
+                }
+            }
+        }
+
         switch (sym) {
         case Clutter.KEY_Escape:
-            this.close();
+            if (!this.exitMode())
+                this.close();
             return Clutter.EVENT_STOP;
+        case Clutter.KEY_BackSpace:
+            if (this._mode && this._entry.get_text() === '') {
+                this.exitMode();
+                return Clutter.EVENT_STOP;
+            }
+            return Clutter.EVENT_PROPAGATE;
         case Clutter.KEY_Down:
             this._move(1);
             return Clutter.EVENT_STOP;

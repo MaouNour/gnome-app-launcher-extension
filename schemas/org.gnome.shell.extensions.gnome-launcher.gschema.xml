@@ -6,10 +6,10 @@
     <!-- Mutter keeps one global list of keybinding names, so this key name must be unique. -->
     <key name="gnome-launcher-toggle" type="as"><default>["&lt;Control&gt;&lt;Alt&gt;space"]</default></key>
     <key name="use-super-key" type="b"><default>false</default></key>
-    <!-- Mutter overlay-key value saved while the launcher owns the Super key (crash recovery). -->
-    <key name="saved-overlay-key" type="s"><default>''</default></key>
     <key name="reset-query-on-open" type="b"><default>true</default></key>
     <key name="monitor" type="s"><default>'pointer'</default></key>
+    <!-- What happens when the pointer interacts outside the window: click | hover | none -->
+    <key name="outside-action" type="s"><default>'click'</default></key>
     <key name="placeholder" type="s"><default>'Search apps, commands and actions…'</default></key>
     <key name="show-descriptions" type="b"><default>true</default></key>
     <key name="show-tags" type="b"><default>true</default></key>
@@ -45,6 +45,12 @@
     <key name="commands" type="s"><default>'[]'</default></key>
     <key name="actions" type="s"><default>'[]'</default></key>
     <key name="category-icons" type="s"><default>'{"Applications":"application-x-executable","Commands":"utilities-terminal","Actions":"system-run"}'</default></key>
+
+    <!-- Built-in entries -->
+    <key name="builtins" type="s"><default>'{}'</default></key>
+    <key name="clipboard-enabled" type="b"><default>true</default></key>
+    <key name="clipboard-max" type="i"><default>25</default><range min="5" max="200"/></key>
+    <key name="calculator" type="b"><default>true</default></key>
 
     <!-- Search -->
     <key name="max-results" type="i"><default>30</default><range min="5" max="200"/></key>
