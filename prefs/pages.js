@@ -78,6 +78,7 @@ function emojiPage(window, settings) {
         ['list', 'List (one emoji per row, with its name)'],
         ['grid', 'Grid (compact squares, name shown below)'],
     ], 'In the grid the arrow keys move in two directions, Enter picks, and the name of the highlighted emoji is shown under it.'));
+    look.add(entryRow(settings, 'emoji-font', 'Emoji font (empty = automatic)'));
     look.add(spinRow(settings, 'emoji-grid-size', 'Grid cell size', 28, 96, 1, 'In pixels, before the overall scale. The number of columns follows the window width.'));
     p.add(look);
 

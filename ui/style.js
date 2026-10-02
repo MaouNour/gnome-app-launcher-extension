@@ -50,7 +50,9 @@ export function buildStyles(l, t) {
     const gridCols = Math.max(1, Math.floor((innerW + gridGap) / (cell + gridGap)));
     const gridPad = Math.max(0, Math.floor((innerW - (gridCols * cell + (gridCols - 1) * gridGap)) / 2));
     const cellBase = `width: ${cell}px; height: ${cell}px; border-radius: ${px(t.rowRadius)}; `;
-    const cellFont = `font-size: ${Math.round(cell * 0.58)}px; `;
+    const emojiFam = cssFontFamily(l.emojiFont);
+    const emojiFace = emojiFam ? `font-family: ${emojiFam}; ` : '';
+    const cellFont = `${emojiFace}font-size: ${Math.round(cell * 0.58)}px; `;
 
     return {
         box: `width: ${px(l.width)}; ${minH}padding: ${px(l.padding)}; spacing: ${px(l.padding * 0.6)}; ` +
@@ -72,7 +74,7 @@ export function buildStyles(l, t) {
         tagSel: `color: ${cssColor(t.selectionText, 0.75)}; font-size: ${pt(tagSize)}; ${detailFont}`,
         icon: `-st-icon-style: ${t.iconStyle};`,
         // Emoji rows draw the glyph as text instead of an icon, sized to fill the icon slot.
-        glyph: `color: ${fg}; font-size: ${Math.round(l.iconSize * s * 0.68)}px; min-width: ${Math.round(l.iconSize * s)}px; text-align: center;`,
+        glyph: `color: ${fg}; ${emojiFace}font-size: ${Math.round(l.iconSize * s * 0.68)}px; min-width: ${Math.round(l.iconSize * s)}px; text-align: center;`,
         cell: cellBase,
         cellSel: `${cellBase}background-color: ${cssColor(t.selection)}; `,
         cellText: `color: ${fg}; ${cellFont}`,
@@ -81,7 +83,7 @@ export function buildStyles(l, t) {
         gridHint: `color: ${sec}; font-size: ${pt(l.fontSize)}; ${font}padding: ${px(4)} ${px(l.padding)} 0 ${px(l.padding)};`,
         gridHintH: Math.round(l.fontSize * 2 * s + 4 * s),
         gridCols, gridCell: cell, gridGap,
-        glyphSel: `color: ${sel}; font-size: ${Math.round(l.iconSize * s * 0.68)}px; min-width: ${Math.round(l.iconSize * s)}px; text-align: center;`,
+        glyphSel: `color: ${sel}; ${emojiFace}font-size: ${Math.round(l.iconSize * s * 0.68)}px; min-width: ${Math.round(l.iconSize * s)}px; text-align: center;`,
         empty: `color: ${sec}; font-size: ${pt(l.fontSize)}; ${font}padding: ${px(l.padding)};`,
         iconSize: Math.round(l.iconSize * s),
         rowH,

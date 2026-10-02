@@ -37,7 +37,7 @@ const STYLE_KEYS = new Set([
     'theme-light', 'theme-dark', 'custom-themes', 'theme-overrides',
     'search-icon', 'search-icon-size', 'show-scrollbar', 'emoji-grid-size',
     'font-search', 'font-size-search', 'font-weight-search', 'font-main', 'font-weight-main',
-    'font-secondary', 'font-size-secondary', 'font-weight-secondary',
+    'font-secondary', 'font-size-secondary', 'font-weight-secondary', 'emoji-font',
 ]);
 
 // The emoji dataset is only loaded when first needed and released again after this long idle.
@@ -293,6 +293,7 @@ export default class GnomeLauncherExtension extends Extension {
                 placeholder: c.str('placeholder'),
                 searchIcon: c.str('search-icon').trim(), searchIconSize: c.int('search-icon-size'),
                 showScrollbar: c.bool('show-scrollbar'), gridCell: c.int('emoji-grid-size'),
+                emojiFont: c.str('emoji-font'),
                 fonts: {
                     search: {family: c.str('font-search'), size: c.num('font-size-search'), weight: c.int('font-weight-search')},
                     main: {family: c.str('font-main'), weight: c.int('font-weight-main')},

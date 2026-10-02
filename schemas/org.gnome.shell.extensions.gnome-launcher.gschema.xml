@@ -89,6 +89,9 @@
     <key name="emoji-paste" type="b"><default>false</default></key>
     <!-- Keys sent to paste: auto | ctrl-v | ctrl-shift-v | shift-insert -->
     <key name="emoji-paste-keys" type="s"><default>'auto'</default></key>
+    <!-- Font used to draw emoji. Naming it explicitly means the shell does not have to search the system's
+         font list (and every emoji-capable font on it) for each glyph. Empty = automatic. -->
+    <key name="emoji-font" type="s"><default>'Noto Color Emoji'</default></key>
     <!-- How the emoji picker lists emoji: list | grid -->
     <key name="emoji-layout" type="s"><default>'list'</default></key>
     <!-- Size of one grid cell in pixels (before the overall scale) -->

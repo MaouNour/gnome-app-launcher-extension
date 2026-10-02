@@ -362,6 +362,14 @@ test('the accounts entry appears only when enabled, as a mode that is not part o
     assert.equal(e.payload.target, 'accounts');
     assert.ok(e.payload.empty.includes('Preferences'));
 });
+test('emoji are drawn with an explicit font when one is set', () => {
+    const theme = builtinThemes()['default-dark'];
+    const named = buildStyles({...LAYOUT, emojiFont: 'Noto Color Emoji'}, theme);
+    for (const k of ['glyph', 'glyphSel', 'cellText', 'cellTextSel'])
+        assert.ok(named[k].includes('font-family: "Noto Color Emoji"'), k);
+    const auto = buildStyles({...LAYOUT, emojiFont: ''}, theme);
+    assert.ok(!auto.glyph.includes('font-family') && !auto.cellText.includes('font-family'));
+});
 test('font names are made safe for inline styles', () => {
     assert.equal(cssFontFamily('Fira Sans'), '"Fira Sans"');
     assert.equal(cssFontFamily('Fira Code, monospace'), '"Fira Code", monospace');
