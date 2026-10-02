@@ -4,8 +4,8 @@ import Gtk from 'gi://Gtk';
 
 import {BUILTINS, sanitizeBuiltins} from '../commands/builtins.js';
 import {ACTION_FIELDS, COMMAND_FIELDS, newAction, newCommand, sanitizeAction, sanitizeCommand} from '../commands/schema.js';
-import {THEME_FIELDS, THEME_BASE, builtinThemes, resolveTheme, sanitizeTheme, themeNames} from '../themes/themes.js';
-import {ListEditor, Overrides, comboRow, entryRow, group, shortcutRow, spinRow, switchRow, toast} from './widgets.js';
+import {THEME_FIELDS, THEME_BASE, THEME_FAMILIES, builtinThemes, resolveTheme, sanitizeTheme, themeNames} from '../themes/themes.js';
+import {ListEditor, Overrides, comboRow, entryRow, fileDialog, group, shortcutRow, spinRow, switchRow, toast} from './widgets.js';
 
 const page = (title, icon) => new Adw.PreferencesPage({title, icon_name: icon});
 
@@ -37,15 +37,9 @@ function ownShortcuts(settings) {
     return out;
 }
 
-function builtinsPage(window, settings) {
-    const p = page('Built-in Entries', 'emblem-system-symbolic');
-    const opts = group('Options');
-    opts.add(switchRow(settings, 'clipboard-enabled', 'Remember clipboard history',
-        'Text only, kept in memory (never written to disk), updated when the clipboard changes. Turn off to stop collecting.'));
-    opts.add(spinRow(settings, 'clipboard-max', 'Clipboard items to keep', 5, 200, 1));
-    opts.add(switchRow(settings, 'calculator', 'Quick calculator', 'Typing an expression such as 12*(3+4) shows the result; Enter copies it.'));
-    p.add(opts);
-
+// Read/write one built-in entry's overrides ({enabled, shortcut, windowShortcut}) in the
+// "builtins" JSON key. Shared by the Built-in Entries page and the Emoji page.
+function builtinsStore(settings) {
     const read = () => sanitizeBuiltins(readJson(settings, 'builtins', {}));
     const write = (id, key, value) => {
         const o = read();
@@ -60,10 +54,67 @@ function builtinsPage(window, settings) {
             delete o[id];
         settings.set_string('builtins', JSON.stringify(o));
     };
+    return {read, write};
+}
+
+function emojiPage(window, settings) {
+    const p = page('Emoji', 'face-smile-symbolic');
+    const {read, write} = builtinsStore(settings);
+
+    const main = group('Emoji picker',
+        'Built in, with no external libraries. Open it from the launcher by typing "emoji", with its shortcut below, or type ":smile" in the main search. The emoji list is only loaded when you use it and released a minute after.');
+    main.add(switchRow(settings, 'emoji-enabled', 'Enable the emoji picker'));
+    main.add(switchRow(settings, 'emoji-inline', 'Search emoji from the main search', 'Typing a colon, such as :heart, lists matching emoji.'));
+    main.add(spinRow(settings, 'emoji-inline-count', 'Emoji shown for a colon search', 1, 50, 1));
+    main.add(switchRow(settings, 'emoji-remember', 'Show recent and frequent emoji first',
+        'Remembers how often you pick each emoji (counts only, stored with the other usage statistics). Turn off to stop.'));
+    p.add(main);
+
+    const act = group('When you choose an emoji',
+        'The private buffer is kept in memory only. It never touches your clipboard or the clipboard history, and it is forgotten when the extension is disabled or you log out.');
+    act.add(comboRow(settings, 'emoji-store', 'Copy it to', [
+        ['clipboard', 'The clipboard'],
+        ['buffer', 'The private buffer'],
+        ['both', 'The clipboard and the private buffer'],
+        ['none', 'Nowhere (only paste)'],
+    ], 'Choosing "Nowhere" without pasting falls back to the clipboard.'));
+    act.add(switchRow(settings, 'emoji-paste', 'Paste it in place and close',
+        'Types the emoji into the window you were using. If it is not copied to the clipboard, your own clipboard text is put back afterwards (text only).'));
+    act.add(comboRow(settings, 'emoji-paste-keys', 'Keys used to paste', [
+        ['auto', 'Automatic (Ctrl+Shift+V in terminals, Ctrl+V elsewhere)'],
+        ['ctrl-v', 'Ctrl+V'],
+        ['ctrl-shift-v', 'Ctrl+Shift+V'],
+        ['shift-insert', 'Shift+Insert'],
+    ]));
+    p.add(act);
+
+    const keys = group('Shortcuts', 'A global shortcut works anywhere. A window shortcut only works while the launcher is open.');
+    const conflicts = name => accel => ownShortcuts(settings).filter(([a, n]) => a === accel && n !== name).map(([, n]) => `"${n}"`);
+    const picker = BUILTINS.find(b => b.id === 'emoji');
+    const buffer = BUILTINS.find(b => b.id === 'emoji-paste-buffer');
+    keys.add(shortcutRow(window, 'Open the emoji picker', () => read().emoji?.shortcut ?? '', v => write('emoji', 'shortcut', v), conflicts(picker.name)));
+    keys.add(shortcutRow(window, 'Open the emoji picker (only while the launcher is open)',
+        () => read().emoji?.windowShortcut ?? '', v => write('emoji', 'windowShortcut', v), () => [], true));
+    keys.add(shortcutRow(window, 'Paste from the private buffer',
+        () => read()['emoji-paste-buffer']?.shortcut ?? '', v => write('emoji-paste-buffer', 'shortcut', v), conflicts(buffer.name)));
+    p.add(keys);
+    return p;
+}
+
+function builtinsPage(window, settings) {
+    const p = page('Built-in Entries', 'emblem-system-symbolic');
+    const opts = group('Options');
+    opts.add(switchRow(settings, 'clipboard-enabled', 'Remember clipboard history',
+        'Text only, kept in memory (never written to disk), updated when the clipboard changes. Turn off to stop collecting.'));
+    opts.add(spinRow(settings, 'clipboard-max', 'Clipboard items to keep', 5, 200, 1));
+    opts.add(switchRow(settings, 'calculator', 'Quick calculator', 'Typing an expression such as 12*(3+4) shows the result; Enter copies it.'));
+    p.add(opts);
+
+    const {read, write} = builtinsStore(settings);
 
     const g = group('System and utility entries',
         'Shut Down, Restart and Log Out use GNOME\'s own confirmation dialog. A global shortcut works anywhere; a window shortcut only while the launcher is open.');
-    for (const b of BUILTINS) {
+    for (const b of BUILTINS.filter(x => !x.page)) { // emoji entries live on the Emoji page
         const row = new Adw.ExpanderRow({title: b.name, subtitle: b.desc});
         const sw = new Gtk.Switch({valign: Gtk.Align.CENTER, active: read()[b.id]?.enabled !== false});
         sw.connect('notify::active', () => write(b.id, 'enabled', sw.active ? undefined : false));
@@ -116,7 +167,7 @@ function shortcuts(window, settings) {
     return p;
 }
 
-function appearance(settings) {
+function appearance(window, settings) {
     const p = page('Appearance', 'applications-graphics-symbolic');
     const ov = new Overrides(settings);
     const dark = new Gio.Settings({schema_id: 'org.gnome.desktop.interface'}).get_string('color-scheme') === 'prefer-dark';
@@ -143,6 +194,24 @@ function appearance(settings) {
     size.add(spinRow(settings, 'font-size', 'Font size (pt)', 6, 40, 0.5, '', 1));
     p.add(size);
 
+    const field = group('Search field icon', 'The icon at the start of the search field.');
+    const iconRow = entryRow(settings, 'search-icon', 'Icon name or file path (empty = no icon)');
+    const browse = new Gtk.Button({icon_name: 'document-open-symbolic', css_classes: ['flat'], valign: Gtk.Align.CENTER, tooltip_text: 'Choose an image file'});
+    browse.connect('clicked', () => fileDialog(window, {save: false, title: 'Choose an icon'}, file => {
+        const path = file.get_path();
+        if (path)
+            iconRow.text = path;
+    }));
+    iconRow.add_suffix(browse);
+    field.add(iconRow);
+    field.add(spinRow(settings, 'search-icon-size', 'Search icon size', 8, 64, 1));
+    p.add(field);
+
+    const scroll = group('Results list');
+    scroll.add(switchRow(settings, 'show-scrollbar', 'Show the scrollbar',
+        'Off by default: the list still scrolls with the mouse wheel, touchpad and keyboard, but no scrollbar is ever drawn.'));
+    p.add(scroll);
+
     const anim = group('Animation');
     anim.add(comboRow(settings, 'anim-style', 'Style', [['fade-scale', 'Fade and scale'], ['fade', 'Fade'], ['slide', 'Slide'], ['none', 'None (disabled)']]));
     anim.add(spinRow(settings, 'anim-duration', 'Duration (ms)', 0, 1000, 10));
@@ -164,6 +233,28 @@ function themes(window, settings) {
     sel.add(comboRow(settings, 'theme-mode', 'Mode', [['auto', 'Follow GNOME dark/light mode'], ['light', 'Always light'], ['dark', 'Always dark']]));
     sel.add(comboRow(settings, 'theme-light', 'Light theme', names));
     sel.add(comboRow(settings, 'theme-dark', 'Dark theme', names));
+    const fams = Object.keys(THEME_FAMILIES);
+    const quick = new Adw.ComboRow({
+        title: 'Quick preset',
+        subtitle: 'Sets the light and dark theme together, for example Raycast or Vicinae.',
+        model: Gtk.StringList.new(['Choose a preset…', ...fams]),
+    });
+    const syncQuick = () => {
+        const pair = [settings.get_string('theme-light'), settings.get_string('theme-dark')];
+        const i = fams.findIndex(f => THEME_FAMILIES[f][0] === pair[0] && THEME_FAMILIES[f][1] === pair[1]);
+        quick.selected = i + 1;
+    };
+    syncQuick();
+    quick.connect('notify::selected', () => {
+        const fam = fams[quick.selected - 1];
+        if (!fam)
+            return;
+        settings.set_string('theme-light', THEME_FAMILIES[fam][0]);
+        settings.set_string('theme-dark', THEME_FAMILIES[fam][1]);
+    });
+    settings.connect('changed::theme-light', syncQuick);
+    settings.connect('changed::theme-dark', syncQuick);
+    sel.add(quick);
     p.add(sel);
 
     const editor = new ListEditor({
@@ -234,6 +325,8 @@ function search(settings) {
     g.add(switchRow(settings, 'frecency', 'Rank recent and frequent entries higher'));
     p.add(g);
     const r = group('Results');
+    r.add(switchRow(settings, 'unlimited-results', 'Scroll through every result',
+        'Shows all entries before typing and every match while typing, with no limit. The two limits below are then ignored. Rows are created as you scroll, so long lists stay cheap.'));
     r.add(spinRow(settings, 'max-results', 'Maximum results', 5, 200, 1));
     r.add(spinRow(settings, 'initial-results', 'Entries shown before typing', 0, 50, 1));
     p.add(r);
@@ -310,8 +403,8 @@ export function buildPages(window, settings) {
     }).group);
 
     return [
-        general(settings), appearance(settings), themes(window, settings), shortcuts(window, settings),
-        applications(settings), builtinsPage(window, settings), commandsPage, actionsPage, search(settings),
+        general(settings), appearance(window, settings), themes(window, settings), shortcuts(window, settings),
+        applications(settings), builtinsPage(window, settings), emojiPage(window, settings), commandsPage, actionsPage, search(settings),
         performance(window, settings), advanced(window, settings),
     ];
 }

@@ -5,11 +5,13 @@ import {join, dirname} from 'node:path';
 import {fileURLToPath} from 'node:url';
 
 import {SearchEngine, prepare, fold, frecency} from '../search/engine.js';
-import {sanitizeTheme, resolveTheme, builtinThemes, cssColor} from '../themes/themes.js';
+import {sanitizeTheme, resolveTheme, builtinThemes, cssColor, THEME_FAMILIES} from '../themes/themes.js';
 import {sanitizeCommand, sanitizeAction, validateCommand, validateAction} from '../commands/schema.js';
 import {buildUserEntries} from '../commands/userEntries.js';
 import {calculate} from '../search/calc.js';
 import {BUILTINS, buildBuiltinEntries, sanitizeBuiltins} from '../commands/builtins.js';
+import {DATA as EMOJI_DATA, GROUPS as EMOJI_GROUPS} from '../emoji/data.js';
+import {parseEmoji, emojiOptions, emojiPlan, inlineEmojiQuery, isTerminalClass, resolvePasteKeys} from '../emoji/emoji.js';
 
 let passed = 0;
 function test(name, fn) {
@@ -102,7 +104,20 @@ test('theme overrides applied', () => assert.equal(resolveTheme({custom: [], nam
 test('unknown theme falls back', () => assert.equal(resolveTheme({custom: [], name: 'nope', dark: true}).name, 'default-dark'));
 test('custom theme resolved', () => assert.equal(resolveTheme({custom: [{name: 'mine', accent: '#ff0000'}], name: 'mine', dark: true}).accent, '#ff0000'));
 test('cssColor alpha', () => assert.equal(cssColor('#000000', 0.5), 'rgba(0,0,0,0.5)'));
-test('built-in themes present', () => assert.equal(Object.keys(builtinThemes()).length, 5));
+test('built-in themes present', () => assert.equal(Object.keys(builtinThemes()).length, 9));
+test('raycast and vicinae presets exist in light and dark and survive sanitising', () => {
+    const all = builtinThemes();
+    for (const n of ['raycast-dark', 'raycast-light', 'vicinae-dark', 'vicinae-light']) {
+        assert.ok(all[n], n);
+        assert.deepEqual(sanitizeTheme(all[n], all[n]), all[n], `${n} must be valid as written`);
+    }
+    assert.equal(all['raycast-dark'].accent, '#ff6363');
+});
+test('theme families only reference existing themes', () => {
+    const all = builtinThemes();
+    for (const [fam, [light, dark]] of Object.entries(THEME_FAMILIES))
+        assert.ok(all[light] && all[dark], fam);
+});
 
 // --- commands / actions ---------------------------------------------------
 test('valid command builds an entry with shortcut', () => {
@@ -165,7 +180,7 @@ test('built-ins include power and clipboard entries', () => {
         assert.ok(ids.includes(id), id);
 });
 test('built-ins respect enable flags and clipboard switch', () => {
-    const all = buildBuiltinEntries({}, {clipboard: true});
+    const all = buildBuiltinEntries({}, {clipboard: true, emoji: true});
     assert.equal(all.entries.length, BUILTINS.length);
     assert.ok(all.entries.every(e => e.id.startsWith('system:') && ['system', 'mode'].includes(e.kind)));
     assert.ok(!buildBuiltinEntries({}, {clipboard: false}).entries.some(e => e.category === 'Clipboard'));
@@ -212,6 +227,115 @@ function jsFiles(dir) {
 // Named imports from Shell resource modules fail at load time if the export is moved or
 // removed between versions (this once broke the launcher). Only these are allowed.
 const SAFE_NAMED = new Set(['Extension', 'ExtensionPreferences']);
+// ---- emoji ----------------------------------------------------------------------------------
+const emojiEntries = parseEmoji(EMOJI_DATA, EMOJI_GROUPS).map(prepare);
+const emojiEngine = () => {
+    const e = new SearchEngine();
+    e.setEntries(emojiEntries);
+    return e;
+};
+const eopts = {fuzzy: false, descriptions: false, frecency: false, limit: Infinity, initial: Infinity, natural: true};
+
+test('emoji dataset parses into well-formed entries', () => {
+    assert.ok(emojiEntries.length > 1800, `only ${emojiEntries.length}`);
+    assert.equal(emojiEntries[0].glyph, '😀');
+    assert.equal(new Set(emojiEntries.map(e => e.id)).size, emojiEntries.length, 'duplicate ids');
+    for (const e of emojiEntries) {
+        assert.ok(e.glyph && e.name && e.kind === 'emoji' && e.payload.char === e.glyph);
+        assert.ok(!/[\t\n]/.test(e.name));
+    }
+});
+test('emoji search finds the obvious ones, by name, keyword and shortcode', () => {
+    const eng = emojiEngine();
+    const top = (q, n = 10) => eng.search(q, {...eopts, limit: n}).map(e => e.glyph);
+    assert.ok(top('smile', 60).includes('😄'));
+    assert.ok(top('smiling', 5).length === 5);
+    assert.ok(top('red heart').includes('❤️'));
+    assert.ok(top('thumbsup').some(g => g.startsWith('👍')), 'github shortcode');
+    assert.ok(top('rocket').some(g => g.startsWith('🚀')));
+    assert.ok(top('flag france', 5).includes('🇫🇷'));
+    assert.ok(top('zzzzqq').length === 0);
+});
+test('emoji empty query keeps Unicode order and can return everything', () => {
+    const eng = emojiEngine();
+    const all = eng.search('', eopts);
+    assert.equal(all.length, emojiEntries.length);
+    assert.equal(all[0].glyph, '😀');
+    assert.equal(eng.search('', {...eopts, initial: 5}).length, 5);
+});
+test('unlimited limit returns every match; finite limit still caps', () => {
+    const eng = emojiEngine();
+    const many = eng.search('face', {...eopts, limit: Infinity});
+    assert.ok(many.length > 100);
+    assert.equal(eng.search('face', {...eopts, limit: 7}).length, 7);
+});
+test('emoji search over the whole dataset is fast', () => {
+    const eng = emojiEngine();
+    const t0 = performance.now();
+    for (const q of ['s', 'sm', 'smi', 'smil', 'smile', 'heart', 'cat', 'flag'])
+        eng.search(q, {...eopts, limit: 60});
+    const per = (performance.now() - t0) / 8;
+    assert.ok(per < 15, `${per.toFixed(2)} ms per search`);
+});
+test('emoji frecency floats used emoji to the top of the empty list', () => {
+    const eng = emojiEngine();
+    const rocket = emojiEntries.find(e => e.glyph === '🚀');
+    eng.stats = {get: id => (id === rocket.id ? [5, Math.floor(Date.now() / 1000)] : undefined),
+        entries: () => [[rocket.id, [5, Math.floor(Date.now() / 1000)]]]};
+    const list = eng.search('', {...eopts, frecency: true, initial: 3});
+    assert.equal(list[0].glyph, '🚀');
+    assert.equal(list[1].glyph, '😀');
+});
+test('emojiOptions validates and never produces a do-nothing combination', () => {
+    assert.deepEqual(emojiOptions({store: 'buffer', paste: true, keys: 'ctrl-v'}), {store: 'buffer', paste: true, keys: 'ctrl-v'});
+    assert.deepEqual(emojiOptions({store: 'nope', paste: 'yes', keys: 'zzz'}), {store: 'clipboard', paste: false, keys: 'auto'});
+    assert.equal(emojiOptions({store: 'none', paste: false, keys: 'auto'}).store, 'clipboard');
+    assert.equal(emojiOptions({store: 'none', paste: true, keys: 'auto'}).store, 'none');
+});
+test('emojiPlan: clipboard is only borrowed when pasting without copying to it', () => {
+    const plan = (store, paste) => emojiPlan({store, paste, keys: 'auto'});
+    assert.deepEqual([plan('clipboard', false).toClipboard, plan('clipboard', false).paste], [true, false]);
+    assert.equal(plan('clipboard', true).borrowClipboard, false);
+    assert.equal(plan('both', true).borrowClipboard, false);
+    assert.equal(plan('buffer', true).borrowClipboard, true);
+    assert.equal(plan('buffer', true).toClipboard, false);
+    assert.equal(plan('buffer', true).toBuffer, true);
+    assert.equal(plan('none', true).borrowClipboard, true);
+    assert.equal(plan('buffer', false).borrowClipboard, false);
+});
+test('inline emoji query detection', () => {
+    assert.equal(inlineEmojiQuery(':smile'), 'smile');
+    assert.equal(inlineEmojiQuery(':'), '');
+    assert.equal(inlineEmojiQuery(': smile'), null);
+    assert.equal(inlineEmojiQuery('smile'), null);
+    assert.equal(inlineEmojiQuery(':red heart '), 'red heart');
+});
+test('paste keys: terminals get Ctrl+Shift+V, explicit settings win', () => {
+    assert.ok(isTerminalClass('org.gnome.Console') && isTerminalClass('Alacritty') && isTerminalClass('kitty'));
+    assert.ok(!isTerminalClass('firefox') && !isTerminalClass(null));
+    assert.equal(resolvePasteKeys('auto', 'org.gnome.Ptyxis'), 'ctrl-shift-v');
+    assert.equal(resolvePasteKeys('auto', 'firefox'), 'ctrl-v');
+    assert.equal(resolvePasteKeys('shift-insert', 'kitty'), 'shift-insert');
+});
+
+test('emoji built-ins follow the emoji flag and carry their mode texts', () => {
+    const off = buildBuiltinEntries({}, {clipboard: true, emoji: false});
+    assert.ok(!off.entries.some(e => e.id.startsWith('system:emoji')));
+    const on = buildBuiltinEntries({}, {clipboard: true, emoji: true});
+    const picker = on.entries.find(e => e.id === 'system:emoji');
+    assert.equal(picker.kind, 'mode');
+    assert.equal(picker.payload.target, 'emoji');
+    assert.equal(picker.payload.placeholder, 'Search emoji…');
+    assert.ok(on.entries.some(e => e.id === 'system:emoji-paste-buffer' && e.kind === 'system'));
+    const clip = on.entries.find(e => e.id === 'system:clipboard');
+    assert.equal(clip.payload.empty, 'Clipboard history is empty');
+});
+test('emoji built-in shortcuts are collected like any other built-in', () => {
+    const r = buildBuiltinEntries({'emoji-paste-buffer': {shortcut: '<Super>v'}, emoji: {windowShortcut: '<Alt>e'}}, {clipboard: true, emoji: true});
+    assert.deepEqual(r.shortcuts, [{id: 'system:emoji-paste-buffer', accel: '<Super>v'}]);
+    assert.deepEqual(r.windowShortcuts, [{id: 'system:emoji', accel: '<Alt>e'}]);
+});
+
 test('only verified named imports from shell resource modules', () => {
     for (const f of jsFiles(root)) {
         const src = readFileSync(f, 'utf8');
@@ -234,7 +358,7 @@ test('process separation: shell code never loads GTK, prefs never load Shell lib
     }
 });
 test('prefs-reachable modules are pure (only relative imports)', () => {
-    for (const f of ['themes/themes.js', 'commands/schema.js', 'commands/builtins.js', 'search/engine.js']) {
+    for (const f of ['themes/themes.js', 'commands/schema.js', 'commands/builtins.js', 'search/engine.js', 'emoji/emoji.js', 'emoji/data.js']) {
         const src = readFileSync(join(root, f), 'utf8');
         for (const m of src.matchAll(/^import .* from '([^']+)'/gm))
             assert.ok(m[1].startsWith('.'), `${f} imports ${m[1]}`);

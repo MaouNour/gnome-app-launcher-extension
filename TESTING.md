@@ -3,7 +3,7 @@
 ## Automated (no GNOME needed)
 
 ```sh
-node tests/run.mjs          # 50 tests: search, frecency, themes, validation, calculator, built-ins, static lint
+node tests/run.mjs          # 64 tests: search, frecency, themes and presets, emoji, validation, calculator, built-ins, static lint
 node tools/bench.mjs 20000  # search latency (use `gjs -m tools/bench.mjs` for SpiderMonkey numbers)
 glib-compile-schemas --strict --dry-run schemas
 ```
@@ -36,3 +36,13 @@ Nested session for safe iteration: `dbus-run-session gnome-shell --nested --wayl
 | Clipboard | Copy several texts, open *Clipboard History*, search, Enter on one, then *Clear Clipboard History* | Newest first; Enter re-copies and closes; Esc leaves the view first; clear empties it |
 | Calculator | Type `12*(3+4)`, `2^10`, `1/0`, `firefox` | Result row for valid math, Enter copies it; nothing for the others |
 | Idle cost | `top`/`gnome-shell` CPU with launcher closed | No wakeups attributable to the extension |
+| Emoji picker | Type `emoji`, pick one; type `:heart`; set a global shortcut for the picker | Opens the picker; list scrolls through all emoji; `:heart` lists hearts inline; shortcut opens the launcher in the picker |
+| Emoji copy modes | For each *Copy it to* value, pick an emoji and check the clipboard (`wl-paste`) and clipboard history | Clipboard gets it only for clipboard/both; private buffer never shows in clipboard history |
+| Emoji paste in place | Enable *Paste in place*; pick an emoji with a text editor, a browser field and a terminal focused beforehand | Typed into the previously focused window (Ctrl+Shift+V used in the terminal); with *Copy it to: private buffer* your own clipboard text is back afterwards |
+| Private buffer key | Pick with *private buffer* selected, set *Paste from the private buffer*, press it in another app; try with an empty buffer | Pastes the last emoji; empty buffer shows a notification |
+| Search icon | Change the icon name, choose an image file, change the size, clear it | Updates live; invalid name falls back to the search icon; empty hides it |
+| Scrollbar | Type until the list exceeds the maximum height; wheel, touchpad and arrows | Scrolls everywhere, no scrollbar drawn; the switch brings it back |
+| Scroll all results | Turn on *Scroll through every result*, open with an empty search and scroll to the bottom | Every entry reachable; no hitch; Up on the first row of a long list stays put |
+| Shadow flicker | Use a theme with a shadow and a small window; type so the result count changes quickly, with a non-maximised window behind | Border and shadow stay steady while typing and during open/close |
+| Blur with apps behind | Blur 30, open over a non-maximised application, repeat 20x | No garbage or flicker around the window; blur appears right after it settles. If something is still wrong set blur to 0 to confirm the cause |
+| Presets | Pick Raycast and Vicinae in *Quick preset*; toggle GNOME dark mode | Light/dark variants switch live |

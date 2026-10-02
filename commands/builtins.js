@@ -5,8 +5,12 @@ import {prepare} from '../search/engine.js';
 // window shortcut (active only while the launcher is open) from the preferences.
 //   kind 'system': runs a GNOME action; kind 'mode': switches the launcher into a sub-view.
 export const BUILTINS = [
-    {id: 'clipboard', kind: 'mode', target: 'clipboard', name: 'Clipboard History', desc: 'Browse and re-copy recent clipboard items', icon: 'edit-paste-symbolic', keywords: 'copy paste history clip', category: 'Clipboard', needs: 'clipboard'},
+    {id: 'clipboard', kind: 'mode', target: 'clipboard', name: 'Clipboard History', desc: 'Browse and re-copy recent clipboard items', icon: 'edit-paste-symbolic', keywords: 'copy paste history clip', category: 'Clipboard', needs: 'clipboard', placeholder: 'Search clipboard history…', empty: 'Clipboard history is empty'},
     {id: 'clear-clipboard', kind: 'system', target: 'clear-clipboard', name: 'Clear Clipboard History', desc: 'Forget all remembered clipboard items', icon: 'edit-clear-all-symbolic', keywords: 'wipe delete', category: 'Clipboard', needs: 'clipboard'},
+    // Emoji entries are configured on the Emoji page of the preferences (page: 'emoji'), not in the
+    // generic built-in list, so their shortcuts live next to the other emoji options.
+    {id: 'emoji', kind: 'mode', target: 'emoji', name: 'Emoji Picker', desc: 'Search emoji and copy or paste them', icon: 'face-smile-symbolic', keywords: 'emoji emoticon smiley symbols unicode', category: 'Emoji', needs: 'emoji', page: 'emoji', placeholder: 'Search emoji…', empty: 'No emoji found'},
+    {id: 'emoji-paste-buffer', kind: 'system', target: 'emoji-paste-buffer', name: 'Paste Emoji From Private Buffer', desc: 'Type the last emoji kept in the private buffer into the focused window', icon: 'edit-paste-symbolic', keywords: 'emoji buffer paste private', category: 'Emoji', needs: 'emoji', page: 'emoji'},
     {id: 'power-off', kind: 'system', target: 'power-off', name: 'Shut Down', desc: 'Power off the computer', icon: 'system-shutdown-symbolic', keywords: 'poweroff shutdown halt turn off'},
     {id: 'reboot', kind: 'system', target: 'reboot', name: 'Restart', desc: 'Restart the computer', icon: 'system-reboot-symbolic', keywords: 'reboot'},
     {id: 'logout', kind: 'system', target: 'logout', name: 'Log Out', desc: 'End the current session', icon: 'system-log-out-symbolic', keywords: 'sign out exit'},
@@ -50,12 +54,13 @@ export function buildBuiltinEntries(overrides, flags = {}) {
     const windowShortcuts = [];
     for (const b of BUILTINS) {
         const o = ov[b.id] ?? {};
-        if (o.enabled === false || (b.needs === 'clipboard' && !flags.clipboard))
+        if (o.enabled === false || (b.needs && !flags[b.needs]))
             continue;
         const id = `system:${b.id}`;
         entries.push(prepare({
             id, kind: b.kind, name: b.name, desc: b.desc, category: b.category ?? 'System',
-            icon: b.icon, keywords: b.keywords, payload: {target: b.target},
+            icon: b.icon, keywords: b.keywords,
+            payload: {target: b.target, placeholder: b.placeholder, empty: b.empty},
         }));
         if (o.shortcut)
             shortcuts.push({id, accel: o.shortcut});

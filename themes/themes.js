@@ -62,6 +62,46 @@ const PARTIAL_BUILTINS = {
         accent: '#268bd2', selection: '#eee8d5', selectionText: '#073642',
         border: '#eee8d5', searchBackground: '#eee8d5', shadowOpacity: 0.2,
     },
+
+    // Raycast / Vicinae look-alikes: flat near-solid surface, hairline border, a very subtle
+    // row highlight (translucent white/black instead of a solid accent) and a search field
+    // with no fill of its own. Raycast's red (#ff6363) and dark surface (#151515) come from
+    // Raycast's public brand page; the rest are close approximations, not exact copies.
+    'raycast-dark': {
+        background: '#151515', foreground: '#f9f9f9', secondary: '#9c9c9d',
+        accent: '#ff6363', selection: '#ffffff14', selectionText: '#ffffff',
+        border: '#ffffff14', searchBackground: '#ffffff00',
+        opacity: 0.98, radius: 12, rowRadius: 8, searchRadius: 8,
+        shadowBlur: 40, shadowOffsetY: 12, shadowOpacity: 0.5, fontWeight: 500,
+    },
+    'raycast-light': {
+        background: '#fcfcfc', foreground: '#1d1d1f', secondary: '#6e6e73',
+        accent: '#ff6363', selection: '#0000000f', selectionText: '#1d1d1f',
+        border: '#0000001a', searchBackground: '#00000000',
+        opacity: 0.98, radius: 12, rowRadius: 8, searchRadius: 8,
+        shadowBlur: 40, shadowOffsetY: 12, shadowOpacity: 0.22, fontWeight: 500,
+    },
+    'vicinae-dark': {
+        background: '#131315', foreground: '#e8e8ea', secondary: '#8b8b92',
+        accent: '#4f8cff', selection: '#ffffff14', selectionText: '#ffffff',
+        border: '#2a2a2e', searchBackground: '#ffffff00',
+        opacity: 0.98, radius: 10, rowRadius: 8, searchRadius: 8,
+        shadowBlur: 36, shadowOffsetY: 10, shadowOpacity: 0.5,
+    },
+    'vicinae-light': {
+        background: '#fafafa', foreground: '#1f1f23', secondary: '#7a7a84',
+        accent: '#3b6fe0', selection: '#00000012', selectionText: '#1f1f23',
+        border: '#0000001f', searchBackground: '#00000000',
+        opacity: 0.98, radius: 10, rowRadius: 8, searchRadius: 8,
+        shadowBlur: 36, shadowOffsetY: 10, shadowOpacity: 0.22,
+    },
+};
+
+// Name pairs for the "quick preset" row in preferences: one click sets both modes.
+export const THEME_FAMILIES = {
+    'Default': ['default-light', 'default-dark'],
+    'Raycast': ['raycast-light', 'raycast-dark'],
+    'Vicinae': ['vicinae-light', 'vicinae-dark'],
 };
 
 // Validate/clamp every known field; anything invalid falls back to `base`.

@@ -195,7 +195,7 @@ function readJsonArray(settings, key) {
     }
 }
 
-function fileDialog(window, {save, title, name}, done) {
+export function fileDialog(window, {save, title, name}, done) {
     const dlg = new Gtk.FileDialog({title, initial_name: name});
     const cb = (d, res) => {
         try {

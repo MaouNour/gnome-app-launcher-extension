@@ -1,3 +1,4 @@
+import GLib from 'gi://GLib';
 import Meta from 'gi://Meta';
 import St from 'gi://St';
 
@@ -24,11 +25,18 @@ export class ClipboardHistory {
         this._onChange = onChange;
         this._sel = null;
         this._sig = 0;
+        this._muteUntil = 0;
         this._read = new Debounce(120, () => this._fetch());
     }
 
     get active() {
         return this._sig !== 0;
+    }
+
+    // Ignore clipboard changes for the next `ms` milliseconds. Used while the emoji picker briefly
+    // borrows the clipboard to paste, so the emoji and the restored text do not land in history.
+    mute(ms) {
+        this._muteUntil = Math.max(this._muteUntil, GLib.get_monotonic_time() + ms * 1000);
     }
 
     setMax(n) {
@@ -58,6 +66,8 @@ export class ClipboardHistory {
     }
 
     _fetch() {
+        if (GLib.get_monotonic_time() < this._muteUntil)
+            return;
         St.Clipboard.get_default().get_text(St.ClipboardType.CLIPBOARD, (_c, text) => {
             if (this._sig)
                 this._add(text);

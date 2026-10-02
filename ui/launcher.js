@@ -1,5 +1,6 @@
 import Clutter from 'gi://Clutter';
 import Gio from 'gi://Gio';
+import GLib from 'gi://GLib';
 import Pango from 'gi://Pango';
 import Shell from 'gi://Shell';
 import St from 'gi://St';
@@ -7,12 +8,19 @@ import St from 'gi://St';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 
 import {buildStyles} from './style.js';
+import {Idle} from '../utils/timing.js';
 import {dbg, warn} from '../utils/log.js';
 
 const TAGS = {
     app: 'App', command: 'Command', action: 'Action', system: 'System',
-    mode: 'Mode', clip: 'Clipboard', calc: 'Result',
+    mode: 'Mode', clip: 'Clipboard', calc: 'Result', emoji: 'Emoji',
 };
+
+// Rows are created lazily in batches while scrolling, so even a list of thousands of
+// entries (emoji, unlimited results) only ever costs a few dozen actors.
+const CHUNK = 40;
+// Rows kept pooled after the launcher closes; a bigger pool is trimmed to save memory.
+const KEEP_ROWS = 60;
 const MOD_MASK = Clutter.ModifierType.SHIFT_MASK | Clutter.ModifierType.CONTROL_MASK |
     Clutter.ModifierType.MOD1_MASK | Clutter.ModifierType.SUPER_MASK;
 const NEEDS_MOD = Clutter.ModifierType.CONTROL_MASK | Clutter.ModifierType.MOD1_MASK | Clutter.ModifierType.SUPER_MASK;
@@ -48,19 +56,24 @@ function vAdjustment(scroll) {
     return scroll.vadjustment ?? scroll.vscroll?.adjustment ?? scroll.get_vscroll_bar?.()?.adjustment ?? null;
 }
 
-// Keep `actor` (a row inside the scrolled list) fully visible. Pure arithmetic on the
-// adjustment, so it does not depend on any Shell helper that may be moved or removed.
-function scrollIntoView(scroll, actor) {
-    const adj = vAdjustment(scroll);
-    if (!adj)
-        return;
-    const box = actor.get_allocation_box();
-    const top = box.y1;
-    const bottom = box.y2;
-    if (top < adj.value)
-        adj.value = top;
-    else if (bottom > adj.value + adj.page_size)
-        adj.value = bottom - adj.page_size;
+// CSS pixels (what every style string uses) -> actor pixels. Needed for the few sizes set as
+// plain actor properties instead of CSS (see _render).
+function scaleFactor() {
+    try {
+        return St.ThemeContext.get_for_stage(global.stage).scale_factor || 1;
+    } catch (_e) {
+        return 1;
+    }
+}
+
+// Icon from a theme name or an absolute/home-relative path; null when it cannot be built.
+function iconFromString(name) {
+    try {
+        const n = name.startsWith('~/') ? GLib.build_filenamev([GLib.get_home_dir(), name.slice(2)]) : name;
+        return Gio.Icon.new_for_string(n);
+    } catch (_e) {
+        return null;
+    }
 }
 
 function gicon(entry) {
@@ -84,6 +97,7 @@ class Row {
 
         this.actor = new St.BoxLayout({reactive: true, x_expand: true});
         this.icon = new St.Icon({fallback_icon_name: FALLBACK_ICON, y_align: Clutter.ActorAlign.CENTER});
+        this.glyph = new St.Label({visible: false, y_align: Clutter.ActorAlign.CENTER});
         this.text = new St.BoxLayout({vertical: true, x_expand: true, y_align: Clutter.ActorAlign.CENTER});
         this.title = new St.Label({x_expand: true});
         this.sub = new St.Label({x_expand: true});
@@ -93,6 +107,7 @@ class Row {
         this.text.add_child(this.title);
         this.text.add_child(this.sub);
         this.actor.add_child(this.icon);
+        this.actor.add_child(this.glyph);
         this.actor.add_child(this.text);
         this.actor.add_child(this.tag);
 
@@ -122,6 +137,7 @@ class Row {
         this.title.set_style(sel ? st.titleSel : st.title);
         this.sub.set_style(sel ? st.subSel : st.sub);
         this.tag.set_style(sel ? st.tagSel : st.tag);
+        this.glyph.set_style(sel ? st.glyphSel : st.glyph);
     }
 
     setSelected(value) {
@@ -141,6 +157,14 @@ class Row {
         this.sub.visible = this._st.showDesc && !!entry.desc;
         this.tag.text = TAGS[entry.kind] ?? '';
         this.tag.visible = this._st.showTags;
+        if (entry.glyph) {
+            this.glyph.text = entry.glyph;
+            this.glyph.visible = true;
+            this.icon.visible = false;
+            return;
+        }
+        this.glyph.visible = false;
+        this.icon.visible = true;
         const gi = gicon(entry);
         if (this.icon.gicon !== gi)
             this.icon.gicon = gi;
@@ -148,13 +172,15 @@ class Row {
 }
 
 export class Launcher {
-    // search(query) -> entries[]; onActivate(entry); getStyle() -> {layout, theme}; onOpen()
-    constructor({config, search, onActivate, getStyle, onOpen, onWindowShortcut}) {
+    // search(query, mode) -> entries[]; onActivate(entry); getStyle() -> {layout, theme}; onOpen();
+    // onClose() runs once the window is fully hidden.
+    constructor({config, search, onActivate, getStyle, onOpen, onClose, onWindowShortcut}) {
         this._cfg = config;
         this._search = search;
         this._onActivate = onActivate;
         this._getStyle = getStyle;
         this._onOpen = onOpen;
+        this._onClose = onClose;
         this._onWindowShortcut = onWindowShortcut;
 
         this._built = false;
@@ -166,10 +192,14 @@ export class Launcher {
         this._st = null;
         this._dirty = true;
         this._order = null;
-        this._blur = null;
+        this._blurFx = null;
+        this._blurSigma = 0;
         this._blurWarned = false;
         this._suppress = false;
-        this._lastListH = '';
+        this._lastListH = -2;
+        this._shown = 0;
+        this._siKey = '';
+        this._reveal = new Idle(() => this._scrollToSelected(), GLib.PRIORITY_DEFAULT_IDLE);
         this._mode = null;
         this._emptyText = 'No results';
         this._win = [];
@@ -194,6 +224,22 @@ export class Launcher {
         return this._state === 'open' || this._state === 'opening';
     }
 
+    get mode() {
+        return this._mode;
+    }
+
+    // Re-run the search with the current text (used when asynchronous data arrives).
+    refresh() {
+        if (this._built && this.isOpen)
+            this._refresh();
+    }
+
+    setEmptyText(text) {
+        this._emptyText = text;
+        if (this._empty)
+            this._empty.text = text;
+    }
+
     build() {
         if (this._built)
             return;
@@ -214,10 +260,10 @@ export class Launcher {
         this._box.set_pivot_point(0.5, 0.5);
 
         this._entry = new St.Entry({can_focus: true, x_expand: true});
-        this._entry.set_primary_icon(new St.Icon({icon_name: 'edit-find-symbolic'}));
+        // EXTERNAL: the list still scrolls (wheel, keys, touchpad) but no scrollbar is ever drawn.
         this._scroll = new St.ScrollView({
             hscrollbar_policy: St.PolicyType.NEVER,
-            vscrollbar_policy: St.PolicyType.AUTOMATIC,
+            vscrollbar_policy: St.PolicyType.EXTERNAL,
             overlay_scrollbars: true,
         });
         this._list = new St.BoxLayout({vertical: true});
@@ -227,6 +273,11 @@ export class Launcher {
 
         this._overlay.add_child(this._box);
         Main.uiGroup.add_child(this._overlay);
+
+        // More rows are created as the user scrolls towards the end of what exists so far.
+        const adj = vAdjustment(this._scroll);
+        if (adj)
+            adj.connect('notify::value', () => this._onScrolled());
 
         const ct = this._entry.clutter_text;
         ct.connect('text-changed', () => {
@@ -325,6 +376,8 @@ export class Launcher {
         } catch (_e) { /* hint actor styling is cosmetic */ }
         this._list.set_style(st.list);
         this._empty.set_style(st.empty);
+        this._scroll.vscrollbar_policy = st.showScrollbar ? St.PolicyType.AUTOMATIC : St.PolicyType.EXTERNAL;
+        this._applySearchIcon(st);
         for (const r of this._rows)
             r.restyle(st);
 
@@ -340,19 +393,47 @@ export class Launcher {
             }
         }
         this._applyBlur(st.blur);
-        this._lastListH = '';
+        this._lastListH = -2;
         if (this._state !== 'hidden')
             this._render();
     }
 
-    // Blur uses Shell.BlurEffect (the native Mutter/Shell blur). If it is missing or
-    // its construction fails on this Shell version, blur is skipped; transparency still works.
-    _applyBlur(sigma) {
-        if (this._blur) {
-            this._box.remove_effect(this._blur);
-            this._blur = null;
+    _applySearchIcon(st) {
+        const key = `${st.searchIcon}|${st.searchIconSize}|${st.searchIconStyle}`;
+        if (key === this._siKey)
+            return;
+        this._siKey = key;
+        const gi = st.searchIcon ? iconFromString(st.searchIcon) : null;
+        if (!st.searchIcon) {
+            this._entry.set_primary_icon(null);
+            return;
         }
-        if (!(sigma > 0))
+        this._entry.set_primary_icon(new St.Icon({
+            gicon: gi ?? new Gio.ThemedIcon({name: 'edit-find-symbolic'}),
+            fallback_icon_name: 'edit-find-symbolic',
+            icon_size: st.searchIconSize,
+            style: st.searchIconStyle,
+        }));
+    }
+
+    // Blur uses Shell.BlurEffect (the native Shell blur). If it is missing or its construction fails
+    // on this Shell version, blur is skipped; transparency still works.
+    //
+    // The effect is only attached while the window is fully open and static. Samples of the
+    // background taken while the window is fading or scaling do not line up with the pixels behind
+    // it, which showed up as glitches (and flickering window borders/shadows) with an application
+    // window behind the launcher. Attaching it after the opening animation and removing it before
+    // the closing one avoids that; the blur appears as soon as the window has settled.
+    _applyBlur(sigma) {
+        this._blurSigma = sigma;
+        this._detachBlur();
+        if (this._state === 'open')
+            this._attachBlur();
+    }
+
+    _attachBlur() {
+        const sigma = this._blurSigma;
+        if (!(sigma > 0) || this._blurFx?.attached)
             return;
         if (!Shell.BlurEffect) {
             if (!this._blurWarned)
@@ -360,25 +441,35 @@ export class Launcher {
             this._blurWarned = true;
             return;
         }
-        const mode = Shell.BlurMode?.BACKGROUND ?? 1;
-        let effect = null;
-        for (const props of [{sigma, mode}, {radius: sigma * 2, mode}]) {
+        if (!this._blurFx || this._blurFx.sigma !== sigma) {
+            const mode = Shell.BlurMode?.BACKGROUND ?? 1;
+            let effect = null;
+            for (const props of [{sigma, mode}, {radius: sigma * 2, mode}]) {
+                try {
+                    effect = new Shell.BlurEffect(props);
+                    break;
+                } catch (_e) { /* property name differs between Shell versions */ }
+            }
+            if (!effect) {
+                if (!this._blurWarned)
+                    warn('could not construct Shell.BlurEffect; blur disabled');
+                this._blurWarned = true;
+                return;
+            }
             try {
-                effect = new Shell.BlurEffect(props);
-                break;
-            } catch (_e) { /* property name differs between Shell versions */ }
+                effect.brightness = 1.0;
+            } catch (_e) { /* optional */ }
+            this._blurFx = {effect, sigma, attached: false};
         }
-        if (!effect) {
-            if (!this._blurWarned)
-                warn('could not construct Shell.BlurEffect; blur disabled');
-            this._blurWarned = true;
+        this._box.add_effect_with_name('gl-blur', this._blurFx.effect);
+        this._blurFx.attached = true;
+    }
+
+    _detachBlur() {
+        if (!this._blurFx?.attached)
             return;
-        }
-        try {
-            effect.brightness = 1.0;
-        } catch (_e) { /* optional */ }
-        this._box.add_effect_with_name('gl-blur', effect);
-        this._blur = effect;
+        this._box?.remove_effect(this._blurFx.effect);
+        this._blurFx.attached = false;
     }
 
     // --- open / close ------------------------------------------------------
@@ -456,6 +547,7 @@ export class Launcher {
         const box = this._box;
         box.remove_all_transitions();
         this._state = opening ? 'opening' : 'closing';
+        this._detachBlur();
 
         const style = this._cfg.str('anim-style');
         const enabled = St.Settings.get().enable_animations && style !== 'none';
@@ -467,12 +559,23 @@ export class Launcher {
             scale_y: style === 'fade-scale' ? 0.96 : 1,
             translation_y: style === 'slide' ? -14 : 0,
         };
+        // While fading, paint the whole window as one flattened layer. Otherwise the translucent
+        // background, border and shadow are blended separately and the shadow visibly pulses.
+        const redirect = mode => {
+            try {
+                box.set_offscreen_redirect(mode);
+            } catch (_e) { /* cosmetic */ }
+        };
         const done = () => {
+            redirect(Clutter.OffscreenRedirect.AUTOMATIC_FOR_OPACITY);
             if (opening) {
                 this._state = 'open';
+                this._attachBlur();
             } else {
                 this._overlay.hide();
                 this._state = 'hidden';
+                this._trimPool();
+                this._onClose?.();
             }
         };
 
@@ -483,6 +586,7 @@ export class Launcher {
             done();
             return;
         }
+        redirect(Clutter.OffscreenRedirect.ALWAYS);
         box.ease({
             ...(opening ? shown : hidden),
             duration: opening ? duration : Math.round(duration * 0.8),
@@ -510,12 +614,10 @@ export class Launcher {
         const n = this._results.length;
         const hasQuery = this._entry.get_text().length > 0;
 
-        for (let i = 0; i < n; i++) {
-            const row = this._rows[i] ?? this._makeRow(i);
-            row.set(this._results[i]);
-            row.actor.show();
-        }
-        for (let i = n; i < this._rows.length; i++) {
+        // Only the first batch of rows exists up front; _grow() adds more on demand.
+        this._shown = 0;
+        this._grow(Math.min(n, CHUNK));
+        for (let i = this._shown; i < this._rows.length; i++) {
             this._rows[i].actor.hide();
             this._rows[i].setSelected(false);
         }
@@ -524,15 +626,13 @@ export class Launcher {
         this._empty.visible = showEmpty;
         this._scroll.visible = n > 0 || showEmpty;
 
-        // Explicit height (CSS px, same unit as the rows) so the window grows with the
-        // results up to the configured maximum, then scrolls.
-        let h = '';
-        if (n > 0) {
-            const need = n * st.rowH + (n - 1) * st.gap;
-            h = `height: ${Math.min(need, st.maxListH)}px;`;
-        }
+        // The window grows with the results up to the configured maximum, then scrolls. This is an
+        // actor size rather than an inline CSS height: changing the style string re-resolves the
+        // style of the whole list on every result-count change, which made the border and shadow
+        // flicker while typing. CSS px -> actor px goes through the theme scale factor.
+        const h = n > 0 ? Math.round(Math.min(n * st.rowH + (n - 1) * st.gap, st.maxListH) * scaleFactor()) : -1;
         if (h !== this._lastListH) {
-            this._scroll.set_style(h);
+            this._scroll.set_height(h);
             this._lastListH = h;
         }
 
@@ -541,6 +641,32 @@ export class Launcher {
         const adj = vAdjustment(this._scroll);
         if (adj)
             adj.value = 0;
+    }
+
+    // Make sure rows [0, upto) exist and show their entries. Returns whether any were added.
+    _grow(upto) {
+        const n = this._results.length;
+        const from = this._shown;
+        const target = Math.min(n, upto > from ? Math.max(upto, from + CHUNK) : from);
+        for (let i = from; i < target; i++) {
+            const row = this._rows[i] ?? this._makeRow(i);
+            row.set(this._results[i]);
+            row.actor.show();
+        }
+        this._shown = Math.max(from, target);
+        return target > from;
+    }
+
+    // Called on every scroll movement: add the next batch before the user reaches the last row.
+    _onScrolled() {
+        if (this._shown >= this._results.length || !this._st)
+            return;
+        const adj = vAdjustment(this._scroll);
+        if (!adj)
+            return;
+        const stride = (this._st.rowH + this._st.gap) * scaleFactor();
+        if (adj.value + adj.page_size >= this._shown * stride - stride * 3)
+            this._grow(this._shown + 1);
     }
 
     _makeRow(i) {
@@ -556,13 +682,47 @@ export class Launcher {
             return;
         this._rows[this._sel]?.setSelected(false);
         this._sel = i;
+        if (i < 0)
+            return;
+        const grew = i >= this._shown && this._grow(i + 1);
         const row = this._rows[i];
         if (!row)
             return;
         row.setSelected(true);
+        this._scrollToSelected();
+        // Rows created just now have no allocation yet, so the scroll range is still the old one.
+        // Apply the same scroll again once the layout has caught up.
+        if (grew)
+            this._reveal.schedule();
+    }
+
+    // Keep the selected row fully visible. Pure arithmetic from the row index (rows have a fixed
+    // height), so it works for rows that were created a moment ago and does not depend on any
+    // Shell helper that may be moved or removed between versions.
+    _scrollToSelected() {
         try {
-            scrollIntoView(this._scroll, row.actor);
+            const adj = vAdjustment(this._scroll);
+            const st = this._st;
+            if (!adj || !st || this._sel < 0 || adj.page_size <= 0)
+                return;
+            const sf = scaleFactor();
+            const top = this._sel * (st.rowH + st.gap) * sf;
+            const bottom = top + st.rowH * sf;
+            if (top < adj.value)
+                adj.value = top;
+            else if (bottom > adj.value + adj.page_size)
+                adj.value = bottom - adj.page_size;
         } catch (_e) { /* scrolling is best effort */ }
+    }
+
+    // After the window has closed, give back rows that only a very long list needed.
+    _trimPool() {
+        if (this._rows.length <= KEEP_ROWS)
+            return;
+        for (const row of this._rows.splice(KEEP_ROWS))
+            row.actor.destroy();
+        this._shown = Math.min(this._shown, this._rows.length);
+        this._sel = -1;
     }
 
     _hover(i) {
@@ -575,6 +735,10 @@ export class Launcher {
         if (n === 0)
             return;
         let i = this._sel + delta;
+        // Wrapping from the first row to the last would have to create every row of a very long
+        // list at once, so long lists stop at their ends instead (short lists still wrap).
+        if (n > CHUNK * 3)
+            clamp = true;
         i = clamp ? Math.min(n - 1, Math.max(0, i)) : (i + n) % n;
         this._select(i);
     }
@@ -667,12 +831,15 @@ export class Launcher {
             Main.popModal(this._grab);
             this._grab = null;
         }
+        this._reveal.cancel();
         this._box?.remove_all_transitions();
         this._overlay?.destroy();
         this._overlay = this._box = this._entry = this._scroll = this._list = this._empty = null;
         this._rows = [];
         this._results = [];
-        this._blur = null;
+        this._blurFx = null;
+        this._shown = 0;
+        this._siKey = '';
         this._built = false;
         this._state = 'hidden';
         dbg('launcher destroyed');

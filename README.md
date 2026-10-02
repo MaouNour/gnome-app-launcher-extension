@@ -41,16 +41,18 @@ Shell-only APIs in `commands/runner.js` (`GNOME` table).
 extension.js          wiring, lifecycle, config-change dispatch (no heavy work in enable())
 prefs.js, prefs/      Adw preferences (widgets.js: rows, shortcut capture, list editor; pages.js: pages)
 config/config.js      typed GSettings wrapper + parsed-JSON cache
-ui/launcher.js        modal overlay, entry, pooled rows, animation, blur
+ui/launcher.js        modal overlay, entry, lazily created pooled rows, animation, blur
 ui/style.js           layout + theme -> St CSS strings (computed on change only)
 themes/themes.js      pure: theme schema, sanitizer, built-ins, resolver
 search/engine.js      pure: ranking, fuzzy, narrowing, frecency
+emoji/                data.js (generated dataset, loaded lazily), emoji.js (pure logic), paste.js (virtual-keyboard paste)
 applications/         appIndex.js (cache + incremental diff + monitor), launch.js
 commands/             schema.js (pure validation), userEntries.js (pure), runner.js (execution)
 cache/                store.js (atomic versioned JSON), stats.js (usage counts)
 shortcuts/            keybindings.js
 utils/                log.js, timing.js (cancellable debounce/idle)
-tools/bench.mjs, tests/run.mjs   node-runnable benchmark and unit tests
+tools/                bench.mjs (search benchmark), gen-emoji.mjs (regenerates emoji/data.js; dev only)
+tests/run.mjs         node-runnable unit tests
 ```
 
 Key decisions:
@@ -58,7 +60,7 @@ Key decisions:
 - **Event-driven only.** No polling. App changes come from `Gio.AppInfoMonitor` (debounced); theme changes from `org.gnome.desktop.interface`; everything else from GSettings signals.
 - **Cache flow.** Login: cached app list loads asynchronously, then a low-priority diff against installed apps updates only changed records and rewrites the cache only if something changed. Corrupt/outdated cache files are discarded and rebuilt; invalid records are dropped individually.
 - **Search runs on in-memory, pre-folded strings.** Appending characters rescans only the previous matches. Benchmarks (node/V8, 20,000 synthetic entries): about 10 ms cold worst case, about 3 ms per keystroke while typing. A real install has a few hundred entries.
-- **UI objects are reused.** One window, one entry, a pool of rows created on demand; hidden when closed (no painting, no timers).
+- **UI objects are reused.** One window, one entry, a pool of rows created on demand in batches of 40 as you scroll (so "scroll through every result" and the emoji list never build thousands of actors); pools above 60 rows are trimmed when the window closes. Hidden when closed (no painting, no timers).
 - **Settings are JSON strings in GSettings** for commands, actions, themes and overrides, validated and sanitized on every load. Imports go through the same sanitizers.
 
 ## Features and where to configure them
@@ -80,6 +82,29 @@ Commands and custom actions have the same two shortcut fields. A global shortcut
 - **Clipboard history** is text only, kept in memory (never written to disk), updated by Mutter's selection-changed signal (no polling). Disable it or clear it from the prefs or the launcher.
 - **Quick calculator**: type `12*(3+4)`; Enter copies the result. Uses a small parser, never `eval`.
 
+### Emoji picker (Preferences > Emoji)
+
+Built in, no external libraries or frameworks. Open it by typing `emoji` in the launcher, with its own global/window
+shortcut, or type `:heart` in the main search for inline results (also `:thumbsup` style shortcodes).
+The dataset (about 130 KB of plain text, 1,900+ emoji) is imported the first time you use it and released a minute after
+the launcher closes, so it costs nothing while unused. Recently/frequently used emoji come first.
+
+Choosing an emoji can: copy it to the **clipboard**, copy it to the **private buffer**, both, or neither; and/or **paste it in
+place** and close. The private buffer lives in memory only (never on the clipboard, in clipboard history or on disk). A separate
+global shortcut, **Paste from the private buffer**, types its content into the focused window.
+
+Pasting works the way clipboard managers do: the text goes on the clipboard, the paste keys are sent from a virtual keyboard
+created by the compositor, and, when the emoji is not supposed to stay on the clipboard, your own clipboard text is put back afterwards.
+Keys are Ctrl+V, or Ctrl+Shift+V in terminals (auto-detected by window class), or fixed to a choice of your own.
+Only a *text* clipboard is restored; an image on the clipboard is not.
+
+### Appearance additions
+
+- **Search icon**: icon-theme name or an image path (a file chooser is provided) and its size; empty hides it.
+- **Scrollbar**: never drawn by default, the list still scrolls (wheel, touchpad, keys). A switch brings it back.
+- **Scroll through every result** (Search): lifts both result limits so the whole index can be scrolled.
+- **Theme presets**: `raycast-dark/light` and `vicinae-dark/light`, plus a *Quick preset* row on the Themes page that sets both modes at once.
+
 ### Pointer outside the window
 
 General > *Pointer outside the window*: close on click (default), close when the pointer leaves the window (arms after the pointer has entered once), or never (keyboard only).
@@ -95,7 +120,7 @@ General > *Pointer outside the window*: close on click (default), close when the
 
 ## Known limitations
 
-- **Blur** uses `Shell.BlurEffect` (background blur). If unavailable or constructed differently on your version, the
+- **Blur** uses `Shell.BlurEffect` (background blur), attached only once the opening animation has finished and removed before closing (sampling the background while the window fades or scales produced glitches with application windows behind it), so the blur appears an instant after the window settles. If unavailable or constructed differently on your version, the
   launcher logs once and keeps working with transparency only. The blurred region is rectangular, so a large window
   corner radius shows square blur corners; use a small radius with blur.
 - **Bare Super**: turning the option on runs the equivalent of `gsettings set org.gnome.mutter overlay-key ''` and the launcher detects the Super press itself; turning it off or disabling the extension runs `gsettings reset org.gnome.mutter overlay-key`. If the shell crashes while it is on, run that reset command yourself (a custom overlay-key you had set is not preserved).
@@ -103,4 +128,7 @@ General > *Pointer outside the window*: close on click (default), close when the
 - The theme drop-downs list themes at the time the preferences window opens.
 - Fonts: only family and weight (no italics); custom icons are theme names or file paths (no embedded images).
 - Per-entry shortcuts use `grab_accelerator`; a rejected accelerator is reported once as a notification.
+- **Raycast/Vicinae presets** are look-alikes: Raycast's red and dark surface colour come from its brand page, the remaining values (and all of Vicinae's) are approximations.
+- **Emoji**: skin-tone variants are not offered; the list shows one glyph per emoji. Newly added Unicode emoji only render if your emoji font has them.
+- **Pasting in place** needs the compositor to accept a virtual keyboard (Wayland and X11 both do on GNOME 46-50) and applications that paste with Ctrl+V / Ctrl+Shift+V / Shift+Insert. If sending the keys fails, the emoji is left on the clipboard and a notification says so.
 - Ranking uses launch counts with time decay, not per-query learning.

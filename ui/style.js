@@ -37,6 +37,9 @@ export function buildStyles(l, t) {
         tag: `color: ${sec}; font-size: ${pt(l.fontSize * 0.75)};`,
         tagSel: `color: ${cssColor(t.selectionText, 0.75)}; font-size: ${pt(l.fontSize * 0.75)};`,
         icon: `-st-icon-style: ${t.iconStyle};`,
+        // Emoji rows draw the glyph as text instead of an icon, sized to fill the icon slot.
+        glyph: `color: ${fg}; font-size: ${Math.round(l.iconSize * s * 0.68)}px; min-width: ${Math.round(l.iconSize * s)}px; text-align: center;`,
+        glyphSel: `color: ${sel}; font-size: ${Math.round(l.iconSize * s * 0.68)}px; min-width: ${Math.round(l.iconSize * s)}px; text-align: center;`,
         empty: `color: ${sec}; font-size: ${pt(l.fontSize)}; padding: ${px(l.padding)};`,
         iconSize: Math.round(l.iconSize * s),
         rowH,
@@ -47,5 +50,9 @@ export function buildStyles(l, t) {
         searchPosition: l.searchPosition,
         blur: t.blur,
         placeholder: l.placeholder,
+        searchIcon: l.searchIcon,
+        searchIconSize: Math.max(8, Math.round(l.searchIconSize * s)),
+        searchIconStyle: `color: ${sec}; -st-icon-style: ${t.iconStyle};`,
+        showScrollbar: l.showScrollbar,
     };
 }

@@ -116,7 +116,8 @@ export class SearchEngine {
         return this._entries.length;
     }
 
-    // opts: {limit, initial, fuzzy, descriptions, frecency}
+    // opts: {limit, initial, fuzzy, descriptions, frecency, natural}
+    // limit/initial may be Infinity; `natural` fills an empty query in entry order, not A-Z.
     search(query, opts = {}) {
         const limit = opts.limit ?? 30;
         const fuzzy = opts.fuzzy ?? true;
@@ -126,7 +127,7 @@ export class SearchEngine {
 
         const q = fold(query).replace(/\s+/g, ' ').trimStart();
         if (!q.trim())
-            return this._initial(opts.initial ?? 8, useFrec, now);
+            return this._initial(opts.initial ?? 8, useFrec, now, opts.natural ?? false);
 
         const tokens = q.split(' ').filter(Boolean);
         const list = this._entries;
@@ -174,8 +175,8 @@ export class SearchEngine {
         return out;
     }
 
-    // Empty query: most frecent entries first, then alphabetical fill.
-    _initial(count, useFrec, now) {
+    // Empty query: most frecent entries first, then alphabetical (or natural) fill.
+    _initial(count, useFrec, now, natural) {
         this._prevIdx = null;
         this._prevQ = '';
         if (count <= 0)
@@ -196,9 +197,9 @@ export class SearchEngine {
             }
         }
         if (out.length < count) {
-            if (!this._alpha)
+            if (!natural && !this._alpha)
                 this._alpha = [...this._entries].sort((a, b) => (a._n < b._n ? -1 : a._n > b._n ? 1 : 0));
-            for (const e of this._alpha) {
+            for (const e of natural ? this._entries : this._alpha) {
                 if (out.length >= count)
                     break;
                 if (!seen.has(e.id))

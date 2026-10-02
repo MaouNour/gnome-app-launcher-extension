@@ -29,6 +29,11 @@
     <key name="result-spacing" type="i"><default>2</default><range min="0" max="40"/></key>
     <key name="search-padding" type="i"><default>14</default><range min="0" max="60"/></key>
     <key name="icon-spacing" type="i"><default>12</default><range min="0" max="60"/></key>
+    <!-- Search field icon: an icon-theme name or an absolute path; empty hides it -->
+    <key name="search-icon" type="s"><default>'edit-find-symbolic'</default></key>
+    <key name="search-icon-size" type="i"><default>16</default><range min="8" max="64"/></key>
+    <!-- The results list always scrolls; this only decides whether a scrollbar is drawn -->
+    <key name="show-scrollbar" type="b"><default>false</default></key>
 
     <!-- Animation -->
     <key name="anim-style" type="s"><default>'fade-scale'</default></key>
@@ -52,7 +57,24 @@
     <key name="clipboard-max" type="i"><default>25</default><range min="5" max="200"/></key>
     <key name="calculator" type="b"><default>true</default></key>
 
+    <!-- Emoji picker -->
+    <key name="emoji-enabled" type="b"><default>true</default></key>
+    <!-- Typing ":smile" in the main search shows emoji results inline -->
+    <key name="emoji-inline" type="b"><default>true</default></key>
+    <key name="emoji-inline-count" type="i"><default>8</default><range min="1" max="50"/></key>
+    <!-- Where a chosen emoji is copied: clipboard | buffer | both | none -->
+    <key name="emoji-store" type="s"><default>'clipboard'</default></key>
+    <!-- Also type the emoji into the previously focused window and close the launcher -->
+    <key name="emoji-paste" type="b"><default>false</default></key>
+    <!-- Keys sent to paste: auto | ctrl-v | ctrl-shift-v | shift-insert -->
+    <key name="emoji-paste-keys" type="s"><default>'auto'</default></key>
+    <!-- Show recently/frequently used emoji first -->
+    <key name="emoji-remember" type="b"><default>true</default></key>
+
     <!-- Search -->
+    <!-- When true both result limits below are ignored and the list can be scrolled through
+         every match (rows are created lazily while scrolling, so this stays cheap) -->
+    <key name="unlimited-results" type="b"><default>false</default></key>
     <key name="max-results" type="i"><default>30</default><range min="5" max="200"/></key>
     <key name="initial-results" type="i"><default>8</default><range min="0" max="50"/></key>
     <key name="fuzzy" type="b"><default>true</default></key>
