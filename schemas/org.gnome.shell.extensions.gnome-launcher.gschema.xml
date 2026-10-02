@@ -57,6 +57,17 @@
     <key name="clipboard-max" type="i"><default>25</default><range min="5" max="200"/></key>
     <key name="calculator" type="b"><default>true</default></key>
 
+    <!-- Images in clipboard history (memory only, never written to disk) -->
+    <key name="clipboard-images" type="b"><default>true</default></key>
+    <key name="clipboard-image-count" type="i"><default>8</default><range min="1" max="30"/></key>
+    <key name="clipboard-image-mb" type="i"><default>4</default><range min="1" max="32"/></key>
+
+    <!-- Accounts: only name/username/URL are stored here (JSON). Passwords live in the GNOME Keyring. -->
+    <key name="accounts-enabled" type="b"><default>true</default></key>
+    <key name="accounts" type="s"><default>'[]'</default></key>
+    <!-- Seconds a copied password may stay on the clipboard (0 = never clear) -->
+    <key name="account-clear-seconds" type="i"><default>20</default><range min="0" max="600"/></key>
+
     <!-- Emoji picker -->
     <key name="emoji-enabled" type="b"><default>true</default></key>
     <!-- Typing ":smile" in the main search shows emoji results inline -->
@@ -68,10 +79,17 @@
     <key name="emoji-paste" type="b"><default>false</default></key>
     <!-- Keys sent to paste: auto | ctrl-v | ctrl-shift-v | shift-insert -->
     <key name="emoji-paste-keys" type="s"><default>'auto'</default></key>
+    <!-- How the emoji picker lists emoji: list | grid -->
+    <key name="emoji-layout" type="s"><default>'list'</default></key>
+    <!-- Size of one grid cell in pixels (before the overall scale) -->
+    <key name="emoji-grid-size" type="i"><default>44</default><range min="28" max="96"/></key>
     <!-- Show recently/frequently used emoji first -->
     <key name="emoji-remember" type="b"><default>true</default></key>
 
     <!-- Search -->
+    <!-- Word shared by all of the launcher's own entries (Emoji Picker, Clipboard History,
+         power actions...). Typing exactly this word lists them all; empty disables it. -->
+    <key name="own-keyword" type="s"><default>'app'</default></key>
     <!-- When true both result limits below are ignored and the list can be scrolled through
          every match (rows are created lazily while scrolling, so this stays cheap) -->
     <key name="unlimited-results" type="b"><default>false</default></key>

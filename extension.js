@@ -7,11 +7,13 @@ import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import {AppIndex} from './applications/appIndex.js';
 import {JsonStore} from './cache/store.js';
 import {Stats} from './cache/stats.js';
-import {ClipboardHistory, copyText} from './clipboard/history.js';
+import {accountEntries, clearDelaySeconds} from './accounts/accounts.js';
+import {openVault} from './accounts/vault.js';
+import {ClipboardHistory, clearClipboardIf, copyText} from './clipboard/history.js';
 import {buildBuiltinEntries} from './commands/builtins.js';
 import {parseEmoji, emojiPlan, emojiOptions, inlineEmojiQuery} from './emoji/emoji.js';
 import {Paster} from './emoji/paste.js';
-import {Runner} from './commands/runner.js';
+import {Runner, openUri} from './commands/runner.js';
 import {buildUserEntries} from './commands/userEntries.js';
 import {Config} from './config/config.js';
 import {calculate} from './search/calc.js';
@@ -31,7 +33,7 @@ const STYLE_KEYS = new Set([
     'icon-size', 'font-size', 'scale', 'padding', 'result-spacing', 'search-padding',
     'icon-spacing', 'show-descriptions', 'show-tags', 'placeholder', 'theme-mode',
     'theme-light', 'theme-dark', 'custom-themes', 'theme-overrides',
-    'search-icon', 'search-icon-size', 'show-scrollbar',
+    'search-icon', 'search-icon-size', 'show-scrollbar', 'emoji-grid-size',
 ]);
 
 // The emoji dataset is only loaded when first needed and released again after this long idle.
@@ -55,6 +57,8 @@ export default class GnomeLauncherExtension extends Extension {
         this._clipEngine = new SearchEngine();
         this._emojiEngine = null; // created lazily by _ensureEmoji()
         this._emojiLoading = false;
+        this._accountEngine = new SearchEngine();
+        this._pwClear = null; // {id, pw}: a copied password waiting to be taken off the clipboard
         this._buffer = ''; // private emoji buffer: memory only, never on disk or in clipboard history
         this._stats = new Stats(new JsonStore(GLib.build_filenamev([stateDir, 'stats.json']), 1));
         this._engine.stats = this._stats;
@@ -87,7 +91,7 @@ export default class GnomeLauncherExtension extends Extension {
         this._launcher = new Launcher({
             config: cfg,
             search: (q, mode) => this._search(q, mode),
-            onActivate: e => this._activate(e),
+            onActivate: (e, how) => this._activate(e, how),
             onWindowShortcut: id => this._activateId(id),
             onClose: () => {
                 if (this._emojiEngine)
@@ -103,6 +107,7 @@ export default class GnomeLauncherExtension extends Extension {
 
         this._buildSpecial();
         this._syncClipboard();
+        this._syncAccounts();
         this._bindShortcuts();
         cfg.onChanged(key => this._onConfigChanged(key));
 
@@ -121,6 +126,7 @@ export default class GnomeLauncherExtension extends Extension {
         this._alive = false;
         for (const t of [this._prebuild, this._restyle, this._rebuild, this._runIdle, this._emojiFree])
             t?.cancel();
+        this._finishPasswordClear(); // a copied password never outlives the extension
         this._paster?.destroy(); // puts a borrowed clipboard back
         this._keys?.destroy(); // also resets Mutter's overlay-key if we had taken over Super
         this._launcher?.destroy();
@@ -156,8 +162,18 @@ export default class GnomeLauncherExtension extends Extension {
             this._syncClipboard();
             this._buildSpecial();
             break;
+        case 'accounts':
+            this._syncAccounts();
+            break;
         case 'emoji-enabled':
+        case 'accounts-enabled':
+        case 'own-keyword':
             this._buildSpecial();
+            break;
+        case 'clipboard-images':
+        case 'clipboard-image-count':
+        case 'clipboard-image-mb':
+            this._syncClipboardImages();
             break;
         case 'clipboard-max':
             this._clip.setMax(this._config.int('clipboard-max'));
@@ -188,7 +204,19 @@ export default class GnomeLauncherExtension extends Extension {
         this._keys.setSuperKey(this._config.bool('use-super-key'), () => this._launcher.toggle());
     }
 
+    _syncAccounts() {
+        this._accountEngine.setEntries(accountEntries(this._config.json('accounts', [])));
+        if (this._launcher?.mode === 'accounts')
+            this._launcher.refresh();
+    }
+
+    _syncClipboardImages() {
+        const c = this._config;
+        this._clip.setImages(c.bool('clipboard-images'), c.int('clipboard-image-count'), c.int('clipboard-image-mb'));
+    }
+
     _syncClipboard() {
+        this._syncClipboardImages();
         if (this._config.bool('clipboard-enabled'))
             this._clip.start();
         else
@@ -199,7 +227,10 @@ export default class GnomeLauncherExtension extends Extension {
     _buildSpecial() {
         const c = this._config;
         const user = buildUserEntries(c.json('commands', []), c.json('actions', []), c.json('category-icons', {}));
-        const builtin = buildBuiltinEntries(c.json('builtins', {}), {clipboard: c.bool('clipboard-enabled'), emoji: c.bool('emoji-enabled')});
+        const builtin = buildBuiltinEntries(c.json('builtins', {}), {
+            clipboard: c.bool('clipboard-enabled'), emoji: c.bool('emoji-enabled'), accounts: c.bool('accounts-enabled'), keyword: c.str('own-keyword'),
+        });
+        this._ownEntries = builtin.entries;
 
         this._specialEntries = [...user.entries, ...builtin.entries];
         this._special = new Map(this._specialEntries.map(e => [e.id, e]));
@@ -254,7 +285,7 @@ export default class GnomeLauncherExtension extends Extension {
                 showDescriptions: c.bool('show-descriptions'), showTags: c.bool('show-tags'),
                 placeholder: c.str('placeholder'),
                 searchIcon: c.str('search-icon').trim(), searchIconSize: c.int('search-icon-size'),
-                showScrollbar: c.bool('show-scrollbar'),
+                showScrollbar: c.bool('show-scrollbar'), gridCell: c.int('emoji-grid-size'),
             },
             theme: resolveTheme({
                 custom: c.json('custom-themes', []),
@@ -276,6 +307,15 @@ export default class GnomeLauncherExtension extends Extension {
         }
         if (mode === 'emoji')
             return this._emojiSearch(query, Infinity);
+        if (mode === 'accounts') {
+            return this._accountEngine.search(query, {
+                fuzzy: c.bool('fuzzy'), descriptions: true, frecency: false, limit: Infinity, initial: Infinity,
+            });
+        }
+        // Typing exactly the shared keyword lists every entry that belongs to the launcher itself.
+        const own = c.str('own-keyword').trim().toLowerCase();
+        if (own && query.trim().toLowerCase() === own && this._ownEntries?.length)
+            return this._ownEntries;
         if (c.bool('emoji-enabled') && c.bool('emoji-inline')) {
             const q = inlineEmojiQuery(query);
             if (q !== null)
@@ -309,8 +349,11 @@ export default class GnomeLauncherExtension extends Extension {
             this._activate(e);
     }
 
-    _activate(entry) {
+    _activate(entry, how = '') {
         switch (entry.kind) {
+        case 'account':
+            this._useAccount(entry, how);
+            return;
         case 'mode':
             // Sub-view: stays open (and opens the launcher first if a global shortcut was used).
             if (!this._launcher.isOpen)
@@ -321,12 +364,17 @@ export default class GnomeLauncherExtension extends Extension {
                 this._ensureEmoji();
             this._launcher.enterMode(entry.payload.target, {
                 placeholder: entry.payload.placeholder ?? '',
+                grid: entry.payload.target === 'emoji' && this._config.str('emoji-layout') === 'grid',
                 empty: entry.payload.target === 'emoji' && !this._emojiEngine
                     ? 'Loading emoji…' : (entry.payload.empty ?? 'No results'),
             });
             return;
         case 'emoji':
             this._pickEmoji(entry);
+            return;
+        case 'clipimage':
+            this._launcher.close();
+            this._clip.copyImage(entry.payload.imageId);
             return;
         case 'clip':
         case 'calc':
@@ -341,6 +389,81 @@ export default class GnomeLauncherExtension extends Extension {
         // Run after the modal grab is released and the launcher has started closing.
         this._pending = entry;
         this._runIdle.schedule();
+    }
+
+    // --- accounts ------------------------------------------------------------
+
+    // Enter copies the password, Shift+Enter types it into the previous window, Ctrl+Enter copies the
+    // username and Alt+Enter opens the site. The password is read from the GNOME Keyring only now,
+    // asynchronously (an unlock prompt must not freeze the shell), and is never kept.
+    async _useAccount(entry, how) {
+        const {accountId, username, url} = entry.payload;
+        this._launcher.close();
+        if (how === 'ctrl') {
+            if (username)
+                copyText(username);
+            else
+                Main.notify(NOTIFY_TITLE, `"${entry.name}" has no username saved.`);
+            return;
+        }
+        if (how === 'alt') {
+            if (url)
+                openUri(url);
+            else
+                Main.notify(NOTIFY_TITLE, `"${entry.name}" has no website saved.`);
+            return;
+        }
+        const vault = await openVault();
+        if (!vault) {
+            Main.notify(NOTIFY_TITLE, 'Saved passwords need libsecret and a keyring (GNOME Keyring). It could not be loaded.');
+            return;
+        }
+        let pw = null;
+        try {
+            pw = await vault.lookup(accountId);
+        } catch (e) {
+            warn(`keyring lookup failed: ${e.message}`);
+            Main.notify(NOTIFY_TITLE, 'Could not read the keyring. Is it unlocked?');
+            return;
+        }
+        if (!this._alive)
+            return;
+        if (!pw) {
+            Main.notify(NOTIFY_TITLE, `No password is stored for "${entry.name}". Set one in Preferences > Accounts.`);
+            return;
+        }
+        if (how === 'shift')
+            this._paster.paste(pw, {keys: 'auto', borrow: true}, () => this._copyPassword(pw));
+        else
+            this._copyPassword(pw);
+    }
+
+    // On the clipboard only for a limited time, and kept out of the clipboard history.
+    _copyPassword(pw) {
+        this._finishPasswordClear();
+        this._clip.mute(1500);
+        copyText(pw);
+        const secs = clearDelaySeconds(this._config.int('account-clear-seconds'));
+        if (secs > 0) {
+            const id = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, secs, () => {
+                this._pwClear = null;
+                this._clip?.mute(1500);
+                clearClipboardIf(pw);
+                return GLib.SOURCE_REMOVE;
+            });
+            this._pwClear = {id, pw};
+        }
+    }
+
+    // Cancels a pending timer and clears right away (used before a new copy and on disable).
+    _finishPasswordClear() {
+        const p = this._pwClear;
+        if (!p)
+            return;
+        this._pwClear = null;
+        GLib.source_remove(p.id);
+        this._clip?.mute(1500);
+        clearClipboardIf(p.pw);
     }
 
     // --- emoji ---------------------------------------------------------------
@@ -398,7 +521,7 @@ export default class GnomeLauncherExtension extends Extension {
     }
 
     _pasteFailed() {
-        Main.notify(NOTIFY_TITLE, 'Could not send the paste keys. The emoji is on the clipboard: paste it manually.');
+        Main.notify(NOTIFY_TITLE, 'Could not send the paste keys. The text is on the clipboard: paste it manually.');
     }
 
     _pickEmoji(entry) {

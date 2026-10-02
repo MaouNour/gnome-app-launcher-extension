@@ -18,6 +18,15 @@ export function buildStyles(l, t) {
     const rowH = Math.round(l.rowHeight * s);
     const gap = Math.round(l.resultSpacing * s);
 
+    // Emoji grid: square cells laid out in as many columns as fit the window, centred.
+    const cell = Math.round((l.gridCell ?? 44) * s);
+    const gridGap = Math.max(2, gap);
+    const innerW = Math.round((l.width - l.padding * 2) * s);
+    const gridCols = Math.max(1, Math.floor((innerW + gridGap) / (cell + gridGap)));
+    const gridPad = Math.max(0, Math.floor((innerW - (gridCols * cell + (gridCols - 1) * gridGap)) / 2));
+    const cellBase = `width: ${cell}px; height: ${cell}px; border-radius: ${px(t.rowRadius)}; `;
+    const cellFont = `font-size: ${Math.round(cell * 0.58)}px; `;
+
     return {
         box: `width: ${px(l.width)}; ${minH}padding: ${px(l.padding)}; spacing: ${px(l.padding * 0.6)}; ` +
             `background-color: ${cssColor(t.background, t.opacity)}; ` +
@@ -39,6 +48,14 @@ export function buildStyles(l, t) {
         icon: `-st-icon-style: ${t.iconStyle};`,
         // Emoji rows draw the glyph as text instead of an icon, sized to fill the icon slot.
         glyph: `color: ${fg}; font-size: ${Math.round(l.iconSize * s * 0.68)}px; min-width: ${Math.round(l.iconSize * s)}px; text-align: center;`,
+        cell: cellBase,
+        cellSel: `${cellBase}background-color: ${cssColor(t.selection)}; `,
+        cellText: `color: ${fg}; ${cellFont}`,
+        cellTextSel: `color: ${sel}; ${cellFont}`,
+        gridRow: `spacing: ${gridGap}px; padding-left: ${gridPad}px;`,
+        gridHint: `color: ${sec}; font-size: ${pt(l.fontSize)}; ${font}padding: ${px(4)} ${px(l.padding)} 0 ${px(l.padding)};`,
+        gridHintH: Math.round(l.fontSize * 2 * s + 4 * s),
+        gridCols, gridCell: cell, gridGap,
         glyphSel: `color: ${sel}; font-size: ${Math.round(l.iconSize * s * 0.68)}px; min-width: ${Math.round(l.iconSize * s)}px; text-align: center;`,
         empty: `color: ${sec}; font-size: ${pt(l.fontSize)}; padding: ${px(l.padding)};`,
         iconSize: Math.round(l.iconSize * s),

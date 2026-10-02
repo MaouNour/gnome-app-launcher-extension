@@ -65,7 +65,7 @@ function spawn(argv, env = []) {
     });
 }
 
-function openUri(uri) {
+export function openUri(uri) {
     Gio.AppInfo.launch_default_for_uri_async(uri, global.create_app_launch_context(0, -1), null, (_o, res) => {
         try {
             Gio.AppInfo.launch_default_for_uri_finish(res);

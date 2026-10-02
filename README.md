@@ -45,6 +45,7 @@ ui/launcher.js        modal overlay, entry, lazily created pooled rows, animatio
 ui/style.js           layout + theme -> St CSS strings (computed on change only)
 themes/themes.js      pure: theme schema, sanitizer, built-ins, resolver
 search/engine.js      pure: ranking, fuzzy, narrowing, frecency
+accounts/             accounts.js (pure records, URL checks, password generator), vault.js (GNOME Keyring via libsecret)
 emoji/                data.js (generated dataset, loaded lazily), emoji.js (pure logic), paste.js (virtual-keyboard paste)
 applications/         appIndex.js (cache + incremental diff + monitor), launch.js
 commands/             schema.js (pure validation), userEntries.js (pure), runner.js (execution)
@@ -79,7 +80,8 @@ Show All Apps, Toggle Dark Mode, Toggle Do Not Disturb, **Clipboard History** an
 a *global shortcut* (works anywhere) and/or a *window shortcut* (only while the launcher is open, never grabbed globally, must include Ctrl/Alt/Super).
 Commands and custom actions have the same two shortcut fields. A global shortcut on *Clipboard History* opens the launcher directly in that view.
 
-- **Clipboard history** is text only, kept in memory (never written to disk), updated by Mutter's selection-changed signal (no polling). Disable it or clear it from the prefs or the launcher.
+- **Clipboard history** holds text and, optionally, images. It is kept in memory (never written to disk) and updated by Mutter's selection-changed signal (no polling). Disable it or clear it from the prefs or the launcher.
+  Images (screenshots, copied pictures) are on by default and bounded by *Images to keep* (default 8) and *Largest image to keep* (default 4 MB), so the worst case is about 32 MB. They show a thumbnail and their size read from the file header, and Enter puts the image back on the clipboard. Text always wins: an image is only recorded when the clipboard offers no text with it (a spreadsheet selection is kept as text, not as its picture).
 - **Quick calculator**: type `12*(3+4)`; Enter copies the result. Uses a small parser, never `eval`.
 
 ### Emoji picker (Preferences > Emoji)
@@ -97,6 +99,29 @@ Pasting works the way clipboard managers do: the text goes on the clipboard, the
 created by the compositor, and, when the emoji is not supposed to stay on the clipboard, your own clipboard text is put back afterwards.
 Keys are Ctrl+V, or Ctrl+Shift+V in terminals (auto-detected by window class), or fixed to a choice of your own.
 Only a *text* clipboard is restored; an image on the clipboard is not.
+
+### Emoji grid
+
+*Preferences > Emoji > Emoji list style* switches the picker from a list to a grid of square cells. The number of columns follows the
+window width and the cell size is configurable. Arrow keys move in two dimensions (Left/Right therefore move the selection, not the
+text cursor, while the grid is open), PageUp/PageDown jump four lines, and the name of the highlighted emoji is shown under the grid.
+Like the list, the grid creates its cells in batches while you scroll.
+
+### Shared keyword for the launcher's own entries
+
+*Preferences > Search > Shared keyword* (default `app`) is added to every built-in entry (Emoji Picker, Clipboard History, Passwords &
+Accounts, the power actions, ...). Typing exactly that word lists all of them together; as a normal search term it also ranks them.
+Set it to something rarer, or empty to turn it off, if "app" collides with applications you search for.
+
+### Passwords and accounts (Preferences > Accounts)
+
+A small vault, deliberately simple: an account has a name, username, password and optional website.
+
+- **Where things live.** The password is stored **only in the GNOME Keyring** through libsecret (encrypted, unlocked with your login). The launcher keeps the name, username and website in the `accounts` setting so it can search them; those are not secrets. Nothing is ever written to a plain file. If libsecret or a keyring is missing the vault is unavailable and says so; there is no weaker fallback.
+- **Using it.** Type `passwords` (or set a shortcut) to open the vault, which is a view of its own: accounts never show up in normal search results. Enter copies the password, Shift+Enter types it into the previous window, Ctrl+Enter copies the username, Alt+Enter opens the website.
+- **Clipboard hygiene.** A copied password is removed from the clipboard after *Clear a copied password after* seconds (default 20; only if the clipboard still holds it) and is never added to the clipboard history. Typing it in uses the same borrow-and-restore mechanism as the emoji paste, so it does not stay on the clipboard at all.
+- **Editing.** Passwords are write-only in the preferences: they are never read back from the keyring into the window. Leave the field empty to keep the stored one. A generator (random bytes from `/dev/urandom`, unbiased sampling) is built in.
+- **Limits.** This is a convenience vault, not a replacement for a full password manager: no sharing, no sync, no browser integration, no TOTP. A password is held in a JavaScript string for the moment it is used, which the runtime cannot wipe. Other clipboard managers you run may still record a copied password; Shift+Enter avoids the clipboard.
 
 ### Appearance additions
 
@@ -130,5 +155,6 @@ General > *Pointer outside the window*: close on click (default), close when the
 - Per-entry shortcuts use `grab_accelerator`; a rejected accelerator is reported once as a notification.
 - **Raycast/Vicinae presets** are look-alikes: Raycast's red and dark surface colour come from its brand page, the remaining values (and all of Vicinae's) are approximations.
 - **Emoji**: skin-tone variants are not offered; the list shows one glyph per emoji. Newly added Unicode emoji only render if your emoji font has them.
+- **Accounts** need libsecret (typelib `Secret-1`) and a Secret Service such as GNOME Keyring; the preferences use Adw.Dialog and Adw.AlertDialog, which need libadwaita 1.5 (GNOME 46+, matching the supported range).
 - **Pasting in place** needs the compositor to accept a virtual keyboard (Wayland and X11 both do on GNOME 46-50) and applications that paste with Ctrl+V / Ctrl+Shift+V / Shift+Insert. If sending the keys fails, the emoji is left on the clipboard and a notification says so.
 - Ranking uses launch counts with time decay, not per-query learning.

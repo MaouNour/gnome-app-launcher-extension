@@ -11,6 +11,9 @@ export const BUILTINS = [
     // generic built-in list, so their shortcuts live next to the other emoji options.
     {id: 'emoji', kind: 'mode', target: 'emoji', name: 'Emoji Picker', desc: 'Search emoji and copy or paste them', icon: 'face-smile-symbolic', keywords: 'emoji emoticon smiley symbols unicode', category: 'Emoji', needs: 'emoji', page: 'emoji', placeholder: 'Search emoji…', empty: 'No emoji found'},
     {id: 'emoji-paste-buffer', kind: 'system', target: 'emoji-paste-buffer', name: 'Paste Emoji From Private Buffer', desc: 'Type the last emoji kept in the private buffer into the focused window', icon: 'edit-paste-symbolic', keywords: 'emoji buffer paste private', category: 'Emoji', needs: 'emoji', page: 'emoji'},
+    // Accounts live on the Accounts page of the preferences (page: 'accounts'). Passwords are never
+    // part of the main search: the vault is a mode of its own.
+    {id: 'accounts', kind: 'mode', target: 'accounts', name: 'Passwords & Accounts', desc: 'Find a saved account and copy its password', icon: 'dialog-password-symbolic', keywords: 'password passwords account accounts login credentials vault username', category: 'Passwords', needs: 'accounts', page: 'accounts', placeholder: 'Search accounts…', empty: 'No accounts saved. Add them in Preferences > Accounts.'},
     {id: 'power-off', kind: 'system', target: 'power-off', name: 'Shut Down', desc: 'Power off the computer', icon: 'system-shutdown-symbolic', keywords: 'poweroff shutdown halt turn off'},
     {id: 'reboot', kind: 'system', target: 'reboot', name: 'Restart', desc: 'Restart the computer', icon: 'system-reboot-symbolic', keywords: 'reboot'},
     {id: 'logout', kind: 'system', target: 'logout', name: 'Log Out', desc: 'End the current session', icon: 'system-log-out-symbolic', keywords: 'sign out exit'},
@@ -49,6 +52,7 @@ export function sanitizeBuiltins(raw) {
 
 export function buildBuiltinEntries(overrides, flags = {}) {
     const ov = sanitizeBuiltins(overrides);
+    const shared = typeof flags.keyword === 'string' ? flags.keyword.trim().toLowerCase() : '';
     const entries = [];
     const shortcuts = [];
     const windowShortcuts = [];
@@ -59,7 +63,7 @@ export function buildBuiltinEntries(overrides, flags = {}) {
         const id = `system:${b.id}`;
         entries.push(prepare({
             id, kind: b.kind, name: b.name, desc: b.desc, category: b.category ?? 'System',
-            icon: b.icon, keywords: b.keywords,
+            icon: b.icon, keywords: shared ? `${b.keywords ?? ''} ${shared}`.trim() : b.keywords,
             payload: {target: b.target, placeholder: b.placeholder, empty: b.empty},
         }));
         if (o.shortcut)

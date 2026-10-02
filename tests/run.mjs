@@ -9,6 +9,10 @@ import {sanitizeTheme, resolveTheme, builtinThemes, cssColor, THEME_FAMILIES} fr
 import {sanitizeCommand, sanitizeAction, validateCommand, validateAction} from '../commands/schema.js';
 import {buildUserEntries} from '../commands/userEntries.js';
 import {calculate} from '../search/calc.js';
+import {buildStyles} from '../ui/style.js';
+import {sanitizeAccount, sanitizeAccounts, accountEntries, safeUrl, hostOf, generatePassword, newAccountId, clearDelaySeconds} from '../accounts/accounts.js';
+import {randomBytes} from 'node:crypto';
+import {clipboardKind, imageInfo, imageLabels, formatBytes, imagesToDrop} from '../clipboard/image.js';
 import {BUILTINS, buildBuiltinEntries, sanitizeBuiltins} from '../commands/builtins.js';
 import {DATA as EMOJI_DATA, GROUPS as EMOJI_GROUPS} from '../emoji/data.js';
 import {parseEmoji, emojiOptions, emojiPlan, inlineEmojiQuery, isTerminalClass, resolvePasteKeys} from '../emoji/emoji.js';
@@ -180,7 +184,7 @@ test('built-ins include power and clipboard entries', () => {
         assert.ok(ids.includes(id), id);
 });
 test('built-ins respect enable flags and clipboard switch', () => {
-    const all = buildBuiltinEntries({}, {clipboard: true, emoji: true});
+    const all = buildBuiltinEntries({}, {clipboard: true, emoji: true, accounts: true});
     assert.equal(all.entries.length, BUILTINS.length);
     assert.ok(all.entries.every(e => e.id.startsWith('system:') && ['system', 'mode'].includes(e.kind)));
     assert.ok(!buildBuiltinEntries({}, {clipboard: false}).entries.some(e => e.category === 'Clipboard'));
@@ -318,6 +322,44 @@ test('paste keys: terminals get Ctrl+Shift+V, explicit settings win', () => {
     assert.equal(resolvePasteKeys('shift-insert', 'kitty'), 'shift-insert');
 });
 
+test('shared keyword is added to every built-in entry and makes them searchable', () => {
+    const r = buildBuiltinEntries({}, {clipboard: true, emoji: true, keyword: ' App '});
+    assert.ok(r.entries.length > 5);
+    for (const e of r.entries)
+        assert.ok(e.keywords.split(' ').includes('app'), e.id);
+    const eng = new SearchEngine();
+    eng.setEntries(r.entries);
+    assert.ok(eng.search('app', {limit: 50, fuzzy: false}).length >= r.entries.length - 1);
+    const none = buildBuiltinEntries({}, {clipboard: true, emoji: true, keyword: ''});
+    assert.ok(!none.entries.some(e => /\bapp\b/.test(e.keywords ?? '')));
+});
+const LAYOUT = {
+    scale: 1, width: 640, windowHeight: 0, maxHeight: 480, padding: 12, searchHeight: 52, searchPadding: 14,
+    rowHeight: 48, resultSpacing: 4, iconSize: 32, iconSpacing: 12, fontSize: 11, gridCell: 44,
+    searchPosition: 'top', showDescriptions: true, showTags: true, placeholder: '', searchIcon: 'edit-find-symbolic',
+    searchIconSize: 16, showScrollbar: false,
+};
+test('emoji grid geometry: columns fit the window and the grid is centred', () => {
+    const st = buildStyles(LAYOUT, builtinThemes()['default-dark']);
+    assert.equal(st.gridCell, 44);
+    assert.equal(st.gridCols, 12);
+    assert.ok(st.gridRow.includes('padding-left: 22px'), st.gridRow);
+    const wide = buildStyles({...LAYOUT, width: 900}, builtinThemes()['default-dark']);
+    assert.ok(wide.gridCols > st.gridCols);
+    const big = buildStyles({...LAYOUT, scale: 2, gridCell: 96}, builtinThemes()['default-dark']);
+    assert.ok(big.gridCols >= 1 && big.gridCell === 192);
+    const tiny = buildStyles({...LAYOUT, width: 100, gridCell: 96}, builtinThemes()['default-dark']);
+    assert.equal(tiny.gridCols, 1);
+});
+test('the accounts entry appears only when enabled, as a mode that is not part of the main search text', () => {
+    const off = buildBuiltinEntries({}, {clipboard: true, emoji: true, accounts: false});
+    assert.ok(!off.entries.some(e => e.id === 'system:accounts'));
+    const on = buildBuiltinEntries({}, {clipboard: true, emoji: true, accounts: true});
+    const e = on.entries.find(x => x.id === 'system:accounts');
+    assert.equal(e.kind, 'mode');
+    assert.equal(e.payload.target, 'accounts');
+    assert.ok(e.payload.empty.includes('Preferences'));
+});
 test('emoji built-ins follow the emoji flag and carry their mode texts', () => {
     const off = buildBuiltinEntries({}, {clipboard: true, emoji: false});
     assert.ok(!off.entries.some(e => e.id.startsWith('system:emoji')));
@@ -334,6 +376,126 @@ test('emoji built-in shortcuts are collected like any other built-in', () => {
     const r = buildBuiltinEntries({'emoji-paste-buffer': {shortcut: '<Super>v'}, emoji: {windowShortcut: '<Alt>e'}}, {clipboard: true, emoji: true});
     assert.deepEqual(r.shortcuts, [{id: 'system:emoji-paste-buffer', accel: '<Super>v'}]);
     assert.deepEqual(r.windowShortcuts, [{id: 'system:emoji', accel: '<Alt>e'}]);
+});
+
+// ---- clipboard images -----------------------------------------------------------------------
+const IMG = {
+    png: 'iVBORw0KGgoAAAANSUhEUgAAACUAAAAVCAIAAABOhrD5AAAAJElEQVR4nGP4z8BAT0RXy0btG7Vv1L5R+0btG7Vv1L5R+6iAAEZYBiUyqttGAAAAAElFTkSuQmCC',
+    gif: 'R0lGODdhQAAwAIEAAP8AAAAAAAAAAAAAACwAAAAAQAAwAEAIWgABCBxIsKDBgwgTKlzIsKHDhxAjSpxIsaLFixgzatzIsaPHjyBDihxJsqTJkyhTqlzJsqXLlzBjypxJs6bNmzhz6tzJs6fPn0CDCh1KtKjRo0iTKl3KtGnRgAA7',
+    jpg: '/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/2wBDAQkJCQwLDBgNDRgyIRwhMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjL/wAARCAAwAEADASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwDi6KKK+ZP3EKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigD/9k=',
+    webp: 'UklGRlQAAABXRUJQVlA4IEgAAADwAwCdASpAADAAPm02mEkkIyKhIqgAgA2JZwDU9oB+AAAVGmMcPgzAAP7wm0P/8guWF1yNf/8gP+QH/ID/+PfFDYqwyAAAAAA=',
+};
+const bytesOf = name => new Uint8Array(Buffer.from(IMG[name], 'base64'));
+test('image header sniffing reads type and size without decoding', () => {
+    assert.deepEqual(imageInfo(bytesOf('png')), {type: 'PNG', width: 37, height: 21});
+    assert.deepEqual(imageInfo(bytesOf('gif')), {type: 'GIF', width: 64, height: 48});
+    assert.deepEqual(imageInfo(bytesOf('jpg')), {type: 'JPEG', width: 64, height: 48});
+    assert.equal(imageInfo(bytesOf('webp')).type, 'WEBP');
+    const bmp = new Uint8Array(30);
+    bmp.set([0x42, 0x4d], 0);
+    new DataView(bmp.buffer).setInt32(18, 20, true);
+    new DataView(bmp.buffer).setInt32(22, -10, true);
+    assert.deepEqual(imageInfo(bmp), {type: 'BMP', width: 20, height: 10});
+});
+test('image sniffing rejects junk and truncated data safely', () => {
+    assert.equal(imageInfo(null), null);
+    assert.equal(imageInfo(new Uint8Array(4)), null);
+    assert.equal(imageInfo(new TextEncoder().encode('hello world, not an image')), null);
+    assert.deepEqual(imageInfo(bytesOf('png').slice(0, 14)), {type: 'PNG', width: 0, height: 0});
+    assert.doesNotThrow(() => imageInfo(bytesOf('jpg').slice(0, 30)));
+});
+test('clipboardKind prefers text, then images when enabled', () => {
+    assert.deepEqual(clipboardKind(['text/plain;charset=utf-8', 'image/png'], true), {kind: 'text'});
+    assert.deepEqual(clipboardKind(['image/png', 'image/jpeg'], true), {kind: 'image', mime: 'image/png'});
+    assert.deepEqual(clipboardKind(['image/jpeg'], true), {kind: 'image', mime: 'image/jpeg'});
+    assert.equal(clipboardKind(['image/png'], false), null);
+    assert.equal(clipboardKind(['application/x-weird'], true), null);
+    assert.equal(clipboardKind(undefined, true), null);
+});
+test('image list labels', () => {
+    const l = imageLabels({type: 'PNG', width: 1920, height: 1080}, 421888);
+    assert.equal(l.name, 'Image 1920×1080');
+    assert.equal(l.desc, 'PNG · 412 KB');
+    assert.ok(l.keywords.includes('screenshot') && l.keywords.includes('1920x1080'));
+    assert.equal(imageLabels(null, 10).name, 'Image');
+    assert.equal(formatBytes(2.5 * 1024 * 1024), '2.5 MB');
+});
+test('imagesToDrop removes only the oldest images beyond the limit', () => {
+    const items = [{image: 1}, {text: 'a'}, {image: 2}, {image: 3}, {text: 'b'}, {image: 4}];
+    assert.deepEqual(imagesToDrop(items, 2), [3, 5]);
+    assert.deepEqual(imagesToDrop(items, 10), []);
+    assert.deepEqual(imagesToDrop(items, 0), [0, 2, 3, 5]);
+});
+
+// ---- accounts -------------------------------------------------------------------------------
+const rnd = n => new Uint8Array(randomBytes(n));
+test('safeUrl accepts http(s) and bare hosts only', () => {
+    assert.equal(safeUrl('https://example.com/login'), 'https://example.com/login');
+    assert.equal(safeUrl('example.com/login'), 'https://example.com/login');
+    assert.equal(safeUrl('http://localhost:8080'), 'http://localhost:8080/');
+    assert.equal(safeUrl('localhost:3000/app'), 'https://localhost:3000/app');
+    assert.equal(safeUrl('HTTPS://Example.COM'), 'https://example.com/');
+    for (const bad of ['javascript:alert(1)', 'file:///etc/passwd', 'ftp://x.org', 'data:text/html,hi', '', 'http://', 'a b c', 'https://user:pw@evil.com', 'https://exa mple.com', null, 5])
+        assert.equal(safeUrl(bad), '', String(bad));
+    assert.equal(hostOf('https://www.example.com/x'), 'example.com');
+    assert.equal(hostOf('nonsense: nope'), '');
+});
+test('account records are validated and never carry a password', () => {
+    const id = newAccountId(rnd);
+    assert.match(id, /^[0-9a-f]{32}$/);
+    const ok = sanitizeAccount({id, name: '  GitHub ', username: 'me@x.org', url: 'github.com', password: 'hunter2', extra: 1});
+    assert.deepEqual(ok, {id, name: 'GitHub', username: 'me@x.org', url: 'https://github.com/'});
+    assert.ok(!('password' in ok));
+    assert.equal(sanitizeAccount({id: 'short', name: 'x'}), null);
+    assert.equal(sanitizeAccount({id, name: '   '}), null);
+    assert.equal(sanitizeAccount({id: 'bad id with spaces!', name: 'x'}), null);
+    assert.equal(sanitizeAccount(null), null);
+    assert.equal(sanitizeAccount({id, name: 'x', url: 'javascript:alert(1)'}).url, '');
+});
+test('account lists drop invalid and duplicate records', () => {
+    const a = newAccountId(rnd);
+    const list = sanitizeAccounts([{id: a, name: 'A'}, {id: a, name: 'dup'}, {name: 'no id'}, 'junk', null]);
+    assert.equal(list.length, 1);
+    assert.deepEqual(sanitizeAccounts('nope'), []);
+    assert.equal(sanitizeAccounts(Array.from({length: 1500}, (_, i) => ({id: `id-${String(i).padStart(8, '0')}`, name: `n${i}`}))).length, 1000);
+});
+test('account entries are searchable by name, username and site but hold no secret', () => {
+    const id = newAccountId(rnd);
+    const entries = accountEntries([{id, name: 'GitHub', username: 'octocat', url: 'https://github.com/login'}]);
+    assert.equal(entries.length, 1);
+    assert.equal(entries[0].kind, 'account');
+    assert.deepEqual(Object.keys(entries[0].payload).sort(), ['accountId', 'url', 'username']);
+    const eng = new SearchEngine();
+    eng.setEntries(entries);
+    for (const q of ['git', 'octo', 'github.com'])
+        assert.equal(eng.search(q, {limit: 5, fuzzy: false, descriptions: true}).length, 1, q);
+});
+test('generated passwords have the requested length and every character class', () => {
+    for (let i = 0; i < 200; i++) {
+        const p = generatePassword(rnd, {length: 20, symbols: true});
+        assert.equal(p.length, 20);
+        assert.ok(/[a-z]/.test(p) && /[A-Z]/.test(p) && /[0-9]/.test(p) && /[^A-Za-z0-9]/.test(p), p);
+    }
+    assert.ok(/^[A-Za-z0-9]+$/.test(generatePassword(rnd, {length: 30, symbols: false})));
+    assert.equal(generatePassword(rnd, {length: 3}).length, 8, 'minimum length');
+    assert.equal(generatePassword(rnd, {length: 999}).length, 128, 'maximum length');
+});
+test('password generation is unbiased (rejection sampling) and survives poor randomness', () => {
+    const counts = {};
+    for (let i = 0; i < 400; i++)
+        for (const ch of generatePassword(rnd, {length: 40, symbols: false}))
+            counts[ch] = (counts[ch] ?? 0) + 1;
+    const vals = Object.values(counts);
+    assert.ok(Math.max(...vals) / Math.min(...vals) < 1.5, 'distribution too uneven');
+    // A source that always returns 255 is rejected by the sampler and must fail loudly, not loop forever.
+    assert.throws(() => generatePassword(() => new Uint8Array(100).fill(255), {length: 8}));
+});
+test('clipboard clear delay is clamped', () => {
+    assert.equal(clearDelaySeconds(20), 20);
+    assert.equal(clearDelaySeconds(0), 0);
+    assert.equal(clearDelaySeconds(-5), 0);
+    assert.equal(clearDelaySeconds(99999), 600);
+    assert.equal(clearDelaySeconds('x'), 20);
 });
 
 test('only verified named imports from shell resource modules', () => {
@@ -358,7 +520,7 @@ test('process separation: shell code never loads GTK, prefs never load Shell lib
     }
 });
 test('prefs-reachable modules are pure (only relative imports)', () => {
-    for (const f of ['themes/themes.js', 'commands/schema.js', 'commands/builtins.js', 'search/engine.js', 'emoji/emoji.js', 'emoji/data.js']) {
+    for (const f of ['themes/themes.js', 'commands/schema.js', 'commands/builtins.js', 'search/engine.js', 'emoji/emoji.js', 'emoji/data.js', 'clipboard/image.js', 'accounts/accounts.js']) {
         const src = readFileSync(join(root, f), 'utf8');
         for (const m of src.matchAll(/^import .* from '([^']+)'/gm))
             assert.ok(m[1].startsWith('.'), `${f} imports ${m[1]}`);

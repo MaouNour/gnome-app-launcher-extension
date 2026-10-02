@@ -5,6 +5,7 @@ import Gtk from 'gi://Gtk';
 import {BUILTINS, sanitizeBuiltins} from '../commands/builtins.js';
 import {ACTION_FIELDS, COMMAND_FIELDS, newAction, newCommand, sanitizeAction, sanitizeCommand} from '../commands/schema.js';
 import {THEME_FIELDS, THEME_BASE, THEME_FAMILIES, builtinThemes, resolveTheme, sanitizeTheme, themeNames} from '../themes/themes.js';
+import {accountsPage} from './accounts.js';
 import {ListEditor, Overrides, comboRow, entryRow, fileDialog, group, shortcutRow, spinRow, switchRow, toast} from './widgets.js';
 
 const page = (title, icon) => new Adw.PreferencesPage({title, icon_name: icon});
@@ -70,6 +71,14 @@ function emojiPage(window, settings) {
         'Remembers how often you pick each emoji (counts only, stored with the other usage statistics). Turn off to stop.'));
     p.add(main);
 
+    const look = group('Layout');
+    look.add(comboRow(settings, 'emoji-layout', 'Emoji list style', [
+        ['list', 'List (one emoji per row, with its name)'],
+        ['grid', 'Grid (compact squares, name shown below)'],
+    ], 'In the grid the arrow keys move in two directions, Enter picks, and the name of the highlighted emoji is shown under it.'));
+    look.add(spinRow(settings, 'emoji-grid-size', 'Grid cell size', 28, 96, 1, 'In pixels, before the overall scale. The number of columns follows the window width.'));
+    p.add(look);
+
     const act = group('When you choose an emoji',
         'The private buffer is kept in memory only. It never touches your clipboard or the clipboard history, and it is forgotten when the extension is disabled or you log out.');
     act.add(comboRow(settings, 'emoji-store', 'Copy it to', [
@@ -105,8 +114,12 @@ function builtinsPage(window, settings) {
     const p = page('Built-in Entries', 'emblem-system-symbolic');
     const opts = group('Options');
     opts.add(switchRow(settings, 'clipboard-enabled', 'Remember clipboard history',
-        'Text only, kept in memory (never written to disk), updated when the clipboard changes. Turn off to stop collecting.'));
+        'Kept in memory (never written to disk), updated when the clipboard changes. Turn off to stop collecting.'));
     opts.add(spinRow(settings, 'clipboard-max', 'Clipboard items to keep', 5, 200, 1));
+    opts.add(switchRow(settings, 'clipboard-images', 'Remember copied images',
+        'Screenshots and copied pictures, kept in memory only and shown with a thumbnail. Text always wins: an image is only kept when nothing textual was copied with it.'));
+    opts.add(spinRow(settings, 'clipboard-image-count', 'Images to keep', 1, 30, 1));
+    opts.add(spinRow(settings, 'clipboard-image-mb', 'Largest image to keep (MB)', 1, 32, 1, 'Bigger images are ignored. The most memory images can use is the two numbers multiplied.'));
     opts.add(switchRow(settings, 'calculator', 'Quick calculator', 'Typing an expression such as 12*(3+4) shows the result; Enter copies it.'));
     p.add(opts);
 
@@ -324,6 +337,13 @@ function search(settings) {
     g.add(switchRow(settings, 'search-descriptions', 'Search descriptions'));
     g.add(switchRow(settings, 'frecency', 'Rank recent and frequent entries higher'));
     p.add(g);
+    const k = group('Launcher entries');
+    k.add(entryRow(settings, 'own-keyword', 'Shared keyword for the launcher\'s own entries'));
+    k.add(new Adw.ActionRow({
+        title: 'How it works',
+        subtitle: 'Emoji Picker, Clipboard History, the power actions and the other built-in entries all carry this word. Typing exactly it lists all of them at once. Leave it empty to turn this off.',
+    }));
+    p.add(k);
     const r = group('Results');
     r.add(switchRow(settings, 'unlimited-results', 'Scroll through every result',
         'Shows all entries before typing and every match while typing, with no limit. The two limits below are then ignored. Rows are created as you scroll, so long lists stay cheap.'));
@@ -404,7 +424,8 @@ export function buildPages(window, settings) {
 
     return [
         general(settings), appearance(window, settings), themes(window, settings), shortcuts(window, settings),
-        applications(settings), builtinsPage(window, settings), emojiPage(window, settings), commandsPage, actionsPage, search(settings),
+        applications(settings), builtinsPage(window, settings), emojiPage(window, settings),
+        accountsPage(window, settings, builtinsStore(settings), ownShortcuts), commandsPage, actionsPage, search(settings),
         performance(window, settings), advanced(window, settings),
     ];
 }

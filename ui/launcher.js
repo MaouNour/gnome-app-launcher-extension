@@ -13,7 +13,7 @@ import {dbg, warn} from '../utils/log.js';
 
 const TAGS = {
     app: 'App', command: 'Command', action: 'Action', system: 'System',
-    mode: 'Mode', clip: 'Clipboard', calc: 'Result', emoji: 'Emoji',
+    mode: 'Mode', clip: 'Clipboard', clipimage: 'Image', account: 'Account', calc: 'Result', emoji: 'Emoji',
 };
 
 // Rows are created lazily in batches while scrolling, so even a list of thousands of
@@ -85,6 +85,79 @@ function gicon(entry) {
         }
     }
     return entry._gi;
+}
+
+// One square emoji cell of the grid view.
+class Cell {
+    constructor(launcher, grid, col) {
+        this.col = col;
+        this.entry = null;
+        this._sel = false;
+        this._st = null;
+        this.label = new St.Label({x_align: Clutter.ActorAlign.CENTER, y_align: Clutter.ActorAlign.CENTER});
+        this.actor = new St.Bin({reactive: true, child: this.label});
+        this.actor.connect('button-release-event', (_a, ev) => {
+            if (ev.get_button() === Clutter.BUTTON_PRIMARY && this.entry)
+                launcher._activateIndex(grid.base + this.col);
+            return Clutter.EVENT_STOP;
+        });
+        this.actor.connect('motion-event', () => {
+            if (this.entry)
+                launcher._hover(grid.base + this.col);
+            return Clutter.EVENT_PROPAGATE;
+        });
+    }
+
+    restyle(st) {
+        this._st = st;
+        this._paint();
+    }
+
+    _paint() {
+        this.actor.set_style(this._sel ? this._st.cellSel : this._st.cell);
+        this.label.set_style(this._sel ? this._st.cellTextSel : this._st.cellText);
+    }
+
+    setSelected(value) {
+        if (value === this._sel)
+            return;
+        this._sel = value;
+        if (this._st)
+            this._paint();
+    }
+
+    set(entry) {
+        this.entry = entry ?? null;
+        this.actor.visible = !!entry;
+        if (entry && this.label.text !== entry.glyph)
+            this.label.text = entry.glyph;
+    }
+}
+
+// A horizontal line of cells; `base` is the result index of its first cell.
+class GridRow {
+    constructor(launcher, cols) {
+        this.base = 0;
+        this.actor = new St.BoxLayout({x_expand: true});
+        this.cells = [];
+        for (let c = 0; c < cols; c++) {
+            const cell = new Cell(launcher, this, c);
+            this.cells.push(cell);
+            this.actor.add_child(cell.actor);
+        }
+    }
+
+    restyle(st) {
+        this.actor.set_style(st.gridRow);
+        for (const c of this.cells)
+            c.restyle(st);
+    }
+
+    set(results, base) {
+        this.base = base;
+        for (const c of this.cells)
+            c.set(results[base + c.col]);
+    }
 }
 
 // One reusable result row. Rows are pooled: created lazily, then only updated.
@@ -198,6 +271,9 @@ export class Launcher {
         this._suppress = false;
         this._lastListH = -2;
         this._shown = 0;
+        this._grid = false;
+        this._gridRows = [];
+        this._gridCols = 0;
         this._siKey = '';
         this._reveal = new Idle(() => this._scrollToSelected(), GLib.PRIORITY_DEFAULT_IDLE);
         this._mode = null;
@@ -270,6 +346,9 @@ export class Launcher {
         this._scroll.set_child(this._list);
         this._empty = new St.Label({text: 'No results', visible: false});
         this._list.add_child(this._empty);
+        // Name of the highlighted emoji, shown under the grid.
+        this._hint = new St.Label({visible: false});
+        this._hint.clutter_text.ellipsize = Pango.EllipsizeMode.END;
 
         this._overlay.add_child(this._box);
         Main.uiGroup.add_child(this._overlay);
@@ -323,8 +402,10 @@ export class Launcher {
 
     // --- modes (sub-views such as clipboard history) ---
 
-    enterMode(mode, {placeholder = '', empty = 'No results'} = {}) {
+    // grid: show the results as a grid of square glyph cells instead of rows (used for emoji).
+    enterMode(mode, {placeholder = '', empty = 'No results', grid = false} = {}) {
         this._mode = mode;
+        this._grid = grid;
         this._emptyText = empty;
         this._empty.text = empty;
         if (placeholder)
@@ -348,6 +429,7 @@ export class Launcher {
 
     _resetMode() {
         this._mode = null;
+        this._grid = false;
         this._emptyText = 'No results';
         if (this._empty)
             this._empty.text = this._emptyText;
@@ -380,16 +462,28 @@ export class Launcher {
         this._applySearchIcon(st);
         for (const r of this._rows)
             r.restyle(st);
+        this._hint.set_style(st.gridHint);
+        if (this._gridCols !== st.gridCols) {
+            for (const r of this._gridRows)
+                r.actor.destroy();
+            this._gridRows = [];
+            this._gridCols = st.gridCols;
+        } else {
+            for (const r of this._gridRows)
+                r.restyle(st);
+        }
 
         if (this._order !== st.searchPosition) {
             this._order = st.searchPosition;
             this._box.remove_all_children();
             if (st.searchPosition === 'bottom') {
                 this._box.add_child(this._scroll);
+                this._box.add_child(this._hint);
                 this._box.add_child(this._entry);
             } else {
                 this._box.add_child(this._entry);
                 this._box.add_child(this._scroll);
+                this._box.add_child(this._hint);
             }
         }
         this._applyBlur(st.blur);
@@ -612,25 +706,40 @@ export class Launcher {
     _render() {
         const st = this._st;
         const n = this._results.length;
+        const grid = this._grid;
         const hasQuery = this._entry.get_text().length > 0;
 
         // Only the first batch of rows exists up front; _grow() adds more on demand.
         this._shown = 0;
-        this._grow(Math.min(n, CHUNK));
-        for (let i = this._shown; i < this._rows.length; i++) {
+        this._grow(Math.min(n, this._chunk()));
+        const perRow = grid ? st.gridCols : 1;
+        const gridRowsShown = grid ? Math.ceil(this._shown / perRow) : 0;
+        for (let i = grid ? 0 : this._shown; i < this._rows.length; i++) {
             this._rows[i].actor.hide();
             this._rows[i].setSelected(false);
         }
+        for (let i = gridRowsShown; i < this._gridRows.length; i++)
+            this._gridRows[i].actor.hide();
 
         const showEmpty = n === 0 && (hasQuery || this._mode !== null);
         this._empty.visible = showEmpty;
         this._scroll.visible = n > 0 || showEmpty;
+        this._hint.visible = grid && n > 0;
 
         // The window grows with the results up to the configured maximum, then scrolls. This is an
         // actor size rather than an inline CSS height: changing the style string re-resolves the
         // style of the whole list on every result-count change, which made the border and shadow
         // flicker while typing. CSS px -> actor px goes through the theme scale factor.
-        const h = n > 0 ? Math.round(Math.min(n * st.rowH + (n - 1) * st.gap, st.maxListH) * scaleFactor()) : -1;
+        let need = 0;
+        let max = st.maxListH;
+        if (grid) {
+            const lines = Math.ceil(n / perRow);
+            need = lines * st.gridCell + Math.max(0, lines - 1) * st.gridGap;
+            max = Math.max(st.gridCell, st.maxListH - st.gridHintH);
+        } else {
+            need = n * st.rowH + (n - 1) * st.gap;
+        }
+        const h = n > 0 ? Math.round(Math.min(need, max) * scaleFactor()) : -1;
         if (h !== this._lastListH) {
             this._scroll.set_height(h);
             this._lastListH = h;
@@ -643,18 +752,62 @@ export class Launcher {
             adj.value = 0;
     }
 
-    // Make sure rows [0, upto) exist and show their entries. Returns whether any were added.
+    // Entries created per batch: a few lines of cells in the grid, 40 rows in the list.
+    _chunk() {
+        return this._grid ? this._st.gridCols * 6 : CHUNK;
+    }
+
+    // Make sure rows/cells for entries [0, upto) exist and show them. Returns whether any were added.
     _grow(upto) {
         const n = this._results.length;
         const from = this._shown;
-        const target = Math.min(n, upto > from ? Math.max(upto, from + CHUNK) : from);
-        for (let i = from; i < target; i++) {
-            const row = this._rows[i] ?? this._makeRow(i);
-            row.set(this._results[i]);
-            row.actor.show();
+        let target = Math.min(n, upto > from ? Math.max(upto, from + this._chunk()) : from);
+        if (this._grid) {
+            const cols = this._st.gridCols;
+            const lines = Math.ceil(target / cols);
+            for (let r = Math.floor(from / cols); r < lines; r++) {
+                const row = this._gridRows[r] ?? this._makeGridRow();
+                row.set(this._results, r * cols);
+                row.actor.show();
+            }
+            target = Math.min(n, lines * cols);
+        } else {
+            for (let i = from; i < target; i++) {
+                const row = this._rows[i] ?? this._makeRow(i);
+                row.set(this._results[i]);
+                row.actor.show();
+            }
         }
         this._shown = Math.max(from, target);
         return target > from;
+    }
+
+    _makeGridRow() {
+        const row = new GridRow(this, this._st.gridCols);
+        row.restyle(this._st);
+        this._list.add_child(row.actor);
+        this._gridRows.push(row);
+        return row;
+    }
+
+    // Row/cell geometry in actor pixels: distance between lines, size of one line, entries per line.
+    _metrics() {
+        const st = this._st;
+        const sf = scaleFactor();
+        if (this._grid)
+            return {stride: (st.gridCell + st.gridGap) * sf, size: st.gridCell * sf, perRow: st.gridCols};
+        return {stride: (st.rowH + st.gap) * sf, size: st.rowH * sf, perRow: 1};
+    }
+
+    // The visual item (row or cell) for result index i.
+    _item(i) {
+        if (i < 0)
+            return null;
+        if (this._grid) {
+            const cols = this._st.gridCols;
+            return this._gridRows[Math.floor(i / cols)]?.cells[i % cols] ?? null;
+        }
+        return this._rows[i] ?? null;
     }
 
     // Called on every scroll movement: add the next batch before the user reaches the last row.
@@ -664,8 +817,9 @@ export class Launcher {
         const adj = vAdjustment(this._scroll);
         if (!adj)
             return;
-        const stride = (this._st.rowH + this._st.gap) * scaleFactor();
-        if (adj.value + adj.page_size >= this._shown * stride - stride * 3)
+        const {stride, perRow} = this._metrics();
+        const lines = Math.ceil(this._shown / perRow);
+        if (adj.value + adj.page_size >= lines * stride - stride * 3)
             this._grow(this._shown + 1);
     }
 
@@ -680,15 +834,19 @@ export class Launcher {
     _select(i) {
         if (this._sel === i)
             return;
-        this._rows[this._sel]?.setSelected(false);
+        this._item(this._sel)?.setSelected(false);
         this._sel = i;
         if (i < 0)
             return;
         const grew = i >= this._shown && this._grow(i + 1);
-        const row = this._rows[i];
+        const row = this._item(i);
         if (!row)
             return;
         row.setSelected(true);
+        if (this._grid) {
+            const e = this._results[i];
+            this._hint.text = e ? (e.desc ? `${e.name}  ·  ${e.desc}` : e.name) : '';
+        }
         this._scrollToSelected();
         // Rows created just now have no allocation yet, so the scroll range is still the old one.
         // Apply the same scroll again once the layout has caught up.
@@ -705,9 +863,9 @@ export class Launcher {
             const st = this._st;
             if (!adj || !st || this._sel < 0 || adj.page_size <= 0)
                 return;
-            const sf = scaleFactor();
-            const top = this._sel * (st.rowH + st.gap) * sf;
-            const bottom = top + st.rowH * sf;
+            const {stride, size, perRow} = this._metrics();
+            const top = Math.floor(this._sel / perRow) * stride;
+            const bottom = top + size;
             if (top < adj.value)
                 adj.value = top;
             else if (bottom > adj.value + adj.page_size)
@@ -717,6 +875,8 @@ export class Launcher {
 
     // After the window has closed, give back rows that only a very long list needed.
     _trimPool() {
+        for (const row of this._gridRows.splice(KEEP_ROWS / 4))
+            row.actor.destroy();
         if (this._rows.length <= KEEP_ROWS)
             return;
         for (const row of this._rows.splice(KEEP_ROWS))
@@ -737,16 +897,18 @@ export class Launcher {
         let i = this._sel + delta;
         // Wrapping from the first row to the last would have to create every row of a very long
         // list at once, so long lists stop at their ends instead (short lists still wrap).
-        if (n > CHUNK * 3)
+        if (n > this._chunk() * 3 || this._grid)
             clamp = true;
         i = clamp ? Math.min(n - 1, Math.max(0, i)) : (i + n) % n;
         this._select(i);
     }
 
-    _activateIndex(i) {
+    // `how` says which modifier was held with Enter: '', 'ctrl', 'alt' or 'shift'. Most entries ignore
+    // it; account entries use it to copy the username, open the site or type the password.
+    _activateIndex(i, how = '') {
         const entry = this._results[i];
         if (entry)
-            this._onActivate(entry);
+            this._onActivate(entry, how);
     }
 
     _onKey(ev) {
@@ -765,6 +927,35 @@ export class Launcher {
                     this._onWindowShortcut?.(hit.id);
                     return Clutter.EVENT_STOP;
                 }
+            }
+        }
+
+        // Grid view: the arrow keys move in two dimensions.
+        if (this._grid && !ctrl && !alt) {
+            const cols = this._st.gridCols;
+            const n = this._results.length;
+            switch (sym) {
+            case Clutter.KEY_Left:
+                this._move(-1, true);
+                return Clutter.EVENT_STOP;
+            case Clutter.KEY_Right:
+                this._move(1, true);
+                return Clutter.EVENT_STOP;
+            case Clutter.KEY_Up:
+                this._move(-cols, true);
+                return Clutter.EVENT_STOP;
+            case Clutter.KEY_Down:
+                // Already on the last line: stay instead of jumping to the last cell.
+                if (n > 0 && Math.floor(this._sel / cols) < Math.floor((n - 1) / cols))
+                    this._move(cols, true);
+                return Clutter.EVENT_STOP;
+            case Clutter.KEY_Page_Down:
+                this._move(cols * 4, true);
+                return Clutter.EVENT_STOP;
+            case Clutter.KEY_Page_Up:
+                this._move(-cols * 4, true);
+                return Clutter.EVENT_STOP;
+            default:
             }
         }
 
@@ -800,7 +991,7 @@ export class Launcher {
         case Clutter.KEY_Return:
         case Clutter.KEY_KP_Enter:
         case Clutter.KEY_ISO_Enter:
-            this._activateIndex(this._sel);
+            this._activateIndex(this._sel, ctrl ? 'ctrl' : alt ? 'alt' : (mods & Clutter.ModifierType.SHIFT_MASK) ? 'shift' : '');
             return Clutter.EVENT_STOP;
         default:
         }
@@ -834,7 +1025,8 @@ export class Launcher {
         this._reveal.cancel();
         this._box?.remove_all_transitions();
         this._overlay?.destroy();
-        this._overlay = this._box = this._entry = this._scroll = this._list = this._empty = null;
+        this._overlay = this._box = this._entry = this._scroll = this._list = this._empty = this._hint = null;
+        this._gridRows = [];
         this._rows = [];
         this._results = [];
         this._blurFx = null;
