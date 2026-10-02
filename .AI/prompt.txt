@@ -1,0 +1,663 @@
+--start--
+
+Build a highly customizable, lightweight GNOME Shell extension inspired by application launchers such as Lightbar and Vicinae.
+
+The goal is to create a fast, native-feeling launcher/search interface for GNOME that is highly customizable without consuming significant system resources.
+
+## Core Requirements
+
+### 1. Performance and Resource Usage
+
+Performance is a primary requirement.
+
+- Keep RAM usage as low as reasonably possible.
+- Keep idle CPU usage effectively near zero.
+- Avoid unnecessary background polling.
+- Do not continuously scan the filesystem, applications, or other resources.
+- Use event-driven approaches where possible.
+- Cache expensive operations and reuse cached data.
+- Avoid repeatedly creating/destroying expensive UI objects when they can be reused.
+- Do not introduce unnecessary dependencies.
+- Prefer GNOME/GLib/GJS APIs and native functionality where appropriate.
+- The launcher should appear and become usable with minimal delay.
+- Measure startup/search performance where practical.
+- Keep the extension responsive even with a large number of entries.
+
+Performance should be considered during every implementation task rather than optimized only at the end.
+
+---
+
+### 2. Launcher Interface
+
+Create a launcher interface similar in concept to Lightbar/Vicinae.
+
+It should support:
+
+- A central search/input field.
+- Search results displayed underneath.
+- Keyboard navigation.
+- Mouse interaction where appropriate.
+- Enter to execute the selected result.
+- Escape to close.
+- Fuzzy searching.
+- Search ranking/relevance.
+- Categories/types of entries where useful.
+- Fast incremental search results.
+- A clean GNOME-native appearance.
+- Smooth opening and closing animations, while allowing animations to be disabled.
+
+The UI must be designed so that it can be extensively customized through configuration.
+
+---
+
+### 3. Extensive Customization
+
+Make the extension highly configurable.
+
+At minimum, support customization of:
+
+#### Appearance
+
+- Window width.
+- Window height.
+- Maximum height.
+- Search bar size.
+- Search bar position.
+- Result row height.
+- Result icon size.
+- Font family where technically practical.
+- Font size.
+- Font weight.
+- Text colors.
+- Secondary text colors.
+- Border radius.
+- Border width.
+- Border color.
+- Background color.
+- Background opacity.
+- Blur strength where supported.
+- Shadows.
+- Spacing/padding.
+- Result spacing.
+- Search field padding.
+- Icon spacing.
+- Animation duration.
+- Animation style.
+- Overall scale.
+
+#### Themes
+
+Provide a theme system.
+
+Themes should be easy to create, modify, export, and import.
+
+A theme should be capable of controlling things such as:
+
+- Background.
+- Foreground.
+- Accent color.
+- Selection color.
+- Search field appearance.
+- Result appearance.
+- Borders.
+- Icons.
+- Transparency.
+- Blur.
+- Typography.
+- Shadows.
+
+Provide at least one sensible default theme.
+
+If possible, support separate light/dark themes and automatic GNOME dark/light mode integration.
+
+---
+
+### 4. Keyboard Shortcut Activation
+
+Allow the user to choose the global shortcut used to activate the launcher.
+
+Examples:
+
+- Super
+- Super+Space
+- Alt+Space
+- Ctrl+Space
+- Custom user-selected combinations
+
+Do not hardcode the activation shortcut.
+
+The shortcut configuration should be exposed through the extension's preferences.
+
+Handle shortcut conflicts gracefully.
+
+The launcher should be possible to open, close, and navigate entirely using the keyboard.
+
+---
+
+### 5. Applications and Entries
+
+Support launching installed applications.
+
+Application entries should provide:
+
+- Application name.
+- Description where available.
+- Icon.
+- Desktop file information.
+- Application launch command/action.
+
+Do not rescan all applications every time the launcher opens.
+
+Build an application cache and refresh it only when necessary.
+
+Where possible, detect changes to installed desktop applications and update the cache incrementally.
+
+---
+
+### 6. Custom Commands
+
+Allow users to define custom commands.
+
+A custom command should support at least:
+
+- Name.
+- Description.
+- Command.
+- Arguments.
+- Icon.
+- Optional keyboard shortcut.
+- Optional category.
+- Optional environment variables.
+- Enable/disable state.
+
+Example concept:
+
+```text
+Name: Terminal
+Command: kgx
+Icon: utilities-terminal
+Category: Applications
+```
+
+Users should be able to add, remove, and edit commands through the preferences interface.
+
+Commands should not require rebuilding or modifying the extension source code.
+
+7. Custom Shortcuts / Actions
+
+Allow users to create custom launcher actions.
+
+Examples:
+
+Launch an application.
+Execute a shell command.
+Open a URL.
+Open a file.
+Open a directory.
+Execute a script.
+Run a predefined GNOME action where supported.
+
+Each custom action should support:
+
+Name.
+Description.
+Icon.
+Command/action.
+Optional arguments.
+Search keywords.
+Category.
+Optional keyboard shortcut.
+8. Icons
+
+Support configurable icons.
+
+Users should be able to:
+
+Use installed icon names.
+Use custom icons where technically practical.
+Configure icons for custom commands.
+Configure default icons for categories.
+Change result icon size.
+
+Prefer the GNOME icon/theme system instead of embedding unnecessary image assets.
+
+9. Caching
+
+Caching is a major feature.
+
+Use cached entries whenever possible to minimize loading and search latency.
+
+At minimum, consider caching:
+
+Applications.
+Custom commands.
+Search metadata.
+Frequently used entries.
+Search ranking information.
+
+The cache must:
+
+Load quickly.
+Avoid unnecessary disk I/O.
+Be invalidated when relevant data changes.
+Never become a source of stale/broken entries without recovery.
+Fail gracefully if the cache becomes corrupted.
+
+Do not perform expensive initialization every time the launcher opens.
+
+The expected flow should be approximately:
+
+Launcher activated
+        ↓
+Immediately show cached data
+        ↓
+Allow searching immediately
+        ↓
+Refresh/update data asynchronously when necessary
+        ↓
+Update cache
+10. Search
+
+Implement a fast search system.
+
+Requirements:
+
+Fuzzy matching.
+Prefix matching.
+Substring matching.
+Search aliases/keywords.
+Ranking.
+Recent/frequently used entries.
+Keyboard navigation.
+Incremental results.
+
+Searching should operate primarily against in-memory cached data.
+
+Do not perform expensive filesystem operations for every keystroke.
+
+If an operation is expensive, perform it asynchronously and update the UI when results are ready.
+
+11. Transparency and Blur
+
+Support a transparent/translucent launcher background.
+
+Provide configuration for:
+
+Opacity.
+Blur.
+Background color.
+Border.
+Shadow.
+
+GNOME/Mutter limitations must be respected.
+
+If true compositor blur cannot reliably be implemented by the extension itself, design the system so that:
+
+Transparency still works.
+Blur is implemented using the most appropriate supported GNOME mechanism.
+Unsupported blur functionality fails gracefully.
+The extension does not require unsafe hacks merely to provide blur.
+
+Clearly document any GNOME-version-specific limitations.
+
+12. Preferences UI
+
+Create a proper GNOME preferences interface.
+
+Organize settings into logical sections such as:
+
+General
+Appearance
+Themes
+Keyboard Shortcuts
+Applications
+Commands
+Custom Actions
+Search
+Performance
+Advanced
+
+Preferences should be stored using the appropriate GNOME settings mechanism, preferably GSettings.
+
+Do not hardcode user configuration into source files.
+
+13. Configuration Architecture
+
+Design the extension so that new features can be added without rewriting the entire project.
+
+Separate concerns into logical modules.
+
+For example:
+
+extension/
+├── extension.js
+├── prefs.js
+├── ui/
+├── search/
+├── cache/
+├── applications/
+├── commands/
+├── shortcuts/
+├── themes/
+├── config/
+└── utils/
+
+The exact structure can differ if a better architecture is justified.
+
+Avoid overengineering.
+
+The architecture should remain understandable and maintainable.
+
+14. GNOME Compatibility
+
+Target modern GNOME Shell.
+
+Use the currently appropriate GNOME Shell extension architecture and APIs.
+
+Avoid deprecated APIs when a supported replacement exists.
+
+Document:
+
+Target GNOME Shell version(s).
+GJS version assumptions.
+Required dependencies.
+Optional dependencies.
+Features that depend on GNOME/Mutter capabilities.
+
+Keep compatibility considerations isolated where possible so future GNOME versions can be supported without rewriting the entire extension.
+
+15. Error Handling
+
+The extension must fail gracefully.
+
+Handle:
+
+Missing applications.
+Invalid commands.
+Invalid configuration.
+Broken cache.
+Missing icons.
+Unsupported features.
+Invalid shortcuts.
+Failed command execution.
+GNOME API differences.
+
+A broken custom command must not crash the entire extension.
+
+A corrupted cache should automatically be recoverable.
+
+16. Security
+
+Do not blindly execute arbitrary data obtained from search results.
+
+Clearly distinguish between:
+
+Built-in application entries.
+User-defined commands.
+User-defined scripts/actions.
+
+Validate configuration where appropriate.
+
+Do not introduce unnecessary privileged operations.
+
+Never require root privileges for normal launcher functionality.
+
+Development Process
+
+The implementation MUST be performed as a sequence of separate tasks/phases.
+
+Do not attempt to generate the entire project in one giant step.
+
+Each task should have:
+
+A clearly defined goal.
+The files that need to be created/modified.
+The implementation.
+Basic validation/testing.
+A short summary of what was completed.
+Any known limitations or remaining work.
+
+Suggested task breakdown:
+
+Task 1 — Project Skeleton
+
+Create:
+
+GNOME extension metadata.
+Basic extension entry point.
+Basic enable/disable lifecycle.
+Initial project structure.
+Minimal preferences structure.
+
+Verify that the extension can be loaded by GNOME.
+
+Task 2 — Basic Launcher UI
+
+Implement:
+
+Launcher window.
+Search field.
+Open/close behavior.
+Escape handling.
+Basic keyboard navigation.
+Initial styling.
+
+Verify that the launcher opens reliably and consumes minimal resources while idle.
+
+Task 3 — Application Discovery
+
+Implement application discovery and launching.
+
+Create the application cache.
+
+Do not rescan applications on every launcher activation.
+
+Task 4 — Search Engine
+
+Implement:
+
+Fuzzy search.
+Ranking.
+Incremental search.
+Keyboard navigation.
+Cached/in-memory searching.
+
+Benchmark or otherwise verify that searching remains responsive with many entries.
+
+Task 5 — Custom Commands
+
+Implement configurable custom commands and their preferences UI.
+
+Task 6 — Custom Actions / Shortcuts
+
+Implement custom actions and configurable shortcuts.
+
+Task 7 — Theme System
+
+Implement:
+
+Theme definitions.
+Theme loading.
+Default theme.
+Custom theme configuration.
+Light/dark support where practical.
+Task 8 — Appearance Customization
+
+Implement the extensive appearance options.
+
+Task 9 — Transparency / Blur
+
+Implement transparency and the best supported blur mechanism.
+
+Document GNOME/Mutter limitations.
+
+Task 10 — Preferences UI
+
+Expand the preferences interface and organize all configuration options.
+
+Task 11 — Performance Optimization
+
+Profile the extension and reduce:
+
+RAM usage.
+CPU usage.
+Startup latency.
+Search latency.
+Disk I/O.
+
+Do not sacrifice stability for micro-optimizations.
+
+Task 12 — Error Handling and Recovery
+
+Implement robust handling for invalid configurations, commands, caches, icons, and unsupported features.
+
+Task 13 — Testing
+
+Test:
+
+Enable/disable.
+Re-login/reboot.
+Shortcut activation.
+Application launching.
+Custom commands.
+Search.
+Cache rebuilding.
+Theme changes.
+Preferences changes.
+Missing icons.
+Invalid commands.
+Large numbers of entries.
+GNOME dark/light mode.
+Transparency.
+Blur.
+Repeated opening/closing.
+Task 14 — Final Cleanup
+
+Review the entire project.
+
+Remove:
+
+Dead code.
+Unnecessary dependencies.
+Debug logging.
+Unnecessary allocations.
+Duplicate functionality.
+
+Ensure the project is maintainable and properly documented.
+
+File Delivery / Upload Workflow
+
+IMPORTANT: Files must be delivered incrementally.
+
+As soon as a file is created or meaningfully updated and is considered complete for the current task:
+
+Save/write the file.
+Validate it if possible.
+Immediately upload/send that file.
+Do NOT wait until the entire task or entire project is finished to send the files.
+
+This means files should be delivered individually as soon as they are ready.
+
+For example:
+
+Create metadata.json
+    ↓
+Validate metadata.json
+    ↓
+UPLOAD/SEND metadata.json IMMEDIATELY
+
+Create extension.js
+    ↓
+Validate extension.js
+    ↓
+UPLOAD/SEND extension.js IMMEDIATELY
+
+Create prefs.js
+    ↓
+Validate prefs.js
+    ↓
+UPLOAD/SEND prefs.js IMMEDIATELY
+
+Do not hold completed files until the end of the task.
+
+Task Delivery Workflow
+
+Treat every development phase as a separate task.
+
+For each task:
+
+TASK START
+    ↓
+Implement required files
+    ↓
+Validate each completed file
+    ↓
+Immediately upload/send each completed file
+    ↓
+Run task-level tests
+    ↓
+Fix discovered issues
+    ↓
+Upload/send modified files immediately
+    ↓
+Task complete
+
+Do not move to the next task until the current task is in a usable state.
+
+Final Bundling
+
+After ALL tasks are completed:
+
+Perform a final project-wide validation.
+Ensure all files are present.
+Ensure the extension can be installed and enabled.
+Ensure configuration works.
+Ensure no unnecessary files are included.
+Create a final bundled archive containing the complete project.
+Send/upload the final bundle separately from the individual files.
+
+The final bundle should contain the complete installable/source project.
+
+For example:
+
+gnome-launcher/
+├── metadata.json
+├── extension.js
+├── prefs.js
+├── schemas/
+├── ui/
+├── search/
+├── cache/
+├── applications/
+├── commands/
+├── shortcuts/
+├── themes/
+├── README.md
+└── ...
+
+Then create:
+
+gnome-launcher.tar.gz
+
+and send/upload it as the final artifact.
+
+Important Implementation Principles
+Prefer simple solutions over unnecessary complexity.
+Performance is a requirement, not an afterthought.
+Do not introduce a framework merely because it is convenient.
+Minimize dependencies.
+Keep the extension modular.
+Keep expensive operations out of the UI thread where possible.
+Cache aggressively where appropriate.
+Avoid polling.
+Avoid unnecessary filesystem access.
+Avoid unnecessary background processes.
+Do not sacrifice maintainability for premature micro-optimization.
+Explain significant architectural decisions briefly.
+If a requested feature is impossible or restricted by GNOME Shell/Mutter, identify the limitation and implement the closest supported solution instead of using fragile hacks.
+Never silently omit a requested feature.
+Keep the implementation focused on a fast launcher rather than turning it into an unnecessarily large desktop environment.
+
+The final result should feel like a fast, lightweight, native GNOME launcher while providing significantly more customization than a typical GNOME extension.
+
+--end--
