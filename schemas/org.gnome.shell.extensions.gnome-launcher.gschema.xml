@@ -24,6 +24,16 @@
     <key name="row-height" type="i"><default>48</default><range min="24" max="160"/></key>
     <key name="icon-size" type="i"><default>32</default><range min="12" max="128"/></key>
     <key name="font-size" type="d"><default>11</default><range min="6" max="40"/></key>
+    <!-- Three font slots. Empty family / 0 weight = use the theme's; size 0 = automatic (relative to font-size).
+         font-size above is the size of the main (results) font. -->
+    <key name="font-search" type="s"><default>''</default></key>
+    <key name="font-size-search" type="d"><default>0</default><range min="0" max="40"/></key>
+    <key name="font-weight-search" type="i"><default>0</default><range min="0" max="900"/></key>
+    <key name="font-main" type="s"><default>''</default></key>
+    <key name="font-weight-main" type="i"><default>0</default><range min="0" max="900"/></key>
+    <key name="font-secondary" type="s"><default>''</default></key>
+    <key name="font-size-secondary" type="d"><default>0</default><range min="0" max="40"/></key>
+    <key name="font-weight-secondary" type="i"><default>0</default><range min="0" max="900"/></key>
     <key name="scale" type="d"><default>1.0</default><range min="0.5" max="3.0"/></key>
     <key name="padding" type="i"><default>10</default><range min="0" max="60"/></key>
     <key name="result-spacing" type="i"><default>2</default><range min="0" max="40"/></key>
@@ -90,6 +100,13 @@
     <!-- Word shared by all of the launcher's own entries (Emoji Picker, Clipboard History,
          power actions...). Typing exactly this word lists them all; empty disables it. -->
     <key name="own-keyword" type="s"><default>'app'</default></key>
+    <!-- Regular expressions in the search box: off | prefix (text starting with "/") | always
+         (any text containing regex characters that compiles and is safe) -->
+    <key name="regex-mode" type="s"><default>'prefix'</default></key>
+    <!-- Offer "search the web / ask an AI" entries: off | empty (when nothing was found) | always -->
+    <key name="web-fallback" type="s"><default>'empty'</default></key>
+    <!-- JSON list of {id, name, url (with {query}), icon, ai, enabled} -->
+    <key name="web-providers" type="s"><default>'[{"id":"google","name":"Google","url":"https://www.google.com/search?q={query}","icon":"system-search-symbolic","ai":false,"enabled":true},{"id":"duckduckgo","name":"DuckDuckGo","url":"https://duckduckgo.com/?q={query}","icon":"system-search-symbolic","ai":false,"enabled":false},{"id":"claude","name":"Claude","url":"https://claude.ai/new?q={query}","icon":"dialog-question-symbolic","ai":true,"enabled":true},{"id":"chatgpt","name":"ChatGPT","url":"https://chatgpt.com/?q={query}","icon":"dialog-question-symbolic","ai":true,"enabled":true},{"id":"perplexity","name":"Perplexity","url":"https://www.perplexity.ai/search?q={query}","icon":"dialog-question-symbolic","ai":true,"enabled":false}]'</default></key>
     <!-- When true both result limits below are ignored and the list can be scrolled through
          every match (rows are created lazily while scrolling, so this stays cheap) -->
     <key name="unlimited-results" type="b"><default>false</default></key>

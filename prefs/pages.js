@@ -1,10 +1,12 @@
 import Adw from 'gi://Adw';
 import Gio from 'gi://Gio';
 import Gtk from 'gi://Gtk';
+import Pango from 'gi://Pango';
 
 import {BUILTINS, sanitizeBuiltins} from '../commands/builtins.js';
 import {ACTION_FIELDS, COMMAND_FIELDS, newAction, newCommand, sanitizeAction, sanitizeCommand} from '../commands/schema.js';
 import {THEME_FIELDS, THEME_BASE, THEME_FAMILIES, builtinThemes, resolveTheme, sanitizeTheme, themeNames} from '../themes/themes.js';
+import {sanitizeProvider, newProvider} from '../search/web.js';
 import {accountsPage} from './accounts.js';
 import {ListEditor, Overrides, comboRow, entryRow, fileDialog, group, shortcutRow, spinRow, switchRow, toast} from './widgets.js';
 
@@ -206,6 +208,7 @@ function appearance(window, settings) {
     size.add(spinRow(settings, 'icon-spacing', 'Icon spacing', 0, 60, 1));
     size.add(spinRow(settings, 'font-size', 'Font size (pt)', 6, 40, 0.5, '', 1));
     p.add(size);
+    p.add(fontsGroup(settings));
 
     const field = group('Search field icon', 'The icon at the start of the search field.');
     const iconRow = entryRow(settings, 'search-icon', 'Icon name or file path (empty = no icon)');
@@ -330,8 +333,98 @@ function applications(settings) {
     return p;
 }
 
+// One font slot: family (chosen with the system font dialog; empty = the theme's), size, weight.
+function fontSlot(settings, {title, subtitle, family, size, sizeMin, sizeTitle, weight}) {
+    const row = new Adw.ExpanderRow({title, subtitle});
+    const famRow = new Adw.ActionRow({title: 'Font family'});
+    const btn = new Gtk.FontDialogButton({dialog: new Gtk.FontDialog(), level: Gtk.FontLevel.FAMILY, valign: Gtk.Align.CENTER});
+    const reset = new Gtk.Button({icon_name: 'edit-clear-symbolic', css_classes: ['flat'], valign: Gtk.Align.CENTER, tooltip_text: 'Use the theme font'});
+    let syncing = false;
+    const sync = () => {
+        syncing = true;
+        const name = settings.get_string(family);
+        famRow.subtitle = name || 'Theme font';
+        btn.font_desc = Pango.FontDescription.from_string(name || 'Sans');
+        reset.sensitive = name !== '';
+        syncing = false;
+    };
+    btn.connect('notify::font-desc', () => {
+        if (syncing)
+            return;
+        const fam = btn.font_desc?.get_family() ?? '';
+        if (fam)
+            settings.set_string(family, fam);
+    });
+    reset.connect('clicked', () => settings.set_string(family, ''));
+    settings.connect(`changed::${family}`, sync);
+    sync();
+    famRow.add_suffix(btn);
+    famRow.add_suffix(reset);
+    row.add_row(famRow);
+    row.add_row(spinRow(settings, size, sizeTitle, sizeMin, 40, 0.5, sizeMin === 0 ? 'Automatic follows the main size.' : '', 1));
+    row.add_row(spinRow(settings, weight, 'Weight (0 = theme, 400 normal, 700 bold)', 0, 900, 100));
+    return row;
+}
+
+function fontsGroup(settings) {
+    const g = group('Fonts',
+        'Three separate fonts. Leave a family empty to use the font of the theme. Very large sizes can be clipped by the row height, which is set under Size.');
+    g.add(fontSlot(settings, {
+        title: 'Search bar font', subtitle: 'The text you type and its placeholder',
+        family: 'font-search', size: 'font-size-search', sizeMin: 0, sizeTitle: 'Font size (pt, 0 = automatic)', weight: 'font-weight-search',
+    }));
+    g.add(fontSlot(settings, {
+        title: 'Main font', subtitle: 'Result titles, the empty-list message and the emoji name line',
+        family: 'font-main', size: 'font-size', sizeMin: 6, sizeTitle: 'Font size (pt)', weight: 'font-weight-main',
+    }));
+    g.add(fontSlot(settings, {
+        title: 'Details font', subtitle: 'Descriptions and the small type labels',
+        family: 'font-secondary', size: 'font-size-secondary', sizeMin: 0, sizeTitle: 'Font size (pt, 0 = automatic)', weight: 'font-weight-secondary',
+    }));
+    return g;
+}
+
+const WEB_FIELDS = [
+    {key: 'name', label: 'Name', type: 'text'},
+    {key: 'url', label: 'Address, with {query} where the search text goes', type: 'text'},
+    {key: 'icon', label: 'Icon (theme name or file path, optional)', type: 'text'},
+    {key: 'ai', label: 'This is an AI assistant (changes the wording)', type: 'switch'},
+    {key: 'enabled', label: 'Enabled', type: 'switch'},
+];
+
+function webPage(window, settings) {
+    const p = page('Web & AI', 'web-browser-symbolic');
+    const g = group('When nothing matches',
+        'Adds entries that open your browser with what you typed: a web search or an AI assistant. You can always force them by starting the search with "? ", for example "? how to rename a git branch".');
+    g.add(comboRow(settings, 'web-fallback', 'Offer web and AI entries', [
+        ['empty', 'Only when nothing was found'],
+        ['always', 'Always, after the other results'],
+        ['off', 'Never (the "? " prefix still works)'],
+    ]));
+    p.add(g);
+    p.add(new ListEditor({
+        window, settings, key: 'web-providers', title: 'Search engines and AI assistants',
+        description: 'Only http and https addresses that contain {query} are accepted. The text is percent-encoded for you. Prefilling the question works on the sites listed by default; other assistants may only open their start page.',
+        fields: WEB_FIELDS, newItem: newProvider, sanitize: sanitizeProvider, exportName: 'launcher-web-search',
+        itemSubtitle: w => `${w.ai ? 'AI · ' : ''}${w.url ?? ''}`,
+    }).group);
+    return p;
+}
+
 function search(settings) {
     const p = page('Search', 'system-search-symbolic');
+    const rx = group('Regular expressions',
+        'Match names, keywords and descriptions with a pattern, for example /^(chrom|fire)/ or /term.*emu/. Matching ignores case.');
+    rx.add(comboRow(settings, 'regex-mode', 'Use regular expressions', [
+        ['prefix', 'When the search starts with a slash'],
+        ['always', 'Always when the text looks like a pattern (falls back to normal search if it is not valid)'],
+        ['off', 'Never'],
+    ]));
+    rx.add(new Adw.ActionRow({
+        title: 'Safety limits',
+        subtitle: 'Patterns that can freeze the shell are refused: more than two open-ended repeats (*, +), repeated groups that contain repeats or alternatives, back-references and look-behind. Custom commands can also use /regex/ in their keywords.',
+    }));
+    p.add(rx);
     const g = group('Matching');
     g.add(switchRow(settings, 'fuzzy', 'Fuzzy matching', 'Match characters in order, for example "ffx" finds Firefox.'));
     g.add(switchRow(settings, 'search-descriptions', 'Search descriptions'));
@@ -425,7 +518,7 @@ export function buildPages(window, settings) {
     return [
         general(settings), appearance(window, settings), themes(window, settings), shortcuts(window, settings),
         applications(settings), builtinsPage(window, settings), emojiPage(window, settings),
-        accountsPage(window, settings, builtinsStore(settings), ownShortcuts), commandsPage, actionsPage, search(settings),
+        accountsPage(window, settings, builtinsStore(settings), ownShortcuts), commandsPage, actionsPage, search(settings), webPage(window, settings),
         performance(window, settings), advanced(window, settings),
     ];
 }

@@ -17,6 +17,8 @@ import {Runner, openUri} from './commands/runner.js';
 import {buildUserEntries} from './commands/userEntries.js';
 import {Config} from './config/config.js';
 import {calculate} from './search/calc.js';
+import {parseRegexQuery} from './search/regex.js';
+import {DEFAULT_PROVIDERS, explicitWebQuery, offerWeb, sanitizeProviders, webEntries} from './search/web.js';
 import {SearchEngine, prepare} from './search/engine.js';
 import {Keybindings} from './shortcuts/keybindings.js';
 import {resolveTheme} from './themes/themes.js';
@@ -34,6 +36,8 @@ const STYLE_KEYS = new Set([
     'icon-spacing', 'show-descriptions', 'show-tags', 'placeholder', 'theme-mode',
     'theme-light', 'theme-dark', 'custom-themes', 'theme-overrides',
     'search-icon', 'search-icon-size', 'show-scrollbar', 'emoji-grid-size',
+    'font-search', 'font-size-search', 'font-weight-search', 'font-main', 'font-weight-main',
+    'font-secondary', 'font-size-secondary', 'font-weight-secondary',
 ]);
 
 // The emoji dataset is only loaded when first needed and released again after this long idle.
@@ -165,6 +169,9 @@ export default class GnomeLauncherExtension extends Extension {
         case 'accounts':
             this._syncAccounts();
             break;
+        case 'web-providers':
+            this._webProviders = null;
+            break;
         case 'emoji-enabled':
         case 'accounts-enabled':
         case 'own-keyword':
@@ -286,6 +293,11 @@ export default class GnomeLauncherExtension extends Extension {
                 placeholder: c.str('placeholder'),
                 searchIcon: c.str('search-icon').trim(), searchIconSize: c.int('search-icon-size'),
                 showScrollbar: c.bool('show-scrollbar'), gridCell: c.int('emoji-grid-size'),
+                fonts: {
+                    search: {family: c.str('font-search'), size: c.num('font-size-search'), weight: c.int('font-weight-search')},
+                    main: {family: c.str('font-main'), weight: c.int('font-weight-main')},
+                    secondary: {family: c.str('font-secondary'), size: c.num('font-size-secondary'), weight: c.int('font-weight-secondary')},
+                },
             },
             theme: resolveTheme({
                 custom: c.json('custom-themes', []),
@@ -323,6 +335,23 @@ export default class GnomeLauncherExtension extends Extension {
         }
         const t0 = GLib.get_monotonic_time();
         const all = c.bool('unlimited-results');
+
+        // "? some words" always searches the web, whatever the settings say.
+        const asked = explicitWebQuery(query);
+        if (asked !== null)
+            return webEntries(this._providers(), asked);
+
+        // Regular expression over names, keywords and descriptions ("/chrom|fire").
+        const rx = parseRegexQuery(query, c.str('regex-mode'));
+        this._launcher?.setEmptyText(rx?.error ?? 'No results');
+        if (rx?.error)
+            return [];
+        if (rx) {
+            return this._engine.searchRegex(rx.re, {
+                limit: all ? Infinity : c.int('max-results'),
+                descriptions: c.bool('search-descriptions'), frecency: c.bool('frecency'),
+            });
+        }
         let out = this._engine.search(query, {
             limit: all ? Infinity : c.int('max-results'),
             initial: all ? Infinity : c.int('initial-results'),
@@ -339,8 +368,15 @@ export default class GnomeLauncherExtension extends Extension {
                 }), ...out];
             }
         }
+        if (offerWeb(c.str('web-fallback'), out.length, query))
+            out = [...out, ...webEntries(this._providers(), query)];
         dbg(`search "${query}": ${((GLib.get_monotonic_time() - t0) / 1000).toFixed(2)} ms, ${out.length} results of ${this._engine.size}`);
         return out;
+    }
+
+    _providers() {
+        this._webProviders ??= sanitizeProviders(this._config.json('web-providers', DEFAULT_PROVIDERS));
+        return this._webProviders;
     }
 
     _activateId(id) {
@@ -371,6 +407,11 @@ export default class GnomeLauncherExtension extends Extension {
             return;
         case 'emoji':
             this._pickEmoji(entry);
+            return;
+        case 'web':
+            this._launcher.close();
+            if (/^https?:\/\//i.test(entry.payload.url))
+                openUri(entry.payload.url);
             return;
         case 'clipimage':
             this._launcher.close();

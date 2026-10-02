@@ -1,5 +1,7 @@
 // Pure JS (no GI imports): unit-testable and benchmarkable under plain node.
 //
+import {extractRegexKeywords} from './regex.js';
+//
 // Entries are "prepared" once (lowercased/diacritic-folded copies of their text fields),
 // so a keystroke only does cheap string comparisons against in-memory data. Extending the
 // previous query (typing another character) re-scans only the previous matches.
@@ -15,6 +17,12 @@ export function fold(s) {
 
 // Adds search metadata to an entry ({name, desc, keywords, category}). Idempotent.
 export function prepare(e) {
+    // Custom commands/actions may carry /regex/ keywords: split them from the plain words.
+    if (e.rxKeywords) {
+        const {plain, patterns} = extractRegexKeywords(e.keywords);
+        e.keywords = plain;
+        e._rx = patterns;
+    }
     const n = fold(e.name || '');
     e._n = n;
     e._nw = ` ${n.replace(SEP, ' ').trim()}`;
@@ -98,6 +106,7 @@ export class SearchEngine {
         this._entries = [];
         this._byId = new Map();
         this._alpha = null;
+        this._rxEntries = [];
         this._prevQ = '';
         this._prevIdx = null;
         this._prevKey = '';
@@ -107,6 +116,7 @@ export class SearchEngine {
     setEntries(list) {
         this._entries = list;
         this._byId = new Map(list.map(e => [e.id, e]));
+        this._rxEntries = list.filter(e => e._rx?.length);
         this._alpha = null;
         this._prevIdx = null;
         this._prevQ = '';
@@ -116,9 +126,58 @@ export class SearchEngine {
         return this._entries.length;
     }
 
+    // Normal search, plus entries whose /regex/ keywords match the whole query (those come first).
+    search(query, opts = {}) {
+        const out = this._search(query, opts);
+        const q = String(query ?? '').trim();
+        if (!q || this._rxEntries.length === 0)
+            return out;
+        const hits = this._rxEntries.filter(e => e._rx.some(r => r.test(q)));
+        if (hits.length === 0)
+            return out;
+        const seen = new Set(hits.map(e => e.id));
+        return [...hits, ...out.filter(e => !seen.has(e.id))].slice(0, opts.limit ?? 30);
+    }
+
+    // Regular-expression search over names, keywords and (optionally) descriptions. `re` comes from
+    // parseRegexQuery(), so it is already known to be safe; only short slices of text are tested.
+    // Name matches rank above keyword matches above description matches; earlier and fuller
+    // matches rank higher.
+    searchRegex(re, opts = {}) {
+        const limit = opts.limit ?? 30;
+        const descs = opts.descriptions ?? true;
+        const useFrec = (opts.frecency ?? true) && this.stats;
+        const now = Math.floor(Date.now() / 1000);
+        const hits = [];
+        // Only short slices are tested and the whole scan has a time budget: a pattern that is merely
+        // polynomial can still be slow over thousands of entries, so partial results beat a frozen shell.
+        const deadline = Date.now() + (opts.budgetMs ?? 60);
+        let n = 0;
+        for (const e of this._entries) {
+            if ((++n & 31) === 0 && Date.now() > deadline)
+                break;
+            const name = (e.name || '').slice(0, 120);
+            let score = 0;
+            let m = re.exec(name);
+            if (m)
+                score = 1000 - Math.min(m.index, 100) * 3 + (m[0].length === name.length ? 100 : 0);
+            else if (re.test((e.keywords || '').slice(0, 200)))
+                score = 300;
+            else if (descs && re.test((e.desc || '').slice(0, 150)))
+                score = 100;
+            if (!score)
+                continue;
+            if (useFrec)
+                score += frecency(this.stats.get(e.id), now);
+            hits.push([score, e]);
+        }
+        hits.sort((a, b) => b[0] - a[0] || a[1]._n.length - b[1]._n.length || (a[1]._n < b[1]._n ? -1 : 1));
+        return hits.slice(0, limit).map(h => h[1]);
+    }
+
     // opts: {limit, initial, fuzzy, descriptions, frecency, natural}
     // limit/initial may be Infinity; `natural` fills an empty query in entry order, not A-Z.
-    search(query, opts = {}) {
+    _search(query, opts = {}) {
         const limit = opts.limit ?? 30;
         const fuzzy = opts.fuzzy ?? true;
         const descs = opts.descriptions ?? true;

@@ -3,7 +3,7 @@
 ## Automated (no GNOME needed)
 
 ```sh
-node tests/run.mjs          # 79 tests: search, frecency, themes and presets, emoji, clipboard images, accounts, validation, calculator, built-ins, static lint
+node tests/run.mjs          # 92 tests: search, frecency, themes and presets, emoji, clipboard images, accounts, validation, calculator, built-ins, static lint
 node tools/bench.mjs 20000  # search latency (use `gjs -m tools/bench.mjs` for SpiderMonkey numbers)
 glib-compile-schemas --strict --dry-run schemas
 ```
@@ -51,3 +51,6 @@ Nested session for safe iteration: `dbus-run-session gnome-shell --nested --wayl
 | Clipboard images | Take a screenshot to the clipboard, copy an image from a browser, copy a spreadsheet range, open Clipboard History | Images show a thumbnail and size; Enter re-copies and pastes into an image editor; the spreadsheet selection is kept as text; images above the size limit are ignored; extra images beyond the count drop the oldest |
 | Accounts | Add an account (use Generate), then open `passwords`: Enter, Shift+Enter, Ctrl+Enter, Alt+Enter; edit with an empty password; delete | Password in Passwords/Keys (Seahorse) and not in `dconf dump`; copied password is cleared after the delay and absent from clipboard history; Shift+Enter types it; delete removes the keyring item |
 | Accounts without a keyring | Remove the Secret typelib or stop the keyring | Accounts page explains the problem, Add is disabled, the launcher notifies instead of failing silently |
+| Regex search | Type `/^(fire|chrom)`, `/term.*emu`, `/(a+)+$`, `/(`; switch the mode to always and type `fire.*`; add a command with keywords `/^open term(inal)?$/` | Pattern results ranked name > keywords > description; unsafe or incomplete patterns show a short message instead of freezing; the command appears first for `open term` |
+| Web / AI fallback | Search for nonsense, then `? how to rename a git branch`; try each *Offer* mode; edit a provider and add one without `{query}` | Entries open the browser with the text encoded; the invalid provider is rejected; `? ` works even with *Never* |
+| Fonts | Set a different family, size and weight for each of the three slots; reset one; pick a theme with its own font | Search bar, titles and descriptions change independently; empty falls back to the theme font; huge sizes do not break layout beyond clipping |

@@ -9,7 +9,9 @@ import {sanitizeTheme, resolveTheme, builtinThemes, cssColor, THEME_FAMILIES} fr
 import {sanitizeCommand, sanitizeAction, validateCommand, validateAction} from '../commands/schema.js';
 import {buildUserEntries} from '../commands/userEntries.js';
 import {calculate} from '../search/calc.js';
-import {buildStyles} from '../ui/style.js';
+import {buildStyles, cssFontFamily} from '../ui/style.js';
+import {parseRegexQuery, isRiskyPattern, extractRegexKeywords} from '../search/regex.js';
+import {sanitizeProviders, sanitizeProvider, validTemplate, buildUrl, webEntries, explicitWebQuery, offerWeb, DEFAULT_PROVIDERS} from '../search/web.js';
 import {sanitizeAccount, sanitizeAccounts, accountEntries, safeUrl, hostOf, generatePassword, newAccountId, clearDelaySeconds} from '../accounts/accounts.js';
 import {randomBytes} from 'node:crypto';
 import {clipboardKind, imageInfo, imageLabels, formatBytes, imagesToDrop} from '../clipboard/image.js';
@@ -360,6 +362,35 @@ test('the accounts entry appears only when enabled, as a mode that is not part o
     assert.equal(e.payload.target, 'accounts');
     assert.ok(e.payload.empty.includes('Preferences'));
 });
+test('font names are made safe for inline styles', () => {
+    assert.equal(cssFontFamily('Fira Sans'), '"Fira Sans"');
+    assert.equal(cssFontFamily('Fira Code, monospace'), '"Fira Code", monospace');
+    assert.equal(cssFontFamily('Inter; background-color: red'), '"Inter background-color red"');
+    assert.ok(!/[;{}:]/.test(cssFontFamily('a"; color: red} b{')));
+    assert.equal(cssFontFamily(''), '');
+    assert.equal(cssFontFamily(null), '');
+    assert.equal(cssFontFamily('Noto Sans Arabic, Cairo, Amiri, Tajawal, Extra'), '"Noto Sans Arabic", "Cairo", "Amiri", "Tajawal"');
+    assert.equal(cssFontFamily('Sans-Serif'), 'sans-serif');
+});
+test('three font slots style the search bar, the main text and the details independently', () => {
+    const theme = {...builtinThemes()['default-dark'], fontFamily: 'Cantarell', fontWeight: 400};
+    const base = buildStyles(LAYOUT, theme);
+    assert.ok(base.entry.includes('"Cantarell"') && base.title.includes('"Cantarell"') && base.sub.includes('"Cantarell"'), 'theme font is the fallback');
+    const st = buildStyles({...LAYOUT, fonts: {
+        search: {family: 'Fira Code', size: 20, weight: 300},
+        main: {family: 'Inter', weight: 600},
+        secondary: {family: 'Noto Serif', size: 9, weight: 0},
+    }}, theme);
+    assert.ok(st.entry.includes('"Fira Code"') && st.entry.includes('font-size: 20.00pt') && st.entry.includes('font-weight: 300'));
+    assert.ok(st.title.includes('"Inter"') && st.title.includes('font-weight: 600') && st.title.includes('font-size: 11.00pt'));
+    assert.ok(st.sub.includes('"Noto Serif"') && st.sub.includes('font-size: 9.00pt') && st.sub.includes('font-weight: 400'));
+    assert.ok(st.tag.includes('"Noto Serif"') && !st.tag.includes('font-size: 9.00pt'), 'tags are a bit smaller than details');
+    assert.ok(!st.title.includes('Fira') && !st.sub.includes('Inter') && !st.entry.includes('Noto'));
+    assert.ok(st.hint.includes('"Fira Code"'), 'placeholder follows the search font');
+    // Sizes of 0 mean automatic: relative to the main size.
+    const auto = buildStyles({...LAYOUT, fontSize: 12, fonts: {search: {size: 0}, secondary: {size: 0}}}, theme);
+    assert.ok(auto.entry.includes('font-size: 15.00pt') && auto.sub.includes('font-size: 9.84pt'));
+});
 test('emoji built-ins follow the emoji flag and carry their mode texts', () => {
     const off = buildBuiltinEntries({}, {clipboard: true, emoji: false});
     assert.ok(!off.entries.some(e => e.id.startsWith('system:emoji')));
@@ -498,6 +529,118 @@ test('clipboard clear delay is clamped', () => {
     assert.equal(clearDelaySeconds('x'), 20);
 });
 
+// ---- regex search ---------------------------------------------------------------------------
+test('regex queries: modes decide what counts as a pattern', () => {
+    assert.equal(parseRegexQuery('/fire', 'off'), null);
+    assert.equal(parseRegexQuery('firefox', 'prefix'), null);
+    assert.equal(parseRegexQuery('fire.*', 'prefix'), null, 'prefix mode needs the slash');
+    assert.equal(parseRegexQuery('/fire|chrom', 'prefix').source, 'fire|chrom');
+    assert.equal(parseRegexQuery('/fire|chrom/', 'prefix').source, 'fire|chrom', 'closing slash is optional');
+    assert.equal(parseRegexQuery('  /^fire', 'prefix').source, '^fire');
+    assert.equal(parseRegexQuery('fire.*', 'always').source, 'fire.*');
+    assert.equal(parseRegexQuery('firefox', 'always'), null, 'plain words are not regexes in always mode');
+    assert.equal(parseRegexQuery('c++', 'always'), null, 'invalid pattern falls back to normal search');
+});
+test('explicit regex problems are reported, not thrown', () => {
+    assert.ok(parseRegexQuery('/', 'prefix').error);
+    assert.ok(parseRegexQuery('/(unclosed', 'prefix').error);
+    assert.ok(parseRegexQuery('/(a+)+$', 'prefix').error);
+    assert.ok(parseRegexQuery('/' + 'a'.repeat(200), 'prefix').error);
+    assert.equal(parseRegexQuery('(a+)+$', 'always'), null, 'risky implicit patterns just fall back');
+});
+test('patterns that backtrack catastrophically are refused', () => {
+    for (const bad of ['(a+)+$', '(.*)*x', '(a*)*', '(x{2,})+', '(a|b+)+', '(a|aa)+$', '(a?){0,20}b', '(a)\\1', '(?<=a)b', 'a.*a.*a.*b'])
+        assert.ok(isRiskyPattern(bad), bad);
+    for (const ok of ['^fire', 'chrom(e|ium)', '^(open )?term(inal)?$', 'a.*b', '\\bgimp\\b', '[a-z]+\\d{2,4}', '(foo)?bar', '(?:abc){2}', 'fire.*fox.*x'])
+        assert.ok(!isRiskyPattern(ok), ok);
+});
+test('every accepted pattern stays fast on long text', () => {
+    const long = 'a'.repeat(200);
+    const t0 = performance.now();
+    for (const src of ['a.*a.*b', '[a-z]+x', 'a{1,50}b', '.*a.*b', '(a)+b']) {
+        assert.ok(!isRiskyPattern(src), src);
+        new RegExp(src, 'i').test(long);
+    }
+    assert.ok(performance.now() - t0 < 100, `${(performance.now() - t0).toFixed(1)} ms`);
+});
+test('regex search matches names first, then keywords, then descriptions', () => {
+    const eng = new SearchEngine();
+    eng.setEntries([
+        prepare({id: 'a', kind: 'app', name: 'Firefox', desc: 'Web browser', keywords: 'internet'}),
+        prepare({id: 'b', kind: 'app', name: 'Files', desc: 'Browse files', keywords: 'folder explorer'}),
+        prepare({id: 'c', kind: 'app', name: 'Terminal', desc: 'Fire up a shell', keywords: 'console'}),
+        prepare({id: 'd', kind: 'app', name: 'Gimp', desc: 'Image editor', keywords: 'photoshop'}),
+    ]);
+    const ids = (src, o = {}) => eng.searchRegex(new RegExp(src, 'i'), {frecency: false, ...o}).map(e => e.id);
+    assert.deepEqual(ids('^fi'), ['b', 'a', 'c'], 'names first (shorter first), then the description match');
+    assert.deepEqual(ids('fire'), ['a', 'c'], 'name match above description match');
+    assert.deepEqual(ids('photo|console'), ['d', 'c']);
+    assert.equal(ids('photo').length, 1);
+    assert.deepEqual(ids('fire', {descriptions: false}), ['a']);
+    assert.deepEqual(ids('^gimp$'), ['d']);
+    assert.equal(eng.searchRegex(/zzz/i).length, 0);
+    assert.equal(eng.searchRegex(/./i, {limit: 2}).length, 2);
+});
+test('regex keywords of commands match the whole query and rank first', () => {
+    const {plain, patterns} = extractRegexKeywords('term shell /^(open )?term(inal)?$/ /(bad/ /(a+)+$/');
+    assert.equal(plain, 'term shell');
+    assert.equal(patterns.length, 1, 'invalid and risky patterns are ignored');
+    const eng = new SearchEngine();
+    eng.setEntries([
+        prepare({id: 'x', kind: 'app', name: 'Alpha terminal emulator', keywords: ''}),
+        prepare({id: 'cmd', kind: 'command', name: 'Run shell', keywords: '/^open term(inal)?$/ launch', rxKeywords: true}),
+        prepare({id: 'plain', kind: 'command', name: 'Other', keywords: '/^open term(inal)?$/', rxKeywords: false}),
+    ]);
+    assert.equal(eng.search('open term', {limit: 5})[0].id, 'cmd');
+    assert.equal(eng.search('open terminal', {limit: 5})[0].id, 'cmd');
+    assert.ok(!eng.search('open terminal now', {limit: 5}).some(e => e.id === 'cmd'), 'anchored pattern must not match');
+    assert.ok(eng.search('launch', {limit: 5}).some(e => e.id === 'cmd'), 'plain words still work');
+});
+
+// ---- web / AI fallback ----------------------------------------------------------------------
+test('web provider templates must be http(s) and contain {query}', () => {
+    assert.ok(validTemplate('https://example.com/s?q={query}'));
+    for (const bad of ['https://example.com/s', 'ftp://x.org/{query}', 'javascript:alert({query})', 'file:///{query}', '', 5, 'https://a b/{query}'])
+        assert.ok(!validTemplate(bad), String(bad));
+    assert.equal(sanitizeProvider({name: '', url: 'https://x.org/{query}'}), null);
+    assert.equal(sanitizeProvider({name: 'X', url: 'https://x.org/'}), null);
+    const p = sanitizeProvider({name: ' X ', url: 'https://x.org/?q={query}', enabled: false, ai: true, id: 'a b!c'});
+    assert.deepEqual(p, {id: 'abc', name: 'X', url: 'https://x.org/?q={query}', icon: '', ai: true, enabled: false});
+});
+test('default providers are all valid and unique', () => {
+    const list = sanitizeProviders(DEFAULT_PROVIDERS);
+    assert.equal(list.length, DEFAULT_PROVIDERS.length);
+    assert.ok(list.some(p => p.ai && p.enabled) && list.some(p => !p.ai && p.enabled));
+    assert.equal(sanitizeProviders([...DEFAULT_PROVIDERS, DEFAULT_PROVIDERS[0]]).length, DEFAULT_PROVIDERS.length);
+    assert.deepEqual(sanitizeProviders('nope'), []);
+});
+test('search text is percent-encoded into the url', () => {
+    assert.equal(buildUrl('https://x.org/?q={query}', 'a b&c=d/é'), 'https://x.org/?q=a%20b%26c%3Dd%2F%C3%A9');
+    assert.equal(buildUrl('https://x.org/{query}/{query}', 'z'), 'https://x.org/z/z');
+    assert.equal(buildUrl('https://x.org/', 'z'), '');
+    assert.equal(buildUrl('https://x.org/?q={query}', '   '), '');
+    assert.ok(buildUrl('https://x.org/?q={query}', 'x'.repeat(2000)).length < 700);
+});
+test('web entries: one per enabled provider with AI wording where flagged', () => {
+    const entries = webEntries(sanitizeProviders(DEFAULT_PROVIDERS), 'how to rename a git branch');
+    assert.equal(entries.length, DEFAULT_PROVIDERS.filter(p => p.enabled).length);
+    assert.ok(entries.every(e => e.kind === 'web' && e.payload.url.startsWith('https://')));
+    assert.ok(entries.some(e => e.name.startsWith('Ask Claude')));
+    assert.ok(entries.some(e => e.name.startsWith('Search Google')));
+    assert.deepEqual(webEntries(sanitizeProviders(DEFAULT_PROVIDERS), '   '), []);
+    assert.deepEqual(webEntries([], 'x'), []);
+});
+test('when web entries are offered', () => {
+    assert.equal(offerWeb('empty', 0, 'x'), true);
+    assert.equal(offerWeb('empty', 3, 'x'), false);
+    assert.equal(offerWeb('always', 3, 'x'), true);
+    assert.equal(offerWeb('off', 0, 'x'), false);
+    assert.equal(offerWeb('empty', 0, '  '), false);
+    assert.equal(explicitWebQuery('? rust lifetimes'), 'rust lifetimes');
+    assert.equal(explicitWebQuery('?rust'), null);
+    assert.equal(explicitWebQuery('what?'), null);
+});
+
 test('only verified named imports from shell resource modules', () => {
     for (const f of jsFiles(root)) {
         const src = readFileSync(f, 'utf8');
@@ -520,7 +663,7 @@ test('process separation: shell code never loads GTK, prefs never load Shell lib
     }
 });
 test('prefs-reachable modules are pure (only relative imports)', () => {
-    for (const f of ['themes/themes.js', 'commands/schema.js', 'commands/builtins.js', 'search/engine.js', 'emoji/emoji.js', 'emoji/data.js', 'clipboard/image.js', 'accounts/accounts.js']) {
+    for (const f of ['themes/themes.js', 'commands/schema.js', 'commands/builtins.js', 'search/engine.js', 'emoji/emoji.js', 'emoji/data.js', 'clipboard/image.js', 'accounts/accounts.js', 'search/regex.js', 'search/web.js']) {
         const src = readFileSync(join(root, f), 'utf8');
         for (const m of src.matchAll(/^import .* from '([^']+)'/gm))
             assert.ok(m[1].startsWith('.'), `${f} imports ${m[1]}`);

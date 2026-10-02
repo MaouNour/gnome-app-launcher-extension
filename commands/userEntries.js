@@ -32,7 +32,7 @@ export function buildUserEntries(commands, actions, categoryIcons) {
         entries.push(prepare({
             id, kind, name: item.name, desc: item.description || desc,
             category, icon: item.icon || icons[category] || icons[KIND_CATEGORY[kind]] || KIND_ICON[kind],
-            keywords: item.keywords, payload: item,
+            keywords: item.keywords, rxKeywords: true, payload: item,
         }));
         if (item.shortcut)
             shortcuts.push({id, accel: item.shortcut});

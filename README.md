@@ -44,7 +44,9 @@ config/config.js      typed GSettings wrapper + parsed-JSON cache
 ui/launcher.js        modal overlay, entry, lazily created pooled rows, animation, blur
 ui/style.js           layout + theme -> St CSS strings (computed on change only)
 themes/themes.js      pure: theme schema, sanitizer, built-ins, resolver
-search/engine.js      pure: ranking, fuzzy, narrowing, frecency
+search/engine.js      pure: ranking, fuzzy, narrowing, frecency, regex search
+search/regex.js       pure: regex query parsing with a slow-pattern guard
+search/web.js         pure: web / AI fallback providers and urls
 accounts/             accounts.js (pure records, URL checks, password generator), vault.js (GNOME Keyring via libsecret)
 emoji/                data.js (generated dataset, loaded lazily), emoji.js (pure logic), paste.js (virtual-keyboard paste)
 applications/         appIndex.js (cache + incremental diff + monitor), launch.js
@@ -99,6 +101,33 @@ Pasting works the way clipboard managers do: the text goes on the clipboard, the
 created by the compositor, and, when the emoji is not supposed to stay on the clipboard, your own clipboard text is put back afterwards.
 Keys are Ctrl+V, or Ctrl+Shift+V in terminals (auto-detected by window class), or fixed to a choice of your own.
 Only a *text* clipboard is restored; an image on the clipboard is not.
+
+### Regular expressions in search
+
+Start a search with a slash to use a pattern over names, keywords and descriptions, ignoring case: `/^(chrom|fire)`, `/term.*emu`, `/\bgimp\b`.
+A closing slash is optional. Name matches rank above keyword matches above description matches. *Preferences > Search > Use regular expressions*
+can change this to "always when the text looks like a pattern" (invalid or unsafe text silently falls back to normal search) or turn it off.
+
+A pattern runs on every keystroke against every entry, and JavaScript's engine backtracks, so a hostile pattern such as `(a+)+$` could freeze the
+shell. Defences: patterns over 120 characters, more than two open-ended repeats, repeated groups that contain repeats or alternatives,
+back-references and look-behind are refused with a message; only short slices of each entry's text are tested; and the whole scan has a 60 ms budget
+(partial results beat a frozen shell). Custom commands and actions can also put `/regex/` tokens in their **search keywords**; such a pattern is
+matched against the whole query and puts the command first, for example `terminal /^open term(inal)?$/`.
+
+### Web and AI fallback
+
+When nothing matches (or always, or never; *Preferences > Web & AI*) the list ends with entries that open your browser: "Search Google for ..." and
+"Ask Claude: ...". Starting a search with `? ` forces them whatever the setting, for example `? how to rename a git branch`. The providers are an
+editable list (name, address containing `{query}`, icon, AI or not, enabled); defaults are Google, Claude and ChatGPT enabled and DuckDuckGo and
+Perplexity available. Only http(s) addresses are accepted and the text is percent-encoded. Whether an assistant pre-fills the question from the address
+is up to that site; the defaults use the parameters those sites document.
+
+### Fonts
+
+*Preferences > Appearance > Fonts* has three independent slots: the **search bar** font, the **main** font (result titles) and the **details** font
+(descriptions and type labels). Each has a family (chosen with the system font dialog; empty means the theme's font), a size and a weight. Sizes of 0
+are automatic (relative to the main size). Names are sanitised before they go into a style, so a font name can never inject other style properties.
+Row height is a separate setting, so a very large font can be clipped until the row height is raised.
 
 ### Emoji grid
 

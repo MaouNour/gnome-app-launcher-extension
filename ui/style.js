@@ -1,12 +1,37 @@
 import {cssColor} from '../themes/themes.js';
 
+const GENERIC_FAMILIES = new Set(['serif', 'sans-serif', 'monospace', 'cursive', 'fantasy', 'system-ui']);
+
+// A font name typed by a person, made safe to put into an inline style: only letters, digits and
+// a few punctuation marks survive (so nothing can close the declaration and add its own), names are
+// quoted, and the CSS generic families stay unquoted. "Fira Sans, monospace" works as a fallback list.
+export function cssFontFamily(name) {
+    return String(name ?? '').split(',')
+        .map(p => p.replace(/[^\p{L}\p{N} _.-]/gu, '').trim())
+        .filter(Boolean).slice(0, 4)
+        .map(p => (GENERIC_FAMILIES.has(p.toLowerCase()) ? p.toLowerCase() : `"${p}"`))
+        .join(', ');
+}
+
 // Builds every inline St style string once per settings/theme change (not per
 // keystroke). Pure function: layout numbers + resolved theme in, strings out.
 export function buildStyles(l, t) {
     const s = l.scale;
     const px = n => `${Math.max(0, Math.round(n * s))}px`;
     const pt = n => `${(n * s).toFixed(2)}pt`;
-    const font = (t.fontFamily ? `font-family: ${t.fontFamily}; ` : '') + `font-weight: ${t.fontWeight}; `;
+    // Three font slots. Each falls back to the theme's family and weight; sizes fall back to ratios of
+    // the main size (which is the "font-size" setting).
+    const slotCss = f => {
+        const fam = cssFontFamily(f?.family) || cssFontFamily(t.fontFamily);
+        return `${fam ? `font-family: ${fam}; ` : ''}font-weight: ${f?.weight > 0 ? f.weight : t.fontWeight}; `;
+    };
+    const fonts = l.fonts ?? {};
+    const searchFont = slotCss(fonts.search);
+    const font = slotCss(fonts.main);
+    const detailFont = slotCss(fonts.secondary);
+    const searchSize = fonts.search?.size > 0 ? fonts.search.size : l.fontSize * 1.25;
+    const detailSize = fonts.secondary?.size > 0 ? fonts.secondary.size : l.fontSize * 0.82;
+    const tagSize = detailSize * (0.75 / 0.82);
     const shadow = t.shadowOpacity > 0
         ? `box-shadow: 0 ${px(t.shadowOffsetY)} ${px(t.shadowBlur)} rgba(0,0,0,${t.shadowOpacity}); `
         : '';
@@ -34,17 +59,17 @@ export function buildStyles(l, t) {
         entry: `min-height: ${px(l.searchHeight)}; padding: 0 ${px(l.searchPadding)}; spacing: ${px(l.iconSpacing)}; ` +
             `border-radius: ${px(t.searchRadius)}; background-color: ${cssColor(t.searchBackground)}; ` +
             `color: ${fg}; caret-color: ${cssColor(t.accent)}; selection-background-color: ${cssColor(t.accent)}; ` +
-            `selected-color: ${sel}; font-size: ${pt(l.fontSize * 1.25)}; ${font}border-width: 0;`,
-        hint: `color: ${sec};`,
+            `selected-color: ${sel}; font-size: ${pt(searchSize)}; ${searchFont}border-width: 0;`,
+        hint: `color: ${sec}; ${searchFont}`,
         list: `spacing: ${gap}px;`,
         row: `${rowBase}background-color: transparent;`,
         rowSel: `${rowBase}background-color: ${cssColor(t.selection)};`,
         title: `color: ${fg}; font-size: ${pt(l.fontSize)}; ${font}`,
         titleSel: `color: ${sel}; font-size: ${pt(l.fontSize)}; ${font}`,
-        sub: `color: ${sec}; font-size: ${pt(l.fontSize * 0.82)};`,
-        subSel: `color: ${cssColor(t.selectionText, 0.75)}; font-size: ${pt(l.fontSize * 0.82)};`,
-        tag: `color: ${sec}; font-size: ${pt(l.fontSize * 0.75)};`,
-        tagSel: `color: ${cssColor(t.selectionText, 0.75)}; font-size: ${pt(l.fontSize * 0.75)};`,
+        sub: `color: ${sec}; font-size: ${pt(detailSize)}; ${detailFont}`,
+        subSel: `color: ${cssColor(t.selectionText, 0.75)}; font-size: ${pt(detailSize)}; ${detailFont}`,
+        tag: `color: ${sec}; font-size: ${pt(tagSize)}; ${detailFont}`,
+        tagSel: `color: ${cssColor(t.selectionText, 0.75)}; font-size: ${pt(tagSize)}; ${detailFont}`,
         icon: `-st-icon-style: ${t.iconStyle};`,
         // Emoji rows draw the glyph as text instead of an icon, sized to fill the icon slot.
         glyph: `color: ${fg}; font-size: ${Math.round(l.iconSize * s * 0.68)}px; min-width: ${Math.round(l.iconSize * s)}px; text-align: center;`,
@@ -57,7 +82,7 @@ export function buildStyles(l, t) {
         gridHintH: Math.round(l.fontSize * 2 * s + 4 * s),
         gridCols, gridCell: cell, gridGap,
         glyphSel: `color: ${sel}; font-size: ${Math.round(l.iconSize * s * 0.68)}px; min-width: ${Math.round(l.iconSize * s)}px; text-align: center;`,
-        empty: `color: ${sec}; font-size: ${pt(l.fontSize)}; padding: ${px(l.padding)};`,
+        empty: `color: ${sec}; font-size: ${pt(l.fontSize)}; ${font}padding: ${px(l.padding)};`,
         iconSize: Math.round(l.iconSize * s),
         rowH,
         gap,
