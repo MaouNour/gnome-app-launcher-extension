@@ -1,0 +1,151 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <!-- Outer Glow / Drop Shadow -->
+    <filter id="dropShadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="12" stdDeviation="16" flood-color="#000" flood-opacity="0.35"/>
+    </filter>
+
+    <!-- Outer Circular Rim Gradient (Blue to Magenta/Purple) -->
+    <linearGradient id="rimGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00C6FF"/>
+      <stop offset="40%" stop-color="#0072FF"/>
+      <stop offset="75%" stop-color="#923CB5"/>
+      <stop offset="100%" stop-color="#E028B7"/>
+    </linearGradient>
+
+    <!-- Outer Neon Glow Outline -->
+    <linearGradient id="neonOutline" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38EF7D" stop-opacity="0.2"/>
+      <stop offset="50%" stop-color="#11998E"/>
+      <stop offset="100%" stop-color="#C850C0"/>
+    </linearGradient>
+
+    <!-- Dark Inner Circle Gradient -->
+    <radialGradient id="darkBg" cx="40%" cy="35%" r="65%">
+      <stop offset="0%" stop-color="#181B30"/>
+      <stop offset="60%" stop-color="#0B0C16"/>
+      <stop offset="100%" stop-color="#030306"/>
+    </radialGradient>
+
+    <!-- Glossy Glass Reflection Overlay -->
+    <linearGradient id="glassReflect" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.28"/>
+      <stop offset="35%" stop-color="#FFFFFF" stop-opacity="0.05"/>
+      <stop offset="50%" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+
+    <!-- Tux Body Main Black/Dark Navy Gradient -->
+    <linearGradient id="tuxBodyGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#222834"/>
+      <stop offset="50%" stop-color="#0F1118"/>
+      <stop offset="100%" stop-color="#05060A"/>
+    </linearGradient>
+
+    <!-- Body Edge Highlight (Neon Edge Light) -->
+    <linearGradient id="tuxEdgeGlow" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#3A88FF"/>
+      <stop offset="50%" stop-color="#9A4BFF"/>
+      <stop offset="100%" stop-color="#E542FF"/>
+    </linearGradient>
+
+    <!-- Tux White Belly Gradient -->
+    <linearGradient id="tuxBellyGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="65%" stop-color="#E2E8F0"/>
+      <stop offset="100%" stop-color="#B0C2DE"/>
+    </linearGradient>
+
+    <!-- Tux Beak & Feet Golden Yellow Gradient -->
+    <linearGradient id="beakGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#FFDD00"/>
+      <stop offset="60%" stop-color="#FF9900"/>
+      <stop offset="100%" stop-color="#E66800"/>
+    </linearGradient>
+
+    <!-- Foot Highlight Overlay -->
+    <linearGradient id="footHighlight" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#FFEAA7" stop-opacity="0.8"/>
+      <stop offset="100%" stop-color="#FF9900" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Base Circle Frame & Shadow -->
+  <g filter="url(#dropShadow)">
+    <!-- Outer Gradient Rim -->
+    <circle cx="256" cy="256" r="220" fill="url(#rimGrad)"/>
+    <!-- Inner Dark Canvas -->
+    <circle cx="256" cy="256" r="206" fill="url(#darkBg)"/>
+  </g>
+
+  <!-- Top Glass Highlight Specular -->
+  <path d="M 60,200 C 90,100 180,50 290,52 C 380,54 442,100 460,160 C 350,220 200,240 60,200 Z" fill="url(#glassReflect)"/>
+
+  <!-- ================= TUX PENGUIN ================= -->
+  <g id="tux">
+
+    <!-- Outer Neon Edge Specular for Tux Silhouette -->
+    <path d="M 256,92 C 185,92 165,150 165,220 C 165,280 120,330 115,380 C 110,430 180,442 256,442 C 332,442 402,430 397,380 C 392,330 347,280 347,220 C 347,150 327,92 256,92 Z" 
+          fill="none" stroke="url(#tuxEdgeGlow)" stroke-width="6" opacity="0.85"/>
+
+    <!-- Tux Dark Main Body -->
+    <path d="M 256,96 C 188,96 168,152 168,222 C 168,282 125,332 120,378 C 115,425 182,438 256,438 C 330,438 397,425 392,378 C 387,332 344,282 344,222 C 344,152 324,96 256,96 Z" 
+          fill="url(#tuxBodyGrad)"/>
+
+    <!-- Left Wing Shadow Accent -->
+    <path d="M 168,222 C 150,260 130,310 122,360 C 140,320 160,270 176,230 Z" fill="#000000" opacity="0.4"/>
+
+    <!-- Right Wing Shadow Accent -->
+    <path d="M 344,222 C 362,260 382,310 390,360 C 372,320 352,270 336,230 Z" fill="#000000" opacity="0.4"/>
+
+    <!-- Tux White Belly -->
+    <path d="M 256,212 C 210,212 182,250 182,320 C 182,382 212,414 256,414 C 300,414 330,382 330,320 C 330,250 302,212 256,212 Z" 
+          fill="url(#tuxBellyGrad)"/>
+
+    <!-- Belly Soft Inner Shadow -->
+    <path d="M 256,212 C 295,212 324,250 324,320 C 324,375 298,408 256,410 C 290,405 316,370 316,320 C 316,255 290,218 256,218 Z" fill="#94A3B8" opacity="0.3"/>
+
+    <!-- Eyes White Base -->
+    <!-- Left Eye -->
+    <ellipse cx="224" cy="168" rx="20" ry="28" fill="#FFFFFF"/>
+    <!-- Right Eye -->
+    <ellipse cx="288" cy="168" rx="20" ry="28" fill="#FFFFFF"/>
+
+    <!-- Eye Pupils (Dark Navy/Black) -->
+    <ellipse cx="230" cy="170" rx="10" ry="16" fill="#0B0C16"/>
+    <ellipse cx="282" cy="170" rx="10" ry="16" fill="#0B0C16"/>
+
+    <!-- Eye Specular Highlights -->
+    <circle cx="227" cy="162" r="4" fill="#FFFFFF"/>
+    <circle cx="279" cy="162" r="4" fill="#FFFFFF"/>
+    <circle cx="233" cy="174" r="2" fill="#FFFFFF"/>
+    <circle cx="285" cy="174" r="2" fill="#FFFFFF"/>
+
+    <!-- Tux Beak / Mouth -->
+    <path d="M 210,186 C 210,186 232,174 256,174 C 280,174 302,186 302,186 C 306,204 288,224 256,224 C 224,224 206,204 210,186 Z" 
+          fill="url(#beakGrad)"/>
+
+    <!-- Beak Smile Line Cut -->
+    <path d="M 214,188 C 236,198 276,198 298,188" stroke="#D65100" stroke-width="3" stroke-linecap="round" fill="none"/>
+
+    <!-- Beak Top Highlight -->
+    <path d="M 226,180 C 242,176 270,176 286,180 C 274,183 238,183 226,180 Z" fill="#FFEAA7" opacity="0.8"/>
+
+    <!-- Left Foot -->
+    <g id="leftFoot">
+      <path d="M 120,380 C 120,380 160,352 210,366 C 228,372 234,402 210,428 C 180,452 130,442 120,412 C 115,398 116,386 120,380 Z" 
+            fill="url(#beakGrad)"/>
+      <path d="M 130,385 C 160,365 195,372 208,376 C 190,370 155,368 130,385 Z" fill="url(#footHighlight)"/>
+    </g>
+
+    <!-- Right Foot -->
+    <g id="rightFoot">
+      <path d="M 392,380 C 392,380 352,352 302,366 C 284,372 278,402 302,428 C 332,452 382,442 392,412 C 397,398 396,386 392,380 Z" 
+            fill="url(#beakGrad)"/>
+      <path d="M 382,385 C 352,365 317,372 304,376 C 322,370 357,368 382,385 Z" fill="url(#footHighlight)"/>
+    </g>
+
+  </g>
+
+  <!-- Outer Glass Rim Highlight (Top Left Ring Accent) -->
+  <path d="M 48,220 C 58,130 130,58 220,48" stroke="url(#neonOutline)" stroke-width="3" stroke-linecap="round" fill="none" opacity="0.7"/>
+</svg>
