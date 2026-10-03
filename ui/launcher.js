@@ -52,6 +52,9 @@ function parseAccel(accel) {
 }
 const FALLBACK_ICON = 'application-x-executable';
 
+// Entries that "open the only match" may start.
+const AUTO_KINDS = new Set(['app', 'command', 'action']);
+
 // Opening/closing animations: how small the window starts (scale), how far it travels vertically (ty,
 // in px, as a transform: the layout position never changes) and the easing for each direction.
 const AM = Clutter.AnimationMode;
@@ -260,7 +263,7 @@ class Row {
 export class Launcher {
     // search(query, mode) -> entries[]; onActivate(entry); getStyle() -> {layout, theme}; onOpen();
     // onClose() runs once the window is fully hidden.
-    constructor({config, search, onActivate, getStyle, onOpen, onClose, onWindowShortcut}) {
+    constructor({config, search, onActivate, getStyle, onOpen, onClose, onWindowShortcut, onHide}) {
         this._cfg = config;
         this._search = search;
         this._onActivate = onActivate;
@@ -268,6 +271,9 @@ export class Launcher {
         this._onOpen = onOpen;
         this._onClose = onClose;
         this._onWindowShortcut = onWindowShortcut;
+        this._onHide = onHide;
+        this._autoTimer = 0;
+        this._textLen = 0;
 
         this._built = false;
         this._state = 'hidden'; // hidden | opening | open | closing
@@ -374,8 +380,13 @@ export class Launcher {
 
         const ct = this._entry.clutter_text;
         ct.connect('text-changed', () => {
-            if (!this._suppress)
-                this._refresh();
+            if (this._suppress)
+                return;
+            const len = this._entry.get_text().length;
+            const grew = len > this._textLen;
+            this._textLen = len;
+            this._refresh();
+            this._autoLaunch(grew);
         });
         ct.connect('key-press-event', (_a, ev) => this._onKey(ev));
 
@@ -591,6 +602,7 @@ export class Launcher {
             this._entry.set_text('');
             this._suppress = false;
         }
+        this._textLen = this._entry.get_text().length;
         this._entry.clutter_text.grab_key_focus();
         this._refresh();
         this._animate(true);
@@ -632,6 +644,10 @@ export class Launcher {
         const box = this._box;
         box.remove_all_transitions();
         this._blur?.removeTransitions();
+        if (!opening && this._autoTimer) {
+            GLib.source_remove(this._autoTimer);
+            this._autoTimer = 0;
+        }
         this._state = opening ? 'opening' : 'closing';
 
         const style = this._cfg.str('anim-style');
@@ -683,6 +699,52 @@ export class Launcher {
     }
 
     // --- search + render ---------------------------------------------------
+
+    // Ctrl+H: hide the highlighted entry from the search (it can be shown again in the preferences).
+    _hideSelected() {
+        const e = this._results[this._sel];
+        if (!e || !this._onHide)
+            return;
+        const keep = this._sel;
+        if (this._onHide(e) && this._results.length > 0)
+            this._select(Math.min(keep, this._results.length - 1));
+    }
+
+    // Opens the only matching entry once typing has paused. Only for entries that are safe to start by
+    // accident (applications and your own commands/actions); never for web searches, `!commands`,
+    // calculator results, clipboard items, emoji, accounts or power actions. It only reacts to typing more
+    // (not deleting), needs two characters, and checks again after the delay that nothing changed.
+    _autoLaunch(grew) {
+        if (this._autoTimer) {
+            GLib.source_remove(this._autoTimer);
+            this._autoTimer = 0;
+        }
+        if (!grew || this._mode !== null || !this._cfg.bool('auto-launch-single'))
+            return;
+        const text = this._entry.get_text();
+        if (text.trim().length < 2)
+            return;
+        const pick = () => {
+            const real = this._results.filter(r => r.kind !== 'web');
+            return real.length === 1 && AUTO_KINDS.has(real[0].kind) ? real[0] : null;
+        };
+        const entry = pick();
+        if (!entry)
+            return;
+        const fire = () => {
+            this._autoTimer = 0;
+            const now = pick();
+            if (!this.isOpen || now !== entry || this._entry.get_text() !== text)
+                return GLib.SOURCE_REMOVE;
+            this._activateIndex(this._results.indexOf(entry));
+            return GLib.SOURCE_REMOVE;
+        };
+        const delay = this._cfg.int('auto-launch-delay');
+        if (delay <= 0)
+            fire();
+        else
+            this._autoTimer = GLib.timeout_add(GLib.PRIORITY_DEFAULT, delay, fire);
+    }
 
     _refresh() {
         let results;
@@ -1003,6 +1065,9 @@ export class Launcher {
 
         if (ctrl) {
             switch (sym) {
+            case Clutter.KEY_h:
+                this._hideSelected();
+                return Clutter.EVENT_STOP;
             case Clutter.KEY_n:
             case Clutter.KEY_j:
                 this._move(1);
@@ -1028,6 +1093,10 @@ export class Launcher {
             this._grab = null;
         }
         this._reveal.cancel();
+        if (this._autoTimer) {
+            GLib.source_remove(this._autoTimer);
+            this._autoTimer = 0;
+        }
         this._box?.remove_all_transitions();
         this._blur?.destroy(); // before the overlay: the blur widget is one of its children
         this._blur = null;

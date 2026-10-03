@@ -1,4 +1,4 @@
-import Clutter from 'gi://Clutter';
+import GObject from 'gi://GObject';
 import Gio from 'gi://Gio';
 import Meta from 'gi://Meta';
 import Shell from 'gi://Shell';
@@ -16,13 +16,8 @@ export class Keybindings {
         this._custom = new Map(); // action id -> {id, accel, name}
         this._customSig = 0;
 
-        this._mutter = null;
-        this._tookOver = false;
-        this._stageSig = 0;
         this._overlaySig = 0;
-        this._trigger = new Set();
-        this._down = false;
-        this._clean = false;
+        this._shellBlocked = 0;
         this._superCb = null;
         this._mainArgs = null;   // {settings, key, callback}: kept so the binding can be put back
         this._customArgs = null; // {items, callback}
@@ -95,90 +90,59 @@ export class Keybindings {
         this._mainArgs = null;
     }
 
-    // Open on a bare Super press. Shell's overview owns that key, so while this is on Mutter's
-    // `overlay-key` is set to '' (what `gsettings set org.gnome.mutter overlay-key ''` does) and
-    // the press/release is detected here. Turning it off (or disabling the extension) runs the
-    // equivalent of `gsettings reset org.gnome.mutter overlay-key`.
+    // Open on a bare Super press (and release, with no other key or click in between: Mutter decides that
+    // and emits `overlay-key`). Shell's overview listens to the same signal, so while this is on its
+    // handlers are blocked and ours is connected after the block. Nothing in GSettings is changed.
+    //
+    // Why not watch key events on the stage: Mutter hands key events straight to the focused
+    // application and the stage never sees them, so that only worked with nothing focused.
     setSuperKey(enabled, callback) {
         this._stopSuper();
         if (!enabled)
             return;
         this._superCb = callback;
-        this._trigger = new Set([Clutter.KEY_Super_L, Clutter.KEY_Super_R]);
+        // An earlier version emptied Mutter's `overlay-key`. If that was left behind (a crash), give it back.
         try {
-            this._stageSig = global.stage.connect('captured-event', (_s, ev) => this._onStageEvent(ev));
-            this._mutter = new Gio.Settings({schema_id: 'org.gnome.mutter'});
-            this._mutter.set_string('overlay-key', '');
-            Gio.Settings.sync();
-            this._tookOver = true;
-            dbg("overlay-key set to ''; Super handled by the launcher");
+            const m = new Gio.Settings({schema_id: 'org.gnome.mutter'});
+            if (m.get_string('overlay-key') === '') {
+                m.reset('overlay-key');
+                Gio.Settings.sync();
+                dbg('overlay-key restored to its default');
+            }
         } catch (e) {
-            // Could not take over the key: fall back to reacting after Shell (overview may flash).
-            warn('could not take over overlay-key, using fallback:', e.message);
-            this._stopSuper();
-            this._superCb = callback;
-            this._overlaySig = global.display.connect('overlay-key', () => {
-                if (this._blocked)
-                    return;
-                callback();
-                if (Main.overview.visible || Main.overview.animationInProgress)
-                    Main.overview.hide();
-            });
+            warn('could not check overlay-key:', e.message);
         }
-    }
-
-    _onStageEvent(ev) {
-        switch (ev.type()) {
-        case Clutter.EventType.KEY_PRESS:
-            if (this._trigger.has(ev.get_key_symbol())) {
-                if (!this._down) {
-                    this._down = true;
-                    this._clean = true;
-                }
-            } else if (this._down) {
-                this._clean = false; // Super+<key> is a different shortcut
-            }
-            break;
-        case Clutter.EventType.KEY_RELEASE:
-            if (this._down && this._trigger.has(ev.get_key_symbol())) {
-                const fire = this._clean;
-                this._down = false;
-                this._clean = false;
-                if (fire && !this._blocked)
-                    this._superCb?.();
-            }
-            break;
-        case Clutter.EventType.BUTTON_PRESS:
-        case Clutter.EventType.SCROLL:
-            this._clean = false; // Super+click / Super+scroll
-            break;
-        default:
+        try {
+            this._shellBlocked = GObject.signal_handlers_block_matched(global.display, {signalId: 'overlay-key'});
+        } catch (e) {
+            this._shellBlocked = 0;
+            warn('could not block the overview\'s Super handler, hiding the overview instead:', e.message);
         }
-        return Clutter.EVENT_PROPAGATE;
+        this._overlaySig = global.display.connect('overlay-key', () => {
+            if (this._blocked)
+                return;
+            // Fallback when the handler could not be blocked: close the overview that just opened.
+            if (!this._shellBlocked && (Main.overview.visible || Main.overview.animationInProgress))
+                Main.overview.hide();
+            this._superCb?.();
+        });
+        dbg(`Super key handled by the launcher (overview handlers blocked: ${this._shellBlocked})`);
     }
 
     _stopSuper() {
-        if (this._stageSig) {
-            global.stage.disconnect(this._stageSig);
-            this._stageSig = 0;
-        }
         if (this._overlaySig) {
             global.display.disconnect(this._overlaySig);
             this._overlaySig = 0;
         }
-        if (this._tookOver) {
+        if (this._shellBlocked) {
             try {
-                (this._mutter ?? new Gio.Settings({schema_id: 'org.gnome.mutter'})).reset('overlay-key');
-                Gio.Settings.sync();
-                dbg('overlay-key reset');
+                GObject.signal_handlers_unblock_matched(global.display, {signalId: 'overlay-key'});
             } catch (e) {
-                warn('could not reset overlay-key:', e.message);
+                warn('could not give the Super key back to the overview:', e.message);
             }
-            this._tookOver = false;
+            this._shellBlocked = 0;
         }
-        this._down = this._clean = false;
         this._superCb = null;
-        this._mutter = null;
     }
 
     // Per-entry shortcuts. `items` = [{id, accel}]. Returns accelerators that could not be

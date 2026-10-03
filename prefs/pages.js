@@ -129,13 +129,16 @@ function builtinsPage(window, settings) {
         ['both', 'Both'],
         ['own', 'Nothing automatically: this launcher only'],
     ], 'This launcher only: the history holds just what the launcher copies itself and what you add with "Save Clipboard to History". Choosing an entry always puts it on the normal clipboard.'));
-    clip.add(spinRow(settings, 'clipboard-max', 'Clipboard items to keep', 5, 200, 1));
+    clip.add(switchRow(settings, 'clipboard-paste', 'Paste the entry when you choose it',
+        'Enter pastes the entry into the window you came from (Ctrl+Shift+V in terminals); Shift+Enter only copies it. Switch off to make Enter only copy and Shift+Enter paste. Images are pasted the same way; Ctrl+Enter opens an image or video and Alt+Enter shows its folder.'));
+    clip.add(spinRow(settings, 'clipboard-max', 'Clipboard items to keep (0 = no limit)', 0, 1000000, 1,
+        'With no limit the history grows until you clear it. On disk it is one file that is rewritten when it changes, so a very long history makes each save slower and uses more memory.'));
     clip.add(switchRow(settings, 'clipboard-persist', 'Keep the history on disk',
         'Survives logging out and restarting the shell. Stored as plain text in a folder only you can read. Turning this off deletes the saved history. Clear History in the launcher also clears the disk.'));
     clip.add(entryRow(settings, 'clipboard-dir', 'History folder (empty: ~/.local/share/gnome-launcher/clipboard)'));
     clip.add(switchRow(settings, 'clipboard-images', 'Remember copied images',
         'Screenshots and copied pictures, shown with a thumbnail.'));
-    clip.add(spinRow(settings, 'clipboard-image-count', 'Images to keep', 1, 30, 1));
+    clip.add(spinRow(settings, 'clipboard-image-count', 'Images to keep (0 = no limit)', 0, 100000, 1));
     clip.add(spinRow(settings, 'clipboard-image-mb', 'Largest image to copy (MB)', 1, 32, 1, 'Only applies to images that are stored as a copy. Linked files are not limited.'));
     clip.add(switchRow(settings, 'clipboard-link-files', 'Link screenshots instead of copying them',
         'When a copied image is identical to a file saved shortly before in the screenshot folder, the history points to that file and keeps no second copy. If the file is moved or deleted its entry disappears.'));
@@ -265,6 +268,47 @@ function blocklistGroup(window, settings) {
 
     settings.connect('changed::blocklist', rebuild);
     rebuild();
+    return g;
+}
+
+// Entries hidden with Ctrl+H in the launcher, with a button to show each one again.
+function hiddenGroup(window, settings) {
+    const g = group('Hidden entries', 'Entries you hid with Ctrl+H in the launcher. Unhide one to see it in the search again.');
+    const all = new Gtk.Button({label: 'Unhide all', valign: Gtk.Align.CENTER});
+    g.set_header_suffix(all);
+    let rows = [];
+    const read = () => {
+        const list = readJson(settings, 'hidden-entries', []);
+        return Array.isArray(list) ? list.filter(x => x && typeof x.id === 'string') : [];
+    };
+    const write = list => settings.set_string('hidden-entries', JSON.stringify(list));
+    const refill = () => {
+        for (const r of rows)
+            g.remove(r);
+        rows = [];
+        const items = read();
+        all.sensitive = items.length > 0;
+        if (items.length === 0) {
+            const r = new Adw.ActionRow({title: 'Nothing is hidden', subtitle: 'Press Ctrl+H on a result in the launcher to hide it.', use_markup: false});
+            g.add(r);
+            rows.push(r);
+            return;
+        }
+        for (const it of items) {
+            const r = new Adw.ActionRow({title: it.name || it.id, subtitle: it.id, use_markup: false});
+            const b = new Gtk.Button({label: 'Unhide', valign: Gtk.Align.CENTER});
+            b.connect('clicked', () => write(read().filter(x => x.id !== it.id)));
+            r.add_suffix(b);
+            g.add(r);
+            rows.push(r);
+        }
+    };
+    all.connect('clicked', () => {
+        write([]);
+        toast(window, 'All entries are visible again');
+    });
+    settings.connect('changed::hidden-entries', refill);
+    refill();
     return g;
 }
 
@@ -497,7 +541,7 @@ function webPage(window, settings) {
     return p;
 }
 
-function search(settings) {
+function search(window, settings) {
     const p = page('Search', 'system-search-symbolic');
     const rx = group('Regular expressions',
         'Match names, keywords and descriptions with a pattern, for example /^(chrom|fire)/ or /term.*emu/. Matching ignores case. To use a pattern as a keyword of one of your own commands, write it between slashes in that command\'s Search keywords field (see the i button).');
@@ -518,6 +562,13 @@ function search(settings) {
     ex.add(switchRow(settings, 'exec-shell', 'Run through a shell',
         'On: pipes, &&, $VARIABLES and wildcards work. Off: the command is split like a shell would but started directly, with no shell involved.'));
     p.add(ex);
+    const al = group('Open the only match',
+        'When exactly one application, command or action matches, open it without pressing Enter. Web searches, !commands, calculator results, clipboard items, emoji, accounts and power actions are never opened this way.');
+    al.add(switchRow(settings, 'auto-launch-single', 'Open the only match automatically',
+        'Needs at least two characters, only reacts to typing (not to deleting), and waits for you to stop typing.'));
+    al.add(spinRow(settings, 'auto-launch-delay', 'Wait after typing (ms)', 0, 3000, 50, 'Time without typing before the match is opened. 0 opens it immediately.'));
+    p.add(al);
+    p.add(hiddenGroup(window, settings));
     const g = group('Matching');
     g.add(switchRow(settings, 'fuzzy', 'Fuzzy matching', 'Match characters in order, for example "ffx" finds Firefox.'));
     g.add(switchRow(settings, 'search-descriptions', 'Search descriptions'));
@@ -611,7 +662,7 @@ export function buildPages(window, settings) {
     return [
         general(settings), appearance(window, settings), themes(window, settings), blurPage(window, settings), shortcuts(window, settings),
         applications(settings), builtinsPage(window, settings), emojiPage(window, settings),
-        accountsPage(window, settings, builtinsStore(settings), ownShortcuts), commandsPage, actionsPage, search(settings), webPage(window, settings),
+        accountsPage(window, settings, builtinsStore(settings), ownShortcuts), commandsPage, actionsPage, search(window, settings), webPage(window, settings),
         performance(window, settings), advanced(window, settings),
     ];
 }

@@ -2,6 +2,34 @@
 
 All notable changes to GNOME Launcher (`gnome-launcher@maou-nournar`). Newest first.
 
+## 0.5.1
+
+### Bug fixes
+- **Choosing a clipboard entry now pastes it** into the window you came from (Ctrl+Shift+V is used in
+  terminals), for text and images. Shift+Enter only copies. A new switch (*Built-in Entries > Clipboard history >
+  Paste the entry when you choose it*) reverses this: Enter copies and Shift+Enter pastes. Ctrl+Enter on an
+  image or video opens it and Alt+Enter shows its folder, as before. Calculator results still only copy.
+- **Super key opens the launcher.** Before, the overview was disabled but nothing opened, because Mutter never
+  shows the Super key to the shell's stage while an application has focus. The launcher now listens to Mutter's
+  `overlay-key` signal (a clean Super tap) and blocks the overview's own handler while the option is on.
+  The `overlay-key` GSettings value is no longer changed; if an older version left it empty it is reset when
+  the option is turned on.
+
+### New features
+- **Open the only match** (*Search > Open the only match*, off by default): when exactly one application,
+  command or action matches, it is opened after you stop typing (delay adjustable, 350 ms by default).
+  Needs two characters and only reacts to typing more. Web searches, `!commands`, calculator results,
+  clipboard items, emoji, accounts and power actions are never opened this way, and a web-search fallback row
+  does not count as a second match.
+- **Unlimited clipboard history:** *Clipboard items to keep* accepts 0 = no limit (up to 1,000,000 otherwise;
+  the old limit was 200), and so does *Images to keep*.
+- **Hide entries with Ctrl+H** on the highlighted result (applications, your commands and actions, built-in
+  entries). Hidden entries are listed under *Search > Hidden entries*, each with an *Unhide* button, plus
+  *Unhide all*. Hiding only removes an entry from the search; its shortcuts still work.
+
+### Housekeeping
+- Version 0.5.1. Tests 115 -> 120.
+
 ## 0.5.0
 
 ### Blur rebuilt on Blur my Shell

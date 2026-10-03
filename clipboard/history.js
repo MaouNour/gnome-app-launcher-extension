@@ -202,7 +202,7 @@ export class ClipboardHistory {
     // Image support on/off, how many images to keep and the largest copied image (in MB) worth keeping.
     setImages(enabled, count, mb) {
         this._images = enabled;
-        this._maxImages = count;
+        this._maxImages = count > 0 ? count : Infinity; // 0 = no limit
         this._maxImageBytes = mb * 1024 * 1024;
         let changed = false;
         if (!enabled) {
@@ -219,8 +219,9 @@ export class ClipboardHistory {
             this._changed();
     }
 
+    // 0 = keep everything.
     setMax(n) {
-        this._max = n;
+        this._max = n > 0 ? n : Infinity;
         if (this._trim())
             this._changed();
     }
@@ -584,7 +585,7 @@ export class ClipboardHistory {
         if (this._dead || !this._running)
             return;
         const have = new Set(this._items.map(x => x.text ?? x.image?.hash ?? x.file?.path));
-        for (const r of reviveItems(raw?.v === 1 ? raw.items : [], 200)) {
+        for (const r of reviveItems(raw?.v === 1 ? raw.items : [], this._max)) {
             const key = r.t === 'text' ? r.text : r.t === 'image' ? r.hash : r.path;
             if (have.has(key))
                 continue;
@@ -749,7 +750,7 @@ export class ClipboardHistory {
 
     // Enter: put it back on the clipboard (a file goes as a file reference). Ctrl+Enter opens it,
     // Alt+Enter shows its folder. Both only apply to items that are backed by a file.
-    useItem(id, how = '') {
+    useItem(id, how = '', onSet = null) {
         const it = this._items.find(x => x.id === id && (x.image || x.file));
         if (!it)
             return;
@@ -770,12 +771,16 @@ export class ClipboardHistory {
         if (it.file) {
             const uri = `${Gio.File.new_for_path(path).get_uri()}\r\n`;
             cb.set_content(St.ClipboardType.CLIPBOARD, 'text/uri-list', new GLib.Bytes(enc.encode(uri)));
+            onSet?.();
         } else if (it.image.bytes) {
             cb.set_content(St.ClipboardType.CLIPBOARD, it.image.mime, it.image.bytes);
+            onSet?.();
         } else if (path) {
             loadBytes(Gio.File.new_for_path(path)).then(data => {
-                if (!this._dead)
-                    cb.set_content(St.ClipboardType.CLIPBOARD, it.image.mime, new GLib.Bytes(data));
+                if (this._dead)
+                    return;
+                cb.set_content(St.ClipboardType.CLIPBOARD, it.image.mime, new GLib.Bytes(data));
+                onSet?.(); // only now is the image on the clipboard, so this is when it can be pasted
             }).catch(e => this._host.notify?.(`Could not read ${baseName(path)}: ${e.message}`));
         }
     }

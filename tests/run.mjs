@@ -888,6 +888,47 @@ test('blur: license notice for the code taken from Blur my Shell is shipped', ()
     assert.ok(existsSync(join(root, 'blur/LICENSE-blur-my-shell')));
     assert.match(readFileSync(join(root, 'blur/NOTICE.md'), 'utf8'), /GPL/);
 });
+test('Super key: uses Mutter\'s overlay-key signal, never the stage, and never rewrites overlay-key', () => {
+    const src = readFileSync(join(root, 'shortcuts/keybindings.js'), 'utf8');
+    assert.ok(src.includes("connect('overlay-key'"), 'must listen to the overlay-key signal');
+    assert.ok(!src.includes('captured-event'), 'the stage does not see Super while an application has focus');
+    assert.ok(!/set_string\('overlay-key'/.test(src), 'overlay-key in GSettings must not be emptied any more');
+    assert.ok(src.includes('signal_handlers_block_matched') && src.includes('signal_handlers_unblock_matched'), 'the overview\'s handler is blocked and given back');
+});
+test('clipboard entries: Enter pastes (setting), Shift+Enter does the opposite, calculator results only copy', () => {
+    const ext = readFileSync(join(root, 'extension.js'), 'utf8');
+    assert.match(ext, /case 'clip':\s+this\._pasteClip\(entry, how\)/);
+    assert.match(ext, /case 'calc':\s+this\._launcher\.close\(\);\s+copyText/);
+    assert.ok(ext.includes("this._config.bool('clipboard-paste') !== (how === 'shift')"));
+    const hist = readFileSync(join(root, 'clipboard/history.js'), 'utf8');
+    assert.ok(hist.includes('onSet?.()'), 'an image is pasted only after it is on the clipboard');
+});
+test('clipboard history can be unlimited (0), for items and for images', () => {
+    const hist = readFileSync(join(root, 'clipboard/history.js'), 'utf8');
+    assert.ok(hist.includes('n > 0 ? n : Infinity') && hist.includes('count > 0 ? count : Infinity'));
+    const xml = readFileSync(join(root, 'schemas/org.gnome.shell.extensions.gnome-launcher.gschema.xml'), 'utf8');
+    assert.match(xml, /clipboard-max" type="i"><default>25<\/default><range min="0" max="1000000"/);
+    assert.match(xml, /clipboard-image-count" type="i"><default>8<\/default><range min="0"/);
+    assert.equal(imagesToDrop(Array.from({length: 50}, () => ({image: {}})), Infinity).length, 0);
+    assert.equal(reviveItems(Array.from({length: 500}, (_, i) => ({t: 'text', text: `t${i}`})), Infinity).length, 500);
+});
+test('auto-launch: off by default, only for apps/commands/actions, ignores web results', () => {
+    const xml = readFileSync(join(root, 'schemas/org.gnome.shell.extensions.gnome-launcher.gschema.xml'), 'utf8');
+    assert.match(xml, /auto-launch-single" type="b"><default>false<\/default>/);
+    const ui = readFileSync(join(root, 'ui/launcher.js'), 'utf8');
+    assert.match(ui, /AUTO_KINDS = new Set\(\['app', 'command', 'action'\]\)/);
+    assert.ok(ui.includes("r.kind !== 'web'"), 'a web-search fallback entry must not count as a second match');
+    assert.ok(ui.includes('if (!grew ||'), 'only typing more may trigger it');
+});
+test('hidden entries: only fixed-id kinds can be hidden, and the engine list is filtered', () => {
+    const ext = readFileSync(join(root, 'extension.js'), 'utf8');
+    assert.match(ext, /HIDEABLE_KINDS = new Set\(\['app', 'command', 'action', 'system', 'mode'\]\)/);
+    assert.ok(ext.includes('all.filter(e => !hidden.has(e.id))'));
+    const ui = readFileSync(join(root, 'ui/launcher.js'), 'utf8');
+    assert.ok(ui.includes('case Clutter.KEY_h:'));
+    const xml = readFileSync(join(root, 'schemas/org.gnome.shell.extensions.gnome-launcher.gschema.xml'), 'utf8');
+    assert.match(xml, /hidden-entries" type="s"><default>'\[\]'<\/default>/);
+});
 test('blocklist: exact, case, .desktop and wildcard matching', () => {
     const b = compileBlocklist(['Steam_App_*', 'org.gnome.Nautilus.desktop', '  ', 'vmw?are*']);
     assert.equal(b.size, 3);

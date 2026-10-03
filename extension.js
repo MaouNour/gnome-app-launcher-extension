@@ -45,6 +45,9 @@ const STYLE_KEYS = new Set([
     'font-secondary', 'font-size-secondary', 'font-weight-secondary', 'emoji-font',
 ]);
 
+// Kinds of search result that have a fixed id and so can be hidden with Ctrl+H.
+const HIDEABLE_KINDS = new Set(['app', 'command', 'action', 'system', 'mode']);
+
 // The emoji dataset is only loaded when first needed and released again after this long idle.
 const EMOJI_FREE_MS = 60000;
 
@@ -119,6 +122,7 @@ export default class GnomeLauncherExtension extends Extension {
             },
             getStyle: () => this._styleInputs(),
             // Only does work before the cache has arrived; afterwards it is a no-op.
+            onHide: entry => this._hideEntry(entry),
             onOpen: () => {
                 this._clip?.ensureWatching();
                 if (this._apps.ensureReady())
@@ -151,7 +155,7 @@ export default class GnomeLauncherExtension extends Extension {
         this._finishPasswordClear(); // a copied password never outlives the extension
         this._unwatchFocus();
         this._paster?.destroy(); // puts a borrowed clipboard back
-        this._keys?.destroy(); // also resets Mutter's overlay-key if we had taken over Super
+        this._keys?.destroy(); // also gives the Super key back to the overview
         this._launcher?.destroy();
         this._clip?.destroy();
         this._apps?.destroy();
@@ -216,6 +220,9 @@ export default class GnomeLauncherExtension extends Extension {
             break;
         case 'clipboard-max':
             this._clip.setMax(this._config.int('clipboard-max'));
+            break;
+        case 'hidden-entries':
+            this._rebuild.schedule();
             break;
         case 'debug':
             setDebug(this._config.bool('debug'));
@@ -362,7 +369,9 @@ export default class GnomeLauncherExtension extends Extension {
     _rebuildEntries() {
         if (!this._engine)
             return;
-        this._engine.setEntries([...this._apps.entries(), ...this._specialEntries]);
+        const hidden = this._hiddenSet();
+        const all = [...this._apps.entries(), ...this._specialEntries];
+        this._engine.setEntries(hidden.size ? all.filter(e => !hidden.has(e.id)) : all);
         dbg('entries rebuilt:', this._engine.size);
         this._launcher?.refresh();
     }
@@ -532,14 +541,15 @@ export default class GnomeLauncherExtension extends Extension {
                 openUri(entry.payload.url);
             return;
         case 'clipimage':
-            this._launcher.close();
-            this._clip.useItem(entry.payload.imageId, how);
+            this._useClipImage(entry, how);
             return;
         case 'clipfile':
             this._launcher.close();
             this._clip.useItem(entry.payload.fileId, how);
             return;
         case 'clip':
+            this._pasteClip(entry, how);
+            return;
         case 'calc':
             this._launcher.close();
             copyText(entry.payload.text);
@@ -559,6 +569,57 @@ export default class GnomeLauncherExtension extends Extension {
         // Run after the modal grab is released and the launcher has started closing.
         this._pending = entry;
         this._runIdle.schedule();
+    }
+
+    // --- clipboard entries ---------------------------------------------------
+
+    // Enter pastes the entry into the window that had focus before the launcher (or only copies it, if
+    // "paste" is switched off). Shift+Enter does the opposite. The text stays on the clipboard afterwards.
+    _wantsPaste(how) {
+        return this._config.bool('clipboard-paste') !== (how === 'shift');
+    }
+
+    _pasteClip(entry, how) {
+        const text = entry.payload.text;
+        this._launcher.close();
+        this._clip.mute(1500); // choosing an entry must not reshuffle the history
+        copyText(text);
+        if (this._wantsPaste(how))
+            this._paster.paste(text, {keys: 'auto', borrow: false}, () => this._pasteFailed());
+    }
+
+    // Images go on the clipboard first (a linked file is read asynchronously) and are pasted once they are
+    // there. Ctrl+Enter opens the image and Alt+Enter shows its folder instead, as before.
+    _useClipImage(entry, how) {
+        const open = how === 'ctrl' || how === 'alt';
+        this._launcher.close();
+        this._clip.mute(2500);
+        this._clip.useItem(entry.payload.imageId, open ? how : '',
+            !open && this._wantsPaste(how) ? () => this._paster.paste('', {keys: 'auto', borrow: false}, () => this._pasteFailed()) : null);
+    }
+
+    // --- hiding entries ------------------------------------------------------
+
+    _hiddenSet() {
+        const list = this._config.json('hidden-entries', []);
+        return new Set(Array.isArray(list) ? list.filter(x => x && typeof x.id === 'string').map(x => x.id) : []);
+    }
+
+    // Ctrl+H on a result. Returns true when the entry was hidden. Only entries with a stable id can be hidden
+    // (applications, your commands and actions, built-ins); clipboard items, emoji, calculator results and
+    // web searches are generated on the fly.
+    _hideEntry(entry) {
+        if (!HIDEABLE_KINDS.has(entry.kind)) {
+            Main.notify(NOTIFY_TITLE, 'This entry cannot be hidden: it is not a fixed entry.');
+            return false;
+        }
+        const list = this._config.json('hidden-entries', []);
+        const next = Array.isArray(list) ? list.filter(x => x && typeof x.id === 'string') : [];
+        if (!next.some(x => x.id === entry.id))
+            next.push({id: entry.id, name: String(entry.name).slice(0, 120)});
+        this._settings.set_string('hidden-entries', JSON.stringify(next));
+        this._rebuildEntries(); // now, so the launcher shows the shorter list straight away
+        return true;
     }
 
     // --- accounts ------------------------------------------------------------

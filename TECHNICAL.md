@@ -1,5 +1,19 @@
 # Technical notes
 
+## 0.5.1: paste, Super key, auto-launch, unlimited history, hiding
+
+| Area | Change |
+|---|---|
+| Super key (`shortcuts/keybindings.js`) | **Cause:** the 0.4.x code set Mutter's `overlay-key` to `''` and watched Super on `global.stage` `captured-event`. In Mutter's `events.c` a key event is passed to the focused Wayland client and returns STOP, so the stage never sees it while an application has focus; only the overview was disabled. **Now:** `overlay-key` is left alone; `GObject.signal_handlers_block_matched(global.display, {signalId: 'overlay-key'})` blocks the Shell's handler (`overviewControls.js` connects it and calls `Main.overview.toggle()`), then our own `overlay-key` handler is connected (after the block, so it still runs). `_stopSuper` disconnects ours and unblocks. If blocking throws, the handler hides the overview that just opened (old fallback). If an empty `overlay-key` is found it is reset once when the option is turned on. Removed: stage handler, press/release tracking. Any other extension's `overlay-key` handlers that existed at that moment are blocked too while the option is on. |
+| Paste (`extension.js`, `clipboard/history.js`) | `_pasteClip`: `mute(1500)`, `copyText`, then `Paster.paste(text, {keys:'auto', borrow:false})` (auto = Ctrl+Shift+V in terminals). `_useClipImage`: `useItem(id, how, onSet)`; `onSet` runs after the image is on the clipboard (linked files are read asynchronously) and sends the paste keys. `_wantsPaste(how)` = `clipboard-paste !== (how === 'shift')`. `clip` and `calc` no longer share a case: calc only copies. Files keep copy / Ctrl open / Alt folder. |
+| Auto-launch (`ui/launcher.js`) | `_autoLaunch(grew)` after each text change: needs the option, no sub-mode, 2+ characters, text longer than before, exactly one non-`web` result of kind `app`/`command`/`action`. Fires after `auto-launch-delay` ms and re-checks (still open, same single result, same text). Timer cancelled on close/destroy and on every keystroke. Keys: `auto-launch-single` (false), `auto-launch-delay` (350). |
+| Unlimited history (`clipboard/history.js`, schema) | `clipboard-max` range 0..1,000,000 and `clipboard-image-count` 0..100,000, 0 = `Infinity` internally (`_trim`, `imagesToDrop`, `reviveItems`). Disk: the index is still one JSON file rewritten (debounced) on change, so a huge history makes saves and the in-memory entry list larger. |
+| Hiding (`extension.js`, `ui/launcher.js`, `prefs/pages.js`, schema) | Ctrl+H in `_onKey` -> `onHide(entry)` -> `_hideEntry`: only `app`, `command`, `action`, `system`, `mode` kinds; stores `{id, name}` in `hidden-entries` (JSON), then rebuilds the engine list immediately without hidden ids (`_rebuildEntries`). The highlight stays at the same position. Prefs: *Hidden entries* group on the Search page (live list, Unhide, Unhide all). Shortcuts of hidden entries are unaffected (they are registered separately). |
+| Tests | 5 new (Super implementation, paste rules, unlimited limits, auto-launch rules, hiding). 120 pass. |
+
+### Not verified
+No GNOME Shell was available. Check: tap Super (with an app focused and on the desktop): launcher opens, overview does not; turn the option off: overview works again; choose a clipboard text entry with a text editor and a terminal focused; choose an image entry; Shift+Enter; type two letters of a unique app with auto-launch on; Ctrl+H on an app, then Unhide in preferences.
+
 ## 0.5.0: blur rebuilt on Blur my Shell
 
 Window position/layout code is unchanged. Only how the blur is attached changed.
