@@ -1,5 +1,6 @@
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
+import Shell from 'gi://Shell';
 
 import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
@@ -21,6 +22,7 @@ import {parseRegexQuery} from './search/regex.js';
 import {DEFAULT_PROVIDERS, explicitWebQuery, offerWeb, sanitizeProviders, webEntries} from './search/web.js';
 import {SearchEngine, prepare} from './search/engine.js';
 import {Keybindings} from './shortcuts/keybindings.js';
+import {compileBlocklist} from './shortcuts/blocklist.js';
 import {resolveTheme} from './themes/themes.js';
 import {Launcher} from './ui/launcher.js';
 import {Debounce, Idle} from './utils/timing.js';
@@ -56,6 +58,11 @@ export default class GnomeLauncherExtension extends Extension {
         this._special = new Map(); // id -> entry for user commands/actions and built-ins
         this._specialEntries = [];
         this._pending = null;
+        this._focusSig = 0;
+        this._fsSig = 0;
+        this._fsWin = null;
+        this._block = null;
+        this._blockFs = false;
 
         this._engine = new SearchEngine();
         this._clipEngine = new SearchEngine();
@@ -112,6 +119,7 @@ export default class GnomeLauncherExtension extends Extension {
         });
 
         this._buildSpecial();
+        this._syncBlocklist();
         this._syncClipboard();
         this._syncAccounts();
         this._bindShortcuts();
@@ -133,6 +141,7 @@ export default class GnomeLauncherExtension extends Extension {
         for (const t of [this._prebuild, this._restyle, this._rebuild, this._runIdle, this._emojiFree])
             t?.cancel();
         this._finishPasswordClear(); // a copied password never outlives the extension
+        this._unwatchFocus();
         this._paster?.destroy(); // puts a borrowed clipboard back
         this._keys?.destroy(); // also resets Mutter's overlay-key if we had taken over Super
         this._launcher?.destroy();
@@ -157,6 +166,10 @@ export default class GnomeLauncherExtension extends Extension {
         switch (key) {
         case 'use-super-key':
             this._keys.setSuperKey(this._config.bool('use-super-key'), () => this._launcher.toggle());
+            break;
+        case 'blocklist':
+        case 'block-fullscreen':
+            this._syncBlocklist();
             break;
         case 'commands':
         case 'actions':
@@ -211,6 +224,69 @@ export default class GnomeLauncherExtension extends Extension {
         if (!this._keys.setMain(this._settings, SHORTCUT_KEY, () => this._launcher.toggle()))
             Main.notify(NOTIFY_TITLE, 'Could not register the launcher shortcut. See: journalctl -o cat /usr/bin/gnome-shell | grep gnome-launcher');
         this._keys.setSuperKey(this._config.bool('use-super-key'), () => this._launcher.toggle());
+    }
+
+    // --- blocklist -----------------------------------------------------------
+    // The launcher shortcuts are released while a blocked application (or any fullscreen window, if
+    // chosen) has focus. Nothing runs at idle: the focus signal is only connected while the feature is
+    // configured, and a focus change costs a few string comparisons.
+
+    _syncBlocklist() {
+        this._block = compileBlocklist(this._config.strv('blocklist'));
+        this._blockFs = this._config.bool('block-fullscreen');
+        if (this._block.size === 0 && !this._blockFs) {
+            this._unwatchFocus();
+            this._keys.setBlocked(false);
+            return;
+        }
+        if (!this._focusSig)
+            this._focusSig = global.display.connect('notify::focus-window', () => this._checkFocus());
+        this._checkFocus(true);
+    }
+
+    _unwatchFocus() {
+        if (this._focusSig) {
+            global.display.disconnect(this._focusSig);
+            this._focusSig = 0;
+        }
+        this._dropFsWatch();
+        this._fsWin = null;
+    }
+
+    _dropFsWatch() {
+        if (this._fsSig && this._fsWin) {
+            try {
+                this._fsWin.disconnect(this._fsSig);
+            } catch (_e) { /* window already destroyed */ }
+        }
+        this._fsSig = 0;
+    }
+
+    _checkFocus(force = false) {
+        const win = global.display.focus_window ?? null;
+        if (force || win !== this._fsWin) {
+            this._dropFsWatch();
+            this._fsWin = win;
+            if (win && this._blockFs)
+                this._fsSig = win.connect('notify::fullscreen', () => this._checkFocus());
+        }
+        this._keys?.setBlocked(this._isBlocked(win));
+    }
+
+    _isBlocked(win) {
+        if (!win)
+            return false;
+        if (this._blockFs && win.is_fullscreen())
+            return true;
+        if (this._block.size === 0)
+            return false;
+        const names = [win.get_wm_class?.(), win.get_wm_class_instance?.(), win.get_gtk_application_id?.(), win.get_sandboxed_app_id?.()];
+        try {
+            const app = Shell.WindowTracker.get_default().get_window_app(win);
+            if (app)
+                names.push(app.get_id(), app.get_name());
+        } catch (_e) { /* no app for this window */ }
+        return this._block.test(names);
     }
 
     _syncAccounts() {

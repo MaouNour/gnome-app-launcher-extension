@@ -6,6 +6,11 @@
     <!-- Mutter keeps one global list of keybinding names, so this key name must be unique. -->
     <key name="gnome-launcher-toggle" type="as"><default>["&lt;Control&gt;&lt;Alt&gt;space"]</default></key>
     <key name="use-super-key" type="b"><default>false</default></key>
+    <!-- Applications in which every launcher shortcut is released (games, VMs...): window class,
+         application id or desktop id, "*" and "?" wildcards allowed -->
+    <key name="blocklist" type="as"><default>[]</default></key>
+    <!-- Also release the shortcuts while the focused window is fullscreen -->
+    <key name="block-fullscreen" type="b"><default>false</default></key>
     <key name="reset-query-on-open" type="b"><default>true</default></key>
     <key name="monitor" type="s"><default>'pointer'</default></key>
     <!-- What happens when the pointer interacts outside the window: click | hover | none -->
@@ -46,7 +51,8 @@
     <key name="show-scrollbar" type="b"><default>false</default></key>
 
     <!-- Animation -->
-    <key name="anim-style" type="s"><default>'fade-scale'</default></key>
+    <!-- theme (follow the theme) | fade-scale | fade | slide | pop | drop | rise | none -->
+    <key name="anim-style" type="s"><default>'theme'</default></key>
     <key name="anim-duration" type="i"><default>150</default><range min="0" max="1000"/></key>
 
     <!-- Themes -->

@@ -35,6 +35,10 @@ export function buildStyles(l, t) {
     const shadow = t.shadowOpacity > 0
         ? `box-shadow: 0 ${px(t.shadowOffsetY)} ${px(t.shadowBlur)} rgba(0,0,0,${t.shadowOpacity}); `
         : '';
+    // A hairline under the search field (Raycast/Vicinae style); fully transparent = none. The field
+    // loses its own rounding then, so the line runs straight across.
+    const hasDivider = t.divider.length === 9 && parseInt(t.divider.slice(7, 9), 16) > 0;
+    const divider = hasDivider ? `border-bottom: ${px(1)} solid ${cssColor(t.divider)}; border-radius: 0; ` : '';
     const minH = l.windowHeight > 0 ? `min-height: ${px(l.windowHeight)}; ` : '';
     const fg = cssColor(t.foreground);
     const sel = cssColor(t.selectionText);
@@ -65,7 +69,7 @@ export function buildStyles(l, t) {
         entry: `min-height: ${px(l.searchHeight)}; padding: 0 ${px(l.searchPadding)}; spacing: ${px(l.iconSpacing)}; ` +
             `border-radius: ${px(t.searchRadius)}; background-color: ${cssColor(t.searchBackground)}; ` +
             `color: ${fg}; caret-color: ${cssColor(t.accent)}; selection-background-color: ${cssColor(t.accent)}; ` +
-            `selected-color: ${sel}; font-size: ${pt(searchSize)}; ${searchFont}border-width: 0;`,
+            `selected-color: ${sel}; font-size: ${pt(searchSize)}; ${searchFont}border-width: 0; ${divider}`,
         hint: `color: ${sec}; ${searchFont}`,
         list: `spacing: ${gap}px;`,
         row: `${rowBase}background-color: transparent;`,
@@ -97,6 +101,9 @@ export function buildStyles(l, t) {
         showTags: l.showTags,
         searchPosition: l.searchPosition,
         blur: t.blur,
+        blurBrightness: t.brightness,
+        anim: t.anim,
+        animMs: t.animMs,
         placeholder: l.placeholder,
         searchIcon: l.searchIcon,
         searchIconSize: Math.max(8, Math.round(l.searchIconSize * s)),

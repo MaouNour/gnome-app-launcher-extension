@@ -1,14 +1,16 @@
 import Adw from 'gi://Adw';
 import Gio from 'gi://Gio';
+import GLib from 'gi://GLib';
 import Gtk from 'gi://Gtk';
 import Pango from 'gi://Pango';
 
 import {BUILTINS, sanitizeBuiltins} from '../commands/builtins.js';
 import {ACTION_FIELDS, COMMAND_FIELDS, newAction, newCommand, sanitizeAction, sanitizeCommand} from '../commands/schema.js';
-import {THEME_FIELDS, THEME_BASE, THEME_FAMILIES, builtinThemes, resolveTheme, sanitizeTheme, themeNames} from '../themes/themes.js';
+import {THEME_FIELDS, THEME_BASE, THEME_FAMILIES, THEME_GROUPS, builtinThemes, resolveTheme, sanitizeTheme, themeNames} from '../themes/themes.js';
 import {sanitizeProvider, newProvider} from '../search/web.js';
 import {accountsPage} from './accounts.js';
-import {ListEditor, Overrides, comboRow, entryRow, fileDialog, group, shortcutRow, spinRow, switchRow, toast} from './widgets.js';
+import {compileBlocklist, normalizeBlockEntry} from '../shortcuts/blocklist.js';
+import {ListEditor, Overrides, comboRow, entryRow, fileDialog, group, regexHelpButton, shortcutRow, spinRow, switchRow, toast} from './widgets.js';
 
 const page = (title, icon) => new Adw.PreferencesPage({title, icon_name: icon});
 
@@ -173,6 +175,8 @@ function shortcuts(window, settings) {
         'While on, runs: gsettings set org.gnome.mutter overlay-key \'\' (the overview no longer opens on Super). Turning it off, or disabling the extension, runs: gsettings reset org.gnome.mutter overlay-key. Super+key shortcuts are unaffected.'));
     p.add(g);
 
+    p.add(blocklistGroup(settings));
+
     const info = group('Per-entry shortcuts', 'Shortcuts for individual commands and actions are set in their own pages. They run the entry directly without opening the launcher.');
     const list = ownShortcuts(settings);
     if (list.length === 0) {
@@ -183,6 +187,67 @@ function shortcuts(window, settings) {
     }
     p.add(info);
     return p;
+}
+
+// Applications in which the launcher's shortcuts are released, so the keys reach the app.
+function blocklistGroup(window, settings) {
+    const g = group('Block the launcher in some applications',
+        'While one of these has focus, every launcher shortcut (the main one, the Super key and per-entry shortcuts) is released and goes to the application instead: handy for games, virtual machines and remote desktops. Names match the window class, the application id or the desktop-file id, ignoring case. Use * as a wildcard, for example steam_app_* for every Steam game. To find a window\'s class run: xprop WM_CLASS (X11), or Alt+F2, lg, Windows.');
+    g.add(switchRow(settings, 'block-fullscreen', 'Also block in any fullscreen window',
+        'Catches most games, but also fullscreen videos and browsers.'));
+
+    let rows = [];
+    const save = list => settings.set_strv('blocklist', list);
+    const rebuild = () => {
+        for (const r of rows)
+            g.remove(r);
+        rows = [];
+        for (const name of settings.get_strv('blocklist')) {
+            const row = new Adw.ActionRow({title: GLib.markup_escape_text(name, -1)});
+            const del = new Gtk.Button({icon_name: 'user-trash-symbolic', css_classes: ['flat'], valign: Gtk.Align.CENTER, tooltip_text: 'Remove'});
+            del.connect('clicked', () => save(settings.get_strv('blocklist').filter(x => x !== name)));
+            row.add_suffix(del);
+            g.add(row);
+            rows.push(row);
+        }
+    };
+    const add = raw => {
+        const v = normalizeBlockEntry(raw);
+        if (!v || compileBlocklist([v]).size === 0)
+            return false;
+        const cur = settings.get_strv('blocklist');
+        if (!cur.map(normalizeBlockEntry).includes(v))
+            save([...cur, v]);
+        return true;
+    };
+
+    const typed = new Adw.EntryRow({title: 'Window class or application id (press Enter to add)', show_apply_button: true});
+    typed.connect('apply', () => {
+        if (add(typed.text))
+            typed.text = '';
+    });
+    g.add(typed);
+
+    const apps = Gio.AppInfo.get_all().filter(a => a.should_show() && a.get_id())
+        .sort((a, b) => a.get_name().localeCompare(b.get_name()));
+    const picker = new Adw.ActionRow({title: 'Choose an installed application'});
+    const drop = Gtk.DropDown.new_from_strings(apps.map(a => a.get_name()));
+    drop.valign = Gtk.Align.CENTER;
+    drop.enable_search = true;
+    drop.expression = Gtk.PropertyExpression.new(Gtk.StringObject, null, 'string');
+    const btn = new Gtk.Button({label: 'Add', valign: Gtk.Align.CENTER});
+    btn.connect('clicked', () => {
+        const a = apps[drop.selected];
+        if (a)
+            add(a.get_id().replace(/\.desktop$/, ''));
+    });
+    picker.add_suffix(drop);
+    picker.add_suffix(btn);
+    g.add(picker);
+
+    settings.connect('changed::blocklist', rebuild);
+    rebuild();
+    return g;
 }
 
 function appearance(window, settings) {
@@ -232,8 +297,11 @@ function appearance(window, settings) {
     p.add(scroll);
 
     const anim = group('Animation');
-    anim.add(comboRow(settings, 'anim-style', 'Style', [['fade-scale', 'Fade and scale'], ['fade', 'Fade'], ['slide', 'Slide'], ['none', 'None (disabled)']]));
-    anim.add(spinRow(settings, 'anim-duration', 'Duration (ms)', 0, 1000, 10));
+    anim.add(comboRow(settings, 'anim-style', 'Style', [
+        ['theme', 'Follow the theme'], ['fade-scale', 'Fade and scale'], ['fade', 'Fade'], ['slide', 'Slide'],
+        ['pop', 'Pop (springy)'], ['drop', 'Drop in'], ['rise', 'Rise'], ['none', 'None (disabled)'],
+    ], 'Raycast, Vicinae and the other launcher styles bring their own motion; pick another style here to override it.'));
+    anim.add(spinRow(settings, 'anim-duration', 'Duration (ms)', 0, 1000, 10, '0 turns the animation off. With "Follow the theme" a theme\'s own length is used when this is above 0.'));
     p.add(anim);
 
     const look = group('Look overrides', 'These override the selected theme. Use the undo button to return to the theme value.');
@@ -252,28 +320,32 @@ function themes(window, settings) {
     sel.add(comboRow(settings, 'theme-mode', 'Mode', [['auto', 'Follow GNOME dark/light mode'], ['light', 'Always light'], ['dark', 'Always dark']]));
     sel.add(comboRow(settings, 'theme-light', 'Light theme', names));
     sel.add(comboRow(settings, 'theme-dark', 'Dark theme', names));
-    const fams = Object.keys(THEME_FAMILIES);
-    const quick = new Adw.ComboRow({
-        title: 'Quick preset',
-        subtitle: 'Sets the light and dark theme together, for example Raycast or Vicinae.',
-        model: Gtk.StringList.new(['Choose a preset…', ...fams]),
-    });
-    const syncQuick = () => {
-        const pair = [settings.get_string('theme-light'), settings.get_string('theme-dark')];
-        const i = fams.findIndex(f => THEME_FAMILIES[f][0] === pair[0] && THEME_FAMILIES[f][1] === pair[1]);
-        quick.selected = i + 1;
-    };
-    syncQuick();
-    quick.connect('notify::selected', () => {
-        const fam = fams[quick.selected - 1];
-        if (!fam)
-            return;
-        settings.set_string('theme-light', THEME_FAMILIES[fam][0]);
-        settings.set_string('theme-dark', THEME_FAMILIES[fam][1]);
-    });
-    settings.connect('changed::theme-light', syncQuick);
-    settings.connect('changed::theme-dark', syncQuick);
-    sel.add(quick);
+    // One row per group: launcher styles (colours + blur + shadow + motion) and plain colour schemes.
+    for (const [title, fams] of Object.entries(THEME_GROUPS)) {
+        const quick = new Adw.ComboRow({
+            title: `Quick preset: ${title.toLowerCase()}`,
+            subtitle: title === 'Launcher style'
+                ? 'Sets the light and dark theme together, including blur, shadow and animation.'
+                : 'Sets the light and dark theme together.',
+            model: Gtk.StringList.new(['Choose a preset…', ...fams]),
+        });
+        const syncQuick = () => {
+            const pair = [settings.get_string('theme-light'), settings.get_string('theme-dark')];
+            const i = fams.findIndex(f => THEME_FAMILIES[f][0] === pair[0] && THEME_FAMILIES[f][1] === pair[1]);
+            quick.selected = i + 1;
+        };
+        syncQuick();
+        quick.connect('notify::selected', () => {
+            const fam = fams[quick.selected - 1];
+            if (!fam)
+                return;
+            settings.set_string('theme-light', THEME_FAMILIES[fam][0]);
+            settings.set_string('theme-dark', THEME_FAMILIES[fam][1]);
+        });
+        settings.connect('changed::theme-light', syncQuick);
+        settings.connect('changed::theme-dark', syncQuick);
+        sel.add(quick);
+    }
     p.add(sel);
 
     const editor = new ListEditor({
@@ -417,7 +489,8 @@ function webPage(window, settings) {
 function search(settings) {
     const p = page('Search', 'system-search-symbolic');
     const rx = group('Regular expressions',
-        'Match names, keywords and descriptions with a pattern, for example /^(chrom|fire)/ or /term.*emu/. Matching ignores case.');
+        'Match names, keywords and descriptions with a pattern, for example /^(chrom|fire)/ or /term.*emu/. Matching ignores case. To use a pattern as a keyword of one of your own commands, write it between slashes in that command\'s Search keywords field (see the i button).');
+    rx.set_header_suffix(regexHelpButton());
     rx.add(comboRow(settings, 'regex-mode', 'Use regular expressions', [
         ['prefix', 'When the search starts with a slash'],
         ['always', 'Always when the text looks like a pattern (falls back to normal search if it is not valid)'],

@@ -24,14 +24,42 @@ export class Keybindings {
         this._down = false;
         this._clean = false;
         this._superCb = null;
+        this._mainArgs = null;   // {settings, key, callback}: kept so the binding can be put back
+        this._customArgs = null; // {items, callback}
+        this._blocked = false;
+    }
+
+    // While true (a blocked application has focus) every launcher shortcut is released, so the keys
+    // reach that application untouched. Event driven: called on focus changes only.
+    setBlocked(blocked) {
+        if (blocked === this._blocked)
+            return;
+        this._blocked = blocked;
+        if (blocked) {
+            this._removeMain();
+            this._ungrabCustom();
+        } else {
+            if (this._mainArgs)
+                this._addMain();
+            if (this._customArgs)
+                this._grabCustom();
+        }
     }
 
     // Main activation shortcut. `key` is the name of an 'as' GSettings key. Mutter keeps ONE
     // global list of binding names (shared with every extension), so the key name must be
     // unique, and it is registered once: Mutter itself follows later changes to the setting.
     setMain(settings, key, callback) {
+        if (this._mainArgs)
+            return true;
+        this._mainArgs = {settings, key, callback};
+        return this._blocked ? true : this._addMain();
+    }
+
+    _addMain() {
         if (this._mainKey)
             return true;
+        const {settings, key, callback} = this._mainArgs;
         let action = NONE;
         for (let attempt = 0; attempt < 2 && action === NONE; attempt++) {
             try {
@@ -40,7 +68,7 @@ export class Keybindings {
                 warn('addKeybinding threw:', e.message);
             }
             if (action === NONE) {
-                warn(`addKeybinding("${key}") failed (attempt ${attempt + 1}); removing a possibly stale registration`);
+                warn(`addKeybinding(\"${key}\") failed (attempt ${attempt + 1}); removing a possibly stale registration`);
                 try {
                     Main.wm.removeKeybinding(key);
                 } catch (_e) { /* nothing registered under that name */ }
@@ -53,11 +81,18 @@ export class Keybindings {
         return true;
     }
 
-    clearMain() {
+    _removeMain() {
         if (this._mainKey) {
-            Main.wm.removeKeybinding(this._mainKey);
+            try {
+                Main.wm.removeKeybinding(this._mainKey);
+            } catch (_e) { /* already removed */ }
             this._mainKey = null;
         }
+    }
+
+    clearMain() {
+        this._removeMain();
+        this._mainArgs = null;
     }
 
     // Open on a bare Super press. Shell's overview owns that key, so while this is on Mutter's
@@ -83,6 +118,8 @@ export class Keybindings {
             this._stopSuper();
             this._superCb = callback;
             this._overlaySig = global.display.connect('overlay-key', () => {
+                if (this._blocked)
+                    return;
                 callback();
                 if (Main.overview.visible || Main.overview.animationInProgress)
                     Main.overview.hide();
@@ -107,7 +144,7 @@ export class Keybindings {
                 const fire = this._clean;
                 this._down = false;
                 this._clean = false;
-                if (fire)
+                if (fire && !this._blocked)
                     this._superCb?.();
             }
             break;
@@ -147,7 +184,13 @@ export class Keybindings {
     // Per-entry shortcuts. `items` = [{id, accel}]. Returns accelerators that could not be
     // grabbed (conflicts/invalid) so the caller can tell the user. Duplicates: first wins.
     setCustom(items, callback) {
-        this.clearCustom();
+        this._ungrabCustom();
+        this._customArgs = {items, callback};
+        return this._blocked ? [] : this._grabCustom();
+    }
+
+    _grabCustom() {
+        const {items, callback} = this._customArgs;
         const failed = [];
         const seen = new Set();
         for (const {id, accel} of items) {
@@ -180,7 +223,7 @@ export class Keybindings {
         return failed;
     }
 
-    clearCustom() {
+    _ungrabCustom() {
         for (const [action, c] of this._custom) {
             try {
                 global.display.ungrab_accelerator(action);
@@ -192,6 +235,11 @@ export class Keybindings {
             global.display.disconnect(this._customSig);
             this._customSig = 0;
         }
+    }
+
+    clearCustom() {
+        this._ungrabCustom();
+        this._customArgs = null;
     }
 
     destroy() {

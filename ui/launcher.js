@@ -51,6 +51,20 @@ function parseAccel(accel) {
 }
 const FALLBACK_ICON = 'application-x-executable';
 
+// Opening/closing motion. `scale`/`ty` describe the hidden pose; `open`/`close` are the easing curves.
+// 'theme' in the Animation setting picks the active theme's own style and length.
+const AM = Clutter.AnimationMode;
+const ANIMS = {
+    'fade-scale': {scale: 0.96, ty: 0, open: AM.EASE_OUT_QUAD, close: AM.EASE_OUT_QUAD},
+    'fade': {scale: 1, ty: 0, open: AM.EASE_OUT_QUAD, close: AM.EASE_OUT_QUAD},
+    'slide': {scale: 1, ty: -14, open: AM.EASE_OUT_QUAD, close: AM.EASE_OUT_QUAD},
+    // Springy: overshoots slightly on the way in.
+    'pop': {scale: 0.9, ty: 0, open: AM.EASE_OUT_BACK, close: AM.EASE_IN_QUAD},
+    // Drops in from slightly above with a soft deceleration, leaves quicker.
+    'drop': {scale: 0.985, ty: -10, open: AM.EASE_OUT_CUBIC, close: AM.EASE_IN_QUAD},
+    'rise': {scale: 0.985, ty: 12, open: AM.EASE_OUT_CUBIC, close: AM.EASE_IN_QUAD},
+};
+
 // Optional "GNOME Rounded Blur" library (gi://Blur): a copy of Shell's own blur effect that clips to a
 // corner radius. Blur my Shell uses it the same way when it is installed. Loaded once, only if blur is on.
 let roundLib;            // undefined = not tried yet, null = not installed
@@ -569,13 +583,14 @@ export class Launcher {
         });
         const sf = scaleFactor();
         const corner = Math.round(st.cornerR * sf);
-        if (!this._blurFx && !this._makeBlur(sigma, corner)) {
+        if (!this._blurFx && !this._makeBlur(sigma, corner, st.blurBrightness)) {
             this._blurBg.visible = false;
             return;
         }
         const fx = this._blurFx;
         try {
             fx.effect[fx.prop] = fx.prop === 'sigma' ? sigma : sigma * 2;
+            fx.effect.brightness = st.blurBrightness;
             if (fx.round)
                 fx.effect.corner_radius = corner;
         } catch (_e) { /* property differs between versions; the effect keeps its value */ }
@@ -585,19 +600,19 @@ export class Launcher {
         this._blurBg.visible = true;
     }
 
-    _makeBlur(sigma, corner) {
+    _makeBlur(sigma, corner, brightness) {
         const tries = [];
         if (roundLib) {
             const mode = roundLib.BlurMode?.BACKGROUND ?? 1;
             tries.push(
-                {lib: roundLib, round: true, prop: 'radius', props: {radius: sigma * 2, mode, brightness: 1.0, corner_radius: corner}},
-                {lib: roundLib, round: true, prop: 'sigma', props: {sigma, mode, brightness: 1.0, corner_radius: corner}});
+                {lib: roundLib, round: true, prop: 'radius', props: {radius: sigma * 2, mode, brightness, corner_radius: corner}},
+                {lib: roundLib, round: true, prop: 'sigma', props: {sigma, mode, brightness, corner_radius: corner}});
         }
         if (Shell.BlurEffect) {
             const mode = Shell.BlurMode?.BACKGROUND ?? 1;
             tries.push(
-                {lib: Shell, round: false, prop: 'sigma', props: {sigma, mode, brightness: 1.0}},
-                {lib: Shell, round: false, prop: 'radius', props: {radius: sigma * 2, mode, brightness: 1.0}});
+                {lib: Shell, round: false, prop: 'sigma', props: {sigma, mode, brightness}},
+                {lib: Shell, round: false, prop: 'radius', props: {radius: sigma * 2, mode, brightness}});
         }
         for (const t of tries) {
             try {
@@ -700,16 +715,19 @@ export class Launcher {
         box.remove_all_transitions();
         this._state = opening ? 'opening' : 'closing';
 
-        const style = this._cfg.str('anim-style');
+        let style = this._cfg.str('anim-style');
+        let ms = this._cfg.int('anim-duration');
+        if (style === 'theme') {
+            const th = this._st;
+            style = !th || th.anim === 'default' ? 'fade-scale' : th.anim;
+            if (th?.animMs > 0 && ms > 0)
+                ms = th.animMs; // a duration of 0 in the setting still switches animation off
+        }
+        const a = ANIMS[style] ?? ANIMS['fade-scale'];
         const enabled = St.Settings.get().enable_animations && style !== 'none';
-        const duration = enabled ? this._cfg.int('anim-duration') : 0;
+        const duration = enabled ? ms : 0;
         const shown = {opacity: 255, scale_x: 1, scale_y: 1, translation_y: 0};
-        const hidden = {
-            opacity: 0,
-            scale_x: style === 'fade-scale' ? 0.96 : 1,
-            scale_y: style === 'fade-scale' ? 0.96 : 1,
-            translation_y: style === 'slide' ? -14 : 0,
-        };
+        const hidden = {opacity: 0, scale_x: a.scale, scale_y: a.scale, translation_y: a.ty};
         // While fading, paint the whole window as one flattened layer. Otherwise the translucent
         // background, border and shadow are blended separately and the shadow visibly pulses.
         // Not with blur on: a background blur has to read the screen behind it, which an offscreen
@@ -745,7 +763,7 @@ export class Launcher {
         box.ease({
             ...(opening ? shown : hidden),
             duration: opening ? duration : Math.round(duration * 0.8),
-            mode: Clutter.AnimationMode.EASE_OUT_QUAD,
+            mode: opening ? a.open : a.close,
             onComplete: done,
         });
     }

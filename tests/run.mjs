@@ -5,11 +5,12 @@ import {join, dirname} from 'node:path';
 import {fileURLToPath} from 'node:url';
 
 import {SearchEngine, prepare, fold, frecency} from '../search/engine.js';
-import {sanitizeTheme, resolveTheme, builtinThemes, cssColor, THEME_FAMILIES} from '../themes/themes.js';
+import {sanitizeTheme, resolveTheme, builtinThemes, cssColor, THEME_FAMILIES, THEME_GROUPS, THEME_FIELDS} from '../themes/themes.js';
 import {sanitizeCommand, sanitizeAction, validateCommand, validateAction} from '../commands/schema.js';
 import {buildUserEntries} from '../commands/userEntries.js';
 import {calculate} from '../search/calc.js';
 import {buildStyles, cssFontFamily} from '../ui/style.js';
+import {compileBlocklist} from '../shortcuts/blocklist.js';
 import {parseRegexQuery, isRiskyPattern, extractRegexKeywords} from '../search/regex.js';
 import {sanitizeProviders, sanitizeProvider, validTemplate, buildUrl, webEntries, explicitWebQuery, offerWeb, DEFAULT_PROVIDERS} from '../search/web.js';
 import {sanitizeAccount, sanitizeAccounts, accountEntries, safeUrl, hostOf, generatePassword, newAccountId, clearDelaySeconds} from '../accounts/accounts.js';
@@ -110,7 +111,7 @@ test('theme overrides applied', () => assert.equal(resolveTheme({custom: [], nam
 test('unknown theme falls back', () => assert.equal(resolveTheme({custom: [], name: 'nope', dark: true}).name, 'default-dark'));
 test('custom theme resolved', () => assert.equal(resolveTheme({custom: [{name: 'mine', accent: '#ff0000'}], name: 'mine', dark: true}).accent, '#ff0000'));
 test('cssColor alpha', () => assert.equal(cssColor('#000000', 0.5), 'rgba(0,0,0,0.5)'));
-test('built-in themes present', () => assert.equal(Object.keys(builtinThemes()).length, 9));
+test('built-in themes present', () => assert.equal(Object.keys(builtinThemes()).length, Object.keys(THEME_FAMILIES).length * 2 - 0));
 test('raycast and vicinae presets exist in light and dark and survive sanitising', () => {
     const all = builtinThemes();
     for (const n of ['raycast-dark', 'raycast-light', 'vicinae-dark', 'vicinae-light']) {
@@ -118,6 +119,34 @@ test('raycast and vicinae presets exist in light and dark and survive sanitising
         assert.deepEqual(sanitizeTheme(all[n], all[n]), all[n], `${n} must be valid as written`);
     }
     assert.equal(all['raycast-dark'].accent, '#ff6363');
+});
+test('launcher styles bring blur, brightness, a divider and their own motion', () => {
+    const all = builtinThemes();
+    for (const n of ['raycast-dark', 'raycast-light', 'vicinae-dark', 'vicinae-light', 'spotlight-dark', 'spotlight-light']) {
+        const t = all[n];
+        assert.ok(t.blur > 0 && t.opacity < 1, `${n} is glass`);
+        assert.notEqual(t.anim, 'default', `${n} animates`);
+        assert.ok(t.animMs > 0, `${n} has its own length`);
+        assert.equal(t.divider.length, 9, `${n} has a divider`);
+    }
+    assert.notEqual(all['raycast-dark'].anim, all['vicinae-dark'].anim);
+    assert.ok(all['raycast-dark'].brightness < 1);
+});
+test('theme groups only list known families, and every family belongs to one group or is Default', () => {
+    for (const fams of Object.values(THEME_GROUPS))
+        for (const f of fams)
+            assert.ok(THEME_FAMILIES[f], f);
+    const grouped = new Set(Object.values(THEME_GROUPS).flat());
+    for (const f of Object.keys(THEME_FAMILIES))
+        assert.ok(grouped.has(f), `${f} is not in any preset row`);
+});
+test('theme fields: animation and brightness are sanitised', () => {
+    const t = sanitizeTheme({anim: 'bogus', animMs: 1e9, brightness: -3, divider: 'red'});
+    assert.equal(t.anim, 'default');
+    assert.equal(t.animMs, 1000);
+    assert.equal(t.brightness, 0.3);
+    assert.equal(t.divider, '#00000000');
+    assert.ok(THEME_FIELDS.some(f => f.key === 'anim'));
 });
 test('theme families only reference existing themes', () => {
     const all = builtinThemes();
@@ -351,6 +380,26 @@ const LAYOUT = {
     searchPosition: 'top', showDescriptions: true, showTags: true, placeholder: '', searchIcon: 'edit-find-symbolic',
     searchIconSize: 16, showScrollbar: false,
 };
+test('divider only appears when the theme asks for one', () => {
+    const base = builtinThemes()['default-dark'];
+    assert.ok(!buildStyles(LAYOUT, base).entry.includes('border-bottom'));
+    const ray = buildStyles(LAYOUT, builtinThemes()['raycast-dark']);
+    assert.ok(ray.entry.includes('border-bottom'));
+    assert.equal(ray.blurBrightness, 0.8);
+    assert.equal(ray.anim, 'drop');
+});
+test('blocklist: exact, case, .desktop and wildcard matching', () => {
+    const b = compileBlocklist(['Steam_App_*', 'org.gnome.Nautilus.desktop', '  ', 'vmw?are*']);
+    assert.equal(b.size, 3);
+    assert.ok(b.test(['steam_app_730']));
+    assert.ok(b.test([null, 'org.gnome.nautilus']));
+    assert.ok(b.test(['VMwXare-player']));
+    assert.ok(!b.test(['VMware']));
+    assert.ok(!b.test(['firefox', undefined, '']));
+    assert.ok(!b.test(['steam']));
+    assert.equal(compileBlocklist(undefined).size, 0);
+    assert.ok(!compileBlocklist(['a.b']).test(['axb'])); // dots are literal
+});
 test('shadow is its own style string, not part of the blurred box', () => {
     const st = buildStyles(LAYOUT, builtinThemes()['default-dark']);
     assert.ok(!st.box.includes('box-shadow'));

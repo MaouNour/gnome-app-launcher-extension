@@ -44,6 +44,47 @@ export function comboRow(settings, key, title, options, subtitle = '') {
     return row;
 }
 
+// "i" button with a popover that explains regular expressions. Shared by the Search page and the
+// keywords field of commands/actions.
+const REGEX_HELP = `<b>Regular expressions</b>
+A pattern is a short rule that matches text. Case is ignored.
+
+<b>In a command or action  (recommended)</b>
+Open the entry's <i>Search keywords</i> field and write the pattern between two slashes, next to ordinary words:
+<tt>terminal /^(open )?term(inal)?$/</tt>
+The pattern is tested against everything typed in the launcher, and the entry is listed when it matches. Add <tt>^</tt> and <tt>$</tt> to require the whole text. This works whatever the search-box setting below is.
+
+<b>In the search box  (optional)</b>
+Start with a slash, for example <tt>/chrom|fire</tt>. Turn it on or off under Search, "Use regular expressions".
+
+<b>Cheat sheet</b>
+<tt>^</tt> start    <tt>$</tt> end    <tt>.</tt> any character
+<tt>a|b</tt> a or b    <tt>(ab)</tt> group    <tt>[abc]</tt> one of
+<tt>?</tt> optional    <tt>*</tt> zero or more    <tt>+</tt> one or more
+<tt>\\d</tt> digit    <tt>\\w</tt> letter or digit    <tt>\\.</tt> a literal dot
+
+<b>Examples</b>
+<tt>/^(vs)?code$/</tt>  matches "code" and "vscode"
+<tt>/^(sh|shut)(down)?$/</tt>  matches "sh", "shut", "shutdown"
+<tt>/^\\d+$/</tt>  matches a number
+
+<b>Safety</b>
+Patterns that could freeze the shell are ignored: more than two <tt>*</tt> or <tt>+</tt>, repeated groups that contain repeats, back-references and look-behind.`;
+
+export function regexHelpButton() {
+    const label = new Gtk.Label({
+        use_markup: true, label: REGEX_HELP, wrap: true, xalign: 0, max_width_chars: 58,
+        margin_top: 12, margin_bottom: 12, margin_start: 14, margin_end: 14,
+    });
+    const scroll = new Gtk.ScrolledWindow({
+        child: label, hscrollbar_policy: Gtk.PolicyType.NEVER, propagate_natural_height: true, max_content_height: 460, min_content_width: 420,
+    });
+    return new Gtk.MenuButton({
+        icon_name: 'dialog-information-symbolic', css_classes: ['flat'], valign: Gtk.Align.CENTER,
+        tooltip_text: 'How to write regular expressions', popover: new Gtk.Popover({child: scroll}),
+    });
+}
+
 export function group(title, description = '') {
     return new Adw.PreferencesGroup({title, description});
 }
@@ -320,6 +361,8 @@ export class ListEditor {
         default: {
             const w = new Adw.EntryRow({title: f.label, text: item[f.key] ?? ''});
             w.connect('changed', () => set(f.key, w.text));
+            if (f.help === 'regex')
+                w.add_suffix(regexHelpButton());
             return w;
         }
         }
