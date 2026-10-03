@@ -768,6 +768,47 @@ test('every settings key used in code exists in the schema', () => {
         assert.ok(keys.has(k), k);
     assert.ok(!keys.has('saved-overlay-key'));
 });
+test('prefs page builders are called with the arguments they declare', () => {
+    const src = readFileSync(join(root, 'prefs/pages.js'), 'utf8');
+    const argc = str => {
+        let depth = 0, n = 0, any = false, q = null;
+        for (let i = 0; i < str.length; i++) {
+            const c = str[i];
+            if (q) { if (c === '\\') i++; else if (c === q) q = null; continue; }
+            if (c === "'" || c === '"' || c === '`') { q = c; any = true; continue; }
+            if ('([{'.includes(c)) { depth++; any = true; }
+            else if (')]}'.includes(c)) depth--;
+            else if (c === ',' && depth === 0) n++;
+            else if (!/\s/.test(c)) any = true;
+        }
+        return any ? n + 1 : 0;
+    };
+    const callArgs = (name, from) => {
+        const out = [];
+        const re = new RegExp(`(?<![\\w.])${name}\\(`, 'g');
+        for (let m; (m = re.exec(src));) {
+            let i = re.lastIndex, depth = 1, q = null;
+            for (; i < src.length && depth > 0; i++) {
+                const c = src[i];
+                if (q) { if (c === '\\') i++; else if (c === q) q = null; continue; }
+                if (c === "'" || c === '"' || c === '`') q = c;
+                else if ('([{'.includes(c)) depth++;
+                else if (')]}'.includes(c)) depth--;
+            }
+            out.push([m.index, src.slice(re.lastIndex, i - 1)]);
+        }
+        return out;
+    };
+    for (const m of src.matchAll(/^function (\w+)\(([^)]*)\)\s*\{/gm)) {
+        const [, name, params] = m;
+        if (params.includes('=') || params.includes('{')) continue;
+        const want = params.trim() ? params.split(',').length : 0;
+        for (const [at, args] of callArgs(name)) {
+            if (at === m.index + 'function '.length) continue; // the declaration itself
+            assert.equal(argc(args), want, `${name}(${args}) passes ${argc(args)} argument(s), expected ${want} (${params})`);
+        }
+    }
+});
 test('metadata uuid matches the owner', () => {
     const meta = JSON.parse(readFileSync(join(root, 'metadata.json'), 'utf8'));
     assert.equal(meta.uuid, 'gnome-launcher@maou-nournar');

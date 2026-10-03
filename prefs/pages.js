@@ -175,7 +175,7 @@ function shortcuts(window, settings) {
         'While on, runs: gsettings set org.gnome.mutter overlay-key \'\' (the overview no longer opens on Super). Turning it off, or disabling the extension, runs: gsettings reset org.gnome.mutter overlay-key. Super+key shortcuts are unaffected.'));
     p.add(g);
 
-    p.add(blocklistGroup(settings));
+    p.add(blocklistGroup(window, settings));
 
     const info = group('Per-entry shortcuts', 'Shortcuts for individual commands and actions are set in their own pages. They run the entry directly without opening the launcher.');
     const list = ownShortcuts(settings);
