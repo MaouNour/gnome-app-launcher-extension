@@ -82,6 +82,8 @@ export function buildStyles(l, t) {
         gridRow: `spacing: ${gridGap}px; padding-left: ${gridPad}px;`,
         gridHint: `color: ${sec}; font-size: ${pt(l.fontSize)}; ${font}padding: ${px(4)} ${px(l.padding)} 0 ${px(l.padding)};`,
         gridHintH: Math.round(l.fontSize * 2 * s + 4 * s),
+        sectionTitle: `color: ${sec}; font-size: ${pt(detailSize)}; ${detailFont}padding-left: ${gridPad}px;`,
+        sectionH: Math.round(l.fontSize * 2 * s),
         gridCols, gridCell: cell, gridGap,
         glyphSel: `color: ${sel}; ${emojiFace}font-size: ${Math.round(l.iconSize * s * 0.68)}px; min-width: ${Math.round(l.iconSize * s)}px; text-align: center;`,
         empty: `color: ${sec}; font-size: ${pt(l.fontSize)}; ${font}padding: ${px(l.padding)};`,

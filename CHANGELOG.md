@@ -2,6 +2,33 @@
 
 All notable changes to GNOME Launcher (`gnome-launcher@maou-nournar`). Newest first.
 
+## 0.5.2
+
+### Bug fixes
+- **Emoji grid showed only about half of its height** until you moved the selection down. The first batch of
+  cells was a fixed number of lines, which is less than a tall window can show. The first batch now always
+  fills the visible height (plus a few lines ahead); the rest is still created while you scroll.
+
+### New features
+- **Emoji: Recent, then All emoji.** In the grid layout with nothing typed, the emoji you picked last (by
+  last use, newest first) are shown under a small "Recent" title, then every emoji under "All emoji", a little
+  apart, on the same grid. Typing a search shows one plain list as before, and so does the list layout.
+  Settings (*Built-in Entries > Emoji picker*): show the Recent section (on), how many recent emoji (16).
+  The old "recent and frequent first" switch is now "Rank often-used emoji higher when searching".
+- **Recently used entries when the launcher opens.** Before typing, the list shows what you used most recently,
+  newest first (before: most frequently used). Settings (*Search > When the launcher opens*): on/off, and whether
+  the rest of the list is filled with other entries or left short. The number of entries is the existing
+  "Entries shown before typing".
+- **Search history.** Press **Up** on the first result (or with nothing listed) to recall earlier searches,
+  Up again for older ones, **Down** to come back to what you had typed; typing ends the walk, and a recalled
+  search is never opened by itself. Saved when you open an entry from the main search (not from the clipboard,
+  emoji or password views). Settings (*Search > Search history*): remember searches (on), keep them on disk
+  (on; `~/.local/state/gnome-launcher/history.json`, folder 0700 and file 0600; turning it off deletes the file),
+  how many to keep (50, 0 = no limit), also remember `!commands` (on), and a Clear button.
+
+### Housekeeping
+- Version 0.5.2. Tests 120 -> 126.
+
 ## 0.5.1
 
 ### Bug fixes

@@ -22,6 +22,7 @@ import {calculate} from './search/calc.js';
 import {parseRegexQuery} from './search/regex.js';
 import {DEFAULT_PROVIDERS, explicitWebQuery, offerWeb, sanitizeProviders, webEntries} from './search/web.js';
 import {SearchEngine, prepare} from './search/engine.js';
+import {QueryHistory} from './search/history.js';
 import {Keybindings} from './shortcuts/keybindings.js';
 import {compileBlocklist} from './shortcuts/blocklist.js';
 import {resolveTheme} from './themes/themes.js';
@@ -79,6 +80,10 @@ export default class GnomeLauncherExtension extends Extension {
         this._buffer = ''; // private emoji buffer: memory only, never on disk or in clipboard history
         this._stats = new Stats(new JsonStore(GLib.build_filenamev([stateDir, 'stats.json']), 1));
         this._engine.stats = this._stats;
+        this._history = new QueryHistory(cfg.int('history-max'));
+        this._historyStore = new JsonStore(GLib.build_filenamev([stateDir, 'history.json']), 1, {private: true});
+        this._historyDirty = false;
+        this._historySave = new Debounce(1500, () => this._flushHistory());
         this._runner = new Runner({
             clearClipboard: () => this._clip?.clear(),
             pasteEmojiBuffer: () => this._pasteEmojiBuffer(),
@@ -122,6 +127,7 @@ export default class GnomeLauncherExtension extends Extension {
             },
             getStyle: () => this._styleInputs(),
             // Only does work before the cache has arrived; afterwards it is a no-op.
+            history: this._history,
             onHide: entry => this._hideEntry(entry),
             onOpen: () => {
                 this._clip?.ensureWatching();
@@ -142,6 +148,7 @@ export default class GnomeLauncherExtension extends Extension {
             if (this._alive)
                 this._rebuild.schedule();
         });
+        this._loadHistory();
         this._apps.start();
         if (cfg.bool('prebuild-ui'))
             this._prebuild.schedule();
@@ -154,6 +161,9 @@ export default class GnomeLauncherExtension extends Extension {
             t?.cancel();
         this._finishPasswordClear(); // a copied password never outlives the extension
         this._unwatchFocus();
+        this._historySave?.cancel();
+        this._flushHistory(true);
+        this._historyStore?.cancel();
         this._paster?.destroy(); // puts a borrowed clipboard back
         this._keys?.destroy(); // also gives the Super key back to the overview
         this._launcher?.destroy();
@@ -223,6 +233,21 @@ export default class GnomeLauncherExtension extends Extension {
             break;
         case 'hidden-entries':
             this._rebuild.schedule();
+            break;
+        case 'history-max':
+            if (this._history.setMax(this._config.int('history-max')))
+                this._markHistory();
+            break;
+        case 'history-persist':
+            if (this._config.bool('history-persist'))
+                this._markHistory();
+            else
+                this._historyStore.remove(); // switching it off deletes what is on disk
+            break;
+        case 'history-generation':
+            this._history.clear();
+            this._historyDirty = false;
+            this._historyStore.remove();
             break;
         case 'debug':
             setDebug(this._config.bool('debug'));
@@ -433,7 +458,7 @@ export default class GnomeLauncherExtension extends Extension {
             return this._clipEngine.search(query, {limit: c.bool('unlimited-results') ? Infinity : c.int('max-results'), frecency: false});
         }
         if (mode === 'emoji')
-            return this._emojiSearch(query, Infinity);
+            return this._emojiMode(query);
         if (mode === 'accounts') {
             return this._accountEngine.search(query, {
                 fuzzy: c.bool('fuzzy'), descriptions: true, frecency: false, limit: Infinity, initial: Infinity,
@@ -485,6 +510,7 @@ export default class GnomeLauncherExtension extends Extension {
             fuzzy: c.bool('fuzzy'),
             descriptions: c.bool('search-descriptions'),
             frecency: c.bool('frecency'),
+            recent: c.bool('start-recent') ? {fill: c.bool('start-fill')} : null,
         });
         if (c.bool('calculator')) {
             const value = calculate(query);
@@ -513,6 +539,8 @@ export default class GnomeLauncherExtension extends Extension {
     }
 
     _activate(entry, how = '') {
+        if (entry.kind !== 'account')
+            this._recordSearch(entry);
         switch (entry.kind) {
         case 'account':
             this._useAccount(entry, how);
@@ -521,8 +549,7 @@ export default class GnomeLauncherExtension extends Extension {
             // Sub-view: stays open (and opens the launcher first if a global shortcut was used).
             if (!this._launcher.isOpen)
                 this._launcher.open();
-            if (this._config.bool('frecency'))
-                this._stats.hit(entry.id);
+            this._remember(entry.id);
             if (entry.payload.target === 'emoji')
                 this._ensureEmoji();
             this._launcher.enterMode(entry.payload.target, {
@@ -564,11 +591,58 @@ export default class GnomeLauncherExtension extends Extension {
         default:
         }
         this._launcher.close();
-        if (this._config.bool('frecency'))
-            this._stats.hit(entry.id);
+        this._remember(entry.id);
         // Run after the modal grab is released and the launcher has started closing.
         this._pending = entry;
         this._runIdle.schedule();
+    }
+
+    // --- search history ------------------------------------------------------
+
+    _loadHistory() {
+        if (!this._config.bool('history-persist'))
+            return;
+        this._historyStore.load().then(data => {
+            if (this._alive && data)
+                this._history.merge(data);
+        });
+    }
+
+    _markHistory() {
+        this._historyDirty = true;
+        if (this._config.bool('history-persist'))
+            this._historySave.call();
+    }
+
+    _flushHistory(sync = false) {
+        if (!this._historyDirty || !this._history)
+            return;
+        this._historyDirty = false;
+        if (!this._config?.bool('history-persist'))
+            return;
+        if (sync)
+            this._historyStore.saveSync(this._history.toJSON());
+        else
+            this._historyStore.save(this._history.toJSON());
+    }
+
+    // Remembers the text of the search that led to this entry (main search only; nothing typed in the
+    // clipboard, emoji or password views). Typed `!commands` are optional.
+    _recordSearch(entry) {
+        const c = this._config;
+        const l = this._launcher;
+        if (!c.bool('history-enabled') || !l?.isOpen || l.mode !== null)
+            return;
+        if (entry.kind === 'exec' && !c.bool('history-commands'))
+            return;
+        if (this._history.add(l.text))
+            this._markHistory();
+    }
+
+    // Usage statistics feed both the ranking and the "recently used" start list.
+    _remember(id) {
+        if (this._config.bool('frecency') || this._config.bool('start-recent'))
+            this._stats.hit(id);
     }
 
     // --- clipboard entries ---------------------------------------------------
@@ -733,6 +807,31 @@ export default class GnomeLauncherExtension extends Extension {
         dbg('emoji data released');
     }
 
+    // The emoji view. In the grid, with nothing typed: a "Recent" section (by last use), then every emoji.
+    // Anything else (a search, the list layout, no recent emoji yet) is one plain list.
+    _emojiMode(query) {
+        const c = this._config;
+        if (query.trim() || !c.bool('emoji-recent') || c.str('emoji-layout') !== 'grid')
+            return this._emojiSearch(query, Infinity);
+        const engine = this._ensureEmoji();
+        if (!engine)
+            return [];
+        const used = [];
+        for (const [id, stat] of this._stats.entries()) {
+            const e = engine.get(id);
+            if (e)
+                used.push([stat[1], e]);
+        }
+        if (used.length === 0)
+            return this._emojiSearch(query, Infinity);
+        used.sort((a, b) => b[0] - a[0]);
+        const recent = used.slice(0, c.int('emoji-recent-count')).map(u => u[1]);
+        const all = engine.search('', {fuzzy: false, descriptions: false, frecency: false, natural: true, limit: Infinity, initial: Infinity});
+        const out = [...recent, ...all];
+        out._sections = [{title: 'Recent', count: recent.length}, {title: 'All emoji', count: all.length}];
+        return out;
+    }
+
     _emojiSearch(query, limit) {
         const c = this._config;
         const engine = this._ensureEmoji();
@@ -758,7 +857,7 @@ export default class GnomeLauncherExtension extends Extension {
     _pickEmoji(entry) {
         const char = entry.payload.char;
         const plan = emojiPlan(this._emojiSettings());
-        if (this._config.bool('emoji-remember'))
+        if (this._config.bool('emoji-remember') || this._config.bool('emoji-recent'))
             this._stats.hit(entry.id);
         this._launcher.close();
         if (plan.toBuffer)

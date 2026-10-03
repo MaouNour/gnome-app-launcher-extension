@@ -74,8 +74,11 @@ function emojiPage(window, settings) {
     main.add(switchRow(settings, 'emoji-enabled', 'Enable the emoji picker'));
     main.add(switchRow(settings, 'emoji-inline', 'Search emoji from the main search', 'Typing a colon, such as :heart, lists matching emoji.'));
     main.add(spinRow(settings, 'emoji-inline-count', 'Emoji shown for a colon search', 1, 50, 1));
-    main.add(switchRow(settings, 'emoji-remember', 'Show recent and frequent emoji first',
-        'Remembers how often you pick each emoji (counts only, stored with the other usage statistics). Turn off to stop.'));
+    main.add(switchRow(settings, 'emoji-recent', 'Show a Recent section in the grid',
+        'In the grid layout with nothing typed: the emoji you picked last come first under \"Recent\", then every emoji below under \"All emoji\", a little apart. Needs the grid layout below. Which emoji you pick is remembered with the other usage statistics (the emoji only, with the time of the last use).'));
+    main.add(spinRow(settings, 'emoji-recent-count', 'Recent emoji to show', 1, 100, 1));
+    main.add(switchRow(settings, 'emoji-remember', 'Rank often-used emoji higher when searching',
+        'Counts how often you pick each emoji and lists the frequent ones first in search results and in the list layout. Turn off to stop.'));
     p.add(main);
 
     const look = group('Layout');
@@ -587,6 +590,29 @@ function search(window, settings) {
     r.add(spinRow(settings, 'max-results', 'Maximum results', 5, 200, 1));
     r.add(spinRow(settings, 'initial-results', 'Entries shown before typing', 0, 50, 1));
     p.add(r);
+    const st = group('When the launcher opens',
+        'What is listed before you type anything. The number of entries is \"Entries shown before typing\" above.');
+    st.add(switchRow(settings, 'start-recent', 'Show recently used entries first',
+        'Lists what you used most recently, newest first, instead of what you use most often. Needs usage statistics, which are collected while this or the ranking option is on.'));
+    st.add(switchRow(settings, 'start-fill', 'Fill the rest of the list with other entries',
+        'Off: only entries you have used before are shown.'));
+    p.add(st);
+    const hi = group('Search history',
+        'Press Up on the first result (or with nothing listed) to recall earlier searches, Up again for older ones and Down to come back to what you typed. Only searches in the main search are kept, not the clipboard, emoji or password views.');
+    hi.add(switchRow(settings, 'history-enabled', 'Remember my searches'));
+    hi.add(switchRow(settings, 'history-persist', 'Keep them on disk',
+        'Saved in ~/.local/state/gnome-launcher/history.json, readable only by you. Off: kept in memory until you log out, and turning it off deletes the file.'));
+    hi.add(spinRow(settings, 'history-max', 'Searches to keep (0 = no limit)', 0, 100000, 1, 'The oldest are dropped first.'));
+    hi.add(switchRow(settings, 'history-commands', 'Also remember !commands', 'Off keeps the commands you run out of the history.'));
+    const clr = new Adw.ActionRow({title: 'Clear search history', subtitle: 'Forgets every saved search and deletes the file.'});
+    const clrBtn = new Gtk.Button({label: 'Clear', valign: Gtk.Align.CENTER, css_classes: ['destructive-action']});
+    clrBtn.connect('clicked', () => {
+        bump(settings, 'history-generation');
+        toast(window, 'Search history cleared');
+    });
+    clr.add_suffix(clrBtn);
+    hi.add(clr);
+    p.add(hi);
     return p;
 }
 

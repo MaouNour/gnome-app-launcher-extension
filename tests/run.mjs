@@ -13,6 +13,7 @@ import {buildStyles, cssFontFamily} from '../ui/style.js';
 import {compileBlocklist} from '../shortcuts/blocklist.js';
 import {copyName, fileLabels, isCopyName, isSecret, isTempName, isVideoName, linkCandidates, reviveItems, serializeItems, watchedSelections} from '../clipboard/persist.js';
 import {parseExec} from '../commands/exec.js';
+import {QueryHistory, MAX_QUERY_LEN} from '../search/history.js';
 import {DEFAULT_PIPELINES, EFFECTS, GROUPS, cleanParams, newEffect, pickPipeline, resolveBlur, sanitizePipelines} from '../blur/defs.js';
 import {parseRegexQuery, isRiskyPattern, extractRegexKeywords} from '../search/regex.js';
 import {sanitizeProviders, sanitizeProvider, validTemplate, buildUrl, webEntries, explicitWebQuery, offerWeb, DEFAULT_PROVIDERS} from '../search/web.js';
@@ -683,7 +684,7 @@ test('process separation: shell code never loads GTK, prefs never load Shell lib
     }
 });
 test('prefs-reachable modules are pure (only relative imports)', () => {
-    for (const f of ['themes/themes.js', 'commands/schema.js', 'commands/builtins.js', 'search/engine.js', 'emoji/emoji.js', 'emoji/data.js', 'clipboard/image.js', 'clipboard/persist.js', 'blur/defs.js', 'commands/exec.js', 'accounts/accounts.js', 'search/regex.js', 'search/web.js']) {
+    for (const f of ['themes/themes.js', 'commands/schema.js', 'commands/builtins.js', 'search/engine.js', 'emoji/emoji.js', 'emoji/data.js', 'clipboard/image.js', 'clipboard/persist.js', 'blur/defs.js', 'search/history.js', 'commands/exec.js', 'accounts/accounts.js', 'search/regex.js', 'search/web.js']) {
         const src = readFileSync(join(root, f), 'utf8');
         for (const m of src.matchAll(/^import .* from '([^']+)'/gm))
             assert.ok(m[1].startsWith('.'), `${f} imports ${m[1]}`);
@@ -928,6 +929,87 @@ test('hidden entries: only fixed-id kinds can be hidden, and the engine list is 
     assert.ok(ui.includes('case Clutter.KEY_h:'));
     const xml = readFileSync(join(root, 'schemas/org.gnome.shell.extensions.gnome-launcher.gschema.xml'), 'utf8');
     assert.match(xml, /hidden-entries" type="s"><default>'\[\]'<\/default>/);
+});
+test('search history: newest first, no duplicates, limit, blank and huge text ignored', () => {
+    const h = new QueryHistory(3);
+    assert.ok(h.add('  firefox  '));
+    assert.ok(!h.add('firefox'), 'the same search twice in a row is not added again');
+    h.add('files'); h.add('calc'); h.add('term');
+    assert.deepEqual(h.list(), ['term', 'calc', 'files']);
+    h.add('files');
+    assert.deepEqual(h.list(), ['files', 'term', 'calc'], 'an earlier search moves to the front');
+    assert.ok(!h.add('   ') && !h.add('') && !h.add(null) && !h.add('x'.repeat(MAX_QUERY_LEN + 1)));
+    assert.equal(h.size, 3);
+    h.setMax(1);
+    assert.deepEqual(h.list(), ['files']);
+    h.setMax(0); // no limit
+    for (let i = 0; i < 500; i++)
+        h.add(`q${i}`);
+    assert.equal(h.size, 501);
+});
+test('search history: Up goes back through the searches, Down returns to what was typed', () => {
+    const h = new QueryHistory(10);
+    ['a', 'b', 'c'].forEach(q => h.add(q)); // list: c b a
+    let cur = -1;
+    cur = h.step(cur, -1); assert.equal(h.at(cur), 'c');
+    cur = h.step(cur, -1); assert.equal(h.at(cur), 'b');
+    cur = h.step(cur, -1); assert.equal(h.at(cur), 'a');
+    assert.equal(h.step(cur, -1), null, 'nothing older than the oldest');
+    cur = h.step(cur, 1); assert.equal(h.at(cur), 'b');
+    cur = h.step(cur, 1); cur = h.step(cur, 1);
+    assert.equal(cur, -1, 'back at the text that was typed');
+    assert.equal(h.step(-1, 1), null, 'Down with nothing recalled does nothing');
+    assert.equal(new QueryHistory(5).step(-1, -1), null, 'empty history');
+});
+test('search history: stored data is validated, and merges keep what was searched meanwhile', () => {
+    const h = new QueryHistory(4);
+    h.load(['x', 'x', 5, '', null, 'y', 'z'.repeat(300), '  w  ', 'v', 'u']);
+    assert.deepEqual(h.list(), ['x', 'y', 'w', 'v']);
+    h.load('garbage');
+    assert.equal(h.size, 0);
+    h.add('new');
+    h.merge(['old1', 'old2']);
+    assert.deepEqual(h.list(), ['new', 'old1', 'old2']);
+    assert.deepEqual(JSON.parse(JSON.stringify(h)), ['new', 'old1', 'old2']);
+});
+test('search history: wired to the launcher, recorded from the main search only, private on disk', () => {
+    const ui = readFileSync(join(root, 'ui/launcher.js'), 'utf8');
+    assert.ok(ui.includes('_historyStep(-1)') && ui.includes('this._hCursor >= 0 && this._historyStep(1)'));
+    assert.ok(ui.includes('!this._histSet'), 'typing ends the walk and a recalled search never auto-opens');
+    const ext = readFileSync(join(root, 'extension.js'), 'utf8');
+    assert.ok(/l\.mode !== null/.test(ext), 'nothing from the clipboard/emoji/password views is recorded');
+    assert.ok(ext.includes("{private: true}"), 'the history file is private');
+    const store = readFileSync(join(root, 'cache/store.js'), 'utf8');
+    assert.ok(store.includes('FileCreateFlags.PRIVATE') && store.includes('0o700'));
+    const xml = readFileSync(join(root, 'schemas/org.gnome.shell.extensions.gnome-launcher.gschema.xml'), 'utf8');
+    assert.match(xml, /history-persist" type="b"><default>true<\/default>/);
+    assert.match(xml, /history-max" type="i"><default>50<\/default><range min="0"/);
+});
+test('start list: recent entries come first by last use, optionally without filler', () => {
+    const mk = (id, n) => prepare({id, kind: 'app', name: n});
+    const eng = new SearchEngine();
+    eng.setEntries([mk('a', 'Alpha'), mk('b', 'Beta'), mk('c', 'Gamma'), mk('d', 'Delta')]);
+    const stat = new Map([['c', [1, 300]], ['a', [9, 100]], ['b', [2, 200]], ['gone', [1, 999]]]);
+    eng.stats = {get: id => stat.get(id), entries: () => stat.entries()};
+    const order = r => r.map(e => e.id).join('');
+    assert.equal(order(eng.search('', {initial: 3, recent: {fill: true}})), 'cba', 'newest use first, not most used');
+    assert.equal(order(eng.search('', {initial: 3, frecency: true})).includes('a'), true);
+    assert.equal(order(eng.search('', {initial: 4, recent: {fill: true}})), 'cbad', 'filled up with the rest');
+    assert.equal(order(eng.search('', {initial: 4, recent: {fill: false}})), 'cba', 'only used entries');
+    assert.equal(eng.get('b').name, 'Beta');
+    assert.equal(eng.get('nope'), null);
+});
+test('grid: no half-filled window, sections laid out in lines, and the emoji view asks for them', () => {
+    const ui = readFileSync(join(root, 'ui/launcher.js'), 'utf8');
+    // The first batch must cover the visible height, not just a fixed number of lines.
+    assert.ok(ui.includes('this._grow(Math.min(n, Math.max(this._chunk(), this._fillCount(h))))'));
+    assert.ok(ui.includes('_layoutGrid()') && ui.includes('_moveLines('));
+    assert.ok(!ui.includes('Math.floor(this._sel / cols)'), 'the old fixed-width line arithmetic is gone');
+    const ext = readFileSync(join(root, 'extension.js'), 'utf8');
+    assert.ok(ext.includes("out._sections = [{title: 'Recent'") && ext.includes("title: 'All emoji'"));
+    assert.ok(ext.includes("c.str('emoji-layout') !== 'grid'"), 'the list layout keeps one plain list');
+    const st = readFileSync(join(root, 'ui/style.js'), 'utf8');
+    assert.ok(st.includes('sectionTitle') && st.includes('sectionH'));
 });
 test('blocklist: exact, case, .desktop and wildcard matching', () => {
     const b = compileBlocklist(['Steam_App_*', 'org.gnome.Nautilus.desktop', '  ', 'vmw?are*']);

@@ -136,6 +136,9 @@
     <key name="emoji-paste-keys" type="s"><default>'auto'</default></key>
     <!-- Font used to draw emoji. Naming it explicitly means the shell does not have to search the system's
          font list (and every emoji-capable font on it) for each glyph. Empty = automatic. -->
+    <!-- A "Recent" section above all emoji (by last use) -->
+    <key name="emoji-recent" type="b"><default>true</default></key>
+    <key name="emoji-recent-count" type="i"><default>16</default><range min="1" max="100"/></key>
     <key name="emoji-font" type="s"><default>'Noto Color Emoji'</default></key>
     <!-- How the emoji picker lists emoji: list | grid -->
     <key name="emoji-layout" type="s"><default>'list'</default></key>
@@ -163,6 +166,18 @@
     <key name="fuzzy" type="b"><default>true</default></key>
     <key name="search-descriptions" type="b"><default>true</default></key>
     <key name="frecency" type="b"><default>true</default></key>
+    <!-- What is listed before typing: the entries used most recently first (by last use). With start-fill
+         the rest of the list is filled with other entries; without it only used entries are shown. -->
+    <key name="start-recent" type="b"><default>true</default></key>
+    <key name="start-fill" type="b"><default>true</default></key>
+
+    <!-- Search history: Up/Down in the search box walk through earlier searches. 0 = no limit.
+         Stored in the state folder (private to you) when history-persist is on. -->
+    <key name="history-enabled" type="b"><default>true</default></key>
+    <key name="history-persist" type="b"><default>true</default></key>
+    <key name="history-max" type="i"><default>50</default><range min="0" max="100000"/></key>
+    <key name="history-commands" type="b"><default>true</default></key>
+    <key name="history-generation" type="i"><default>0</default></key>
 
     <!-- Performance -->
     <key name="prebuild-ui" type="b"><default>true</default></key>

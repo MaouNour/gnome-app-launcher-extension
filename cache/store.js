@@ -13,7 +13,10 @@ const dec = new TextDecoder();
 // atomic (replace), and anything unreadable/mismatched is treated as "no cache" and
 // deleted so the next write starts clean.
 export class JsonStore {
-    constructor(path, version) {
+    // opts.private: the folder is created 0700 and files 0600 (for data that is nobody else's business).
+    constructor(path, version, opts = {}) {
+        this._private = !!opts.private;
+        this._flags = Gio.FileCreateFlags.REPLACE_DESTINATION | (this._private ? Gio.FileCreateFlags.PRIVATE : 0);
         this._path = path;
         this._file = Gio.File.new_for_path(path);
         this._version = version;
@@ -44,8 +47,7 @@ export class JsonStore {
         try {
             this._ensureDir();
             const bytes = enc.encode(JSON.stringify({v: this._version, data}));
-            await this._file.replace_contents_async(bytes, null, false,
-                Gio.FileCreateFlags.REPLACE_DESTINATION, this._cancellable);
+            await this._file.replace_contents_async(bytes, null, false, this._flags, this._cancellable);
             dbg('saved', this._path, bytes.length, 'bytes');
             return true;
         } catch (e) {
@@ -60,7 +62,7 @@ export class JsonStore {
         try {
             this._ensureDir();
             const bytes = enc.encode(JSON.stringify({v: this._version, data}));
-            this._file.replace_contents(bytes, null, false, Gio.FileCreateFlags.REPLACE_DESTINATION, null);
+            this._file.replace_contents(bytes, null, false, this._flags, null);
             return true;
         } catch (e) {
             warn(`could not write ${this._path}: ${e.message}`);
@@ -77,7 +79,7 @@ export class JsonStore {
     _ensureDir() {
         if (this._dirReady)
             return;
-        GLib.mkdir_with_parents(GLib.path_get_dirname(this._path), 0o755);
+        GLib.mkdir_with_parents(GLib.path_get_dirname(this._path), this._private ? 0o700 : 0o755);
         this._dirReady = true;
     }
 

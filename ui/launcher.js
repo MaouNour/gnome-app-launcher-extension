@@ -150,29 +150,43 @@ class Cell {
     }
 }
 
-// A horizontal line of cells; `base` is the result index of its first cell.
+// A horizontal line of cells; `base` is the result index of its first cell. The first line of a section
+// also carries the section's title above its cells.
 class GridRow {
     constructor(launcher, cols) {
         this.base = 0;
-        this.actor = new St.BoxLayout({x_expand: true});
+        this.hasHeader = false;
+        this.actor = new St.BoxLayout({vertical: true, x_expand: true});
+        this.title = new St.Label({x_align: Clutter.ActorAlign.START, y_align: Clutter.ActorAlign.END});
+        this.header = new St.Bin({child: this.title, x_expand: true, visible: false});
+        this.line = new St.BoxLayout({x_expand: true});
         this.cells = [];
         for (let c = 0; c < cols; c++) {
             const cell = new Cell(launcher, this, c);
             this.cells.push(cell);
-            this.actor.add_child(cell.actor);
+            this.line.add_child(cell.actor);
         }
+        this.actor.add_child(this.header);
+        this.actor.add_child(this.line);
     }
 
     restyle(st) {
-        this.actor.set_style(st.gridRow);
+        this.line.set_style(st.gridRow);
+        this.title.set_style(st.sectionTitle);
+        this.header.set_height(Math.round(st.sectionH * scaleFactor()));
         for (const c of this.cells)
             c.restyle(st);
     }
 
-    set(results, base) {
-        this.base = base;
+    // line: {base, count, header}
+    set(results, line) {
+        this.base = line.base;
+        this.hasHeader = !!line.header;
+        this.header.visible = this.hasHeader;
+        if (this.hasHeader && this.title.text !== line.header)
+            this.title.text = line.header;
         for (const c of this.cells)
-            c.set(results[base + c.col]);
+            c.set(c.col < line.count ? results[line.base + c.col] : null);
     }
 }
 
@@ -263,7 +277,7 @@ class Row {
 export class Launcher {
     // search(query, mode) -> entries[]; onActivate(entry); getStyle() -> {layout, theme}; onOpen();
     // onClose() runs once the window is fully hidden.
-    constructor({config, search, onActivate, getStyle, onOpen, onClose, onWindowShortcut, onHide}) {
+    constructor({config, search, onActivate, getStyle, onOpen, onClose, onWindowShortcut, onHide, history}) {
         this._cfg = config;
         this._search = search;
         this._onActivate = onActivate;
@@ -294,6 +308,15 @@ export class Launcher {
         this._grid = false;
         this._gridRows = [];
         this._gridCols = 0;
+        this._gridShown = 0;   // lines of the grid that exist and are visible
+        this._lines = [];      // grid layout: [{base, count, header}]
+        this._tops = [];       // top of each line in CSS px (header included), plus the total at the end
+        this._secs = [];       // [{start, count, line0}] the sections of the grid
+        this._sections = null; // [{title, count}] asked for by the search, grid only
+        this._history = history ?? null;
+        this._hCursor = -1;    // position in the search history while browsing it, else -1
+        this._draft = '';      // what was typed before the first Up
+        this._histSet = false; // true while the text is being set from the history
         this._siKey = '';
         this._reveal = new Idle(() => this._scrollToSelected(), GLib.PRIORITY_DEFAULT_IDLE);
         this._mode = null;
@@ -322,6 +345,10 @@ export class Launcher {
 
     get mode() {
         return this._mode;
+    }
+
+    get text() {
+        return this._entry?.get_text() ?? '';
     }
 
     // Re-run the search with the current text (used when asynchronous data arrives).
@@ -385,8 +412,10 @@ export class Launcher {
             const len = this._entry.get_text().length;
             const grew = len > this._textLen;
             this._textLen = len;
+            if (!this._histSet)
+                this._hCursor = -1; // typing something yourself ends the history walk
             this._refresh();
-            this._autoLaunch(grew);
+            this._autoLaunch(grew && !this._histSet); // a recalled search is never opened by itself
         });
         ct.connect('key-press-event', (_a, ev) => this._onKey(ev));
 
@@ -454,6 +483,7 @@ export class Launcher {
 
     _resetMode() {
         this._mode = null;
+        this._hCursor = -1;
         this._grid = false;
         this._emptyText = 'No results';
         if (this._empty)
@@ -492,6 +522,7 @@ export class Launcher {
             for (const r of this._gridRows)
                 r.actor.destroy();
             this._gridRows = [];
+            this._gridShown = 0;
             this._gridCols = st.gridCols;
         } else {
             for (const r of this._gridRows)
@@ -603,6 +634,8 @@ export class Launcher {
             this._suppress = false;
         }
         this._textLen = this._entry.get_text().length;
+        this._hCursor = -1;
+        this._draft = '';
         this._entry.clutter_text.grab_key_focus();
         this._refresh();
         this._animate(true);
@@ -700,6 +733,30 @@ export class Launcher {
 
     // --- search + render ---------------------------------------------------
 
+    _canBrowse() {
+        return !!this._history && this._history.size > 0 && this._mode === null && this._cfg.bool('history-enabled');
+    }
+
+    // One step through the search history (dir -1 = older, +1 = newer). Returns false when the arrow key
+    // should do its normal job instead.
+    _historyStep(dir) {
+        const cur = this._hCursor;
+        const next = this._history.step(cur, dir);
+        if (next === null)
+            return cur >= 0; // at the oldest search: stay, do not fall back to moving the list
+        if (cur === -1)
+            this._draft = this.text;
+        this._hCursor = next;
+        this._histSet = true;
+        try {
+            this._entry.set_text(next === -1 ? this._draft : this._history.at(next));
+        } finally {
+            this._histSet = false;
+        }
+        this._entry.clutter_text.set_cursor_position(-1);
+        return true;
+    }
+
     // Ctrl+H: hide the highlighted entry from the search (it can be shown again in the preferences).
     _hideSelected() {
         const e = this._results[this._sel];
@@ -755,6 +812,7 @@ export class Launcher {
             results = [];
         }
         this._results = results;
+        this._sections = results._sections ?? null;
         this._render();
     }
 
@@ -763,23 +821,8 @@ export class Launcher {
         const n = this._results.length;
         const grid = this._grid;
         const hasQuery = this._entry.get_text().length > 0;
-
-        // Only the first batch of rows exists up front; _grow() adds more on demand.
-        this._shown = 0;
-        this._grow(Math.min(n, this._chunk()));
-        const perRow = grid ? st.gridCols : 1;
-        const gridRowsShown = grid ? Math.ceil(this._shown / perRow) : 0;
-        for (let i = grid ? 0 : this._shown; i < this._rows.length; i++) {
-            this._rows[i].actor.hide();
-            this._rows[i].setSelected(false);
-        }
-        for (let i = gridRowsShown; i < this._gridRows.length; i++)
-            this._gridRows[i].actor.hide();
-
-        const showEmpty = n === 0 && (hasQuery || this._mode !== null);
-        this._empty.visible = showEmpty;
-        this._scroll.visible = n > 0 || showEmpty;
-        this._hint.visible = grid && n > 0;
+        if (grid)
+            this._layoutGrid();
 
         // The window grows with the results up to the configured maximum, then scrolls. This is an
         // actor size rather than an inline CSS height: changing the style string re-resolves the
@@ -788,8 +831,7 @@ export class Launcher {
         let need = 0;
         let max = st.maxListH;
         if (grid) {
-            const lines = Math.ceil(n / perRow);
-            need = lines * st.gridCell + Math.max(0, lines - 1) * st.gridGap;
+            need = this._contentH();
             max = Math.max(st.gridCell, st.maxListH - st.gridHintH);
         } else {
             need = n * st.rowH + (n - 1) * st.gap;
@@ -799,6 +841,24 @@ export class Launcher {
             this._scroll.set_height(h);
             this._lastListH = h;
         }
+
+        // Only the first batch of rows exists up front; _grow() adds more on demand. The batch must at
+        // least fill the visible height: with a tall window and small cells the first batch used to cover
+        // only part of it, and the rest stayed empty until the selection moved down.
+        this._shown = 0;
+        this._gridShown = 0;
+        this._grow(Math.min(n, Math.max(this._chunk(), this._fillCount(h))));
+        for (let i = grid ? 0 : this._shown; i < this._rows.length; i++) {
+            this._rows[i].actor.hide();
+            this._rows[i].setSelected(false);
+        }
+        for (let i = this._gridShown; i < this._gridRows.length; i++)
+            this._gridRows[i].actor.hide();
+
+        const showEmpty = n === 0 && (hasQuery || this._mode !== null);
+        this._empty.visible = showEmpty;
+        this._scroll.visible = n > 0 || showEmpty;
+        this._hint.visible = grid && n > 0;
 
         this._clearSel();
         this._select(n > 0 ? 0 : -1);
@@ -816,6 +876,83 @@ export class Launcher {
         this._sel = -1;
     }
 
+    // --- grid layout: lines of cells, optionally in titled sections ---------------------------------
+
+    // Works out which results sit on which line. `_sections` ([{title, count}]) splits the results into
+    // blocks that each start on a new line under a small title; without it the grid is one plain block.
+    _layoutGrid() {
+        const st = this._st;
+        const cols = st.gridCols;
+        const n = this._results.length;
+        const sections = (this._sections ?? []).filter(s => s.count > 0);
+        const blocks = sections.length > 0 ? sections : [{title: null, count: n}];
+        const lines = [];
+        const tops = [];
+        const secs = [];
+        let y = 0;
+        let base = 0;
+        for (const s of blocks) {
+            const count = Math.min(s.count, n - base);
+            if (count <= 0)
+                continue;
+            secs.push({start: base, count, line0: lines.length});
+            const nl = Math.ceil(count / cols);
+            for (let k = 0; k < nl; k++) {
+                const header = k === 0 && s.title ? s.title : null;
+                lines.push({base: base + k * cols, count: Math.min(cols, count - k * cols), header});
+                tops.push(y);
+                y += (header ? st.sectionH : 0) + st.gridCell + st.gridGap;
+            }
+            base += count;
+        }
+        tops.push(y);
+        this._lines = lines;
+        this._tops = tops;
+        this._secs = secs;
+        this._laidCols = cols;
+    }
+
+    // Height of all lines in CSS px (no trailing gap).
+    _contentH() {
+        return this._lines.length > 0 ? this._tops[this._lines.length] - this._st.gridGap : 0;
+    }
+
+    // {line, col} of result i.
+    _gridPos(i) {
+        if (this._laidCols !== this._st.gridCols)
+            this._layoutGrid();
+        const cols = this._st.gridCols;
+        for (const s of this._secs) {
+            if (i < s.start + s.count) {
+                const k = Math.max(0, i - s.start);
+                return {line: s.line0 + Math.floor(k / cols), col: k % cols};
+            }
+        }
+        return {line: Math.max(0, this._lines.length - 1), col: 0};
+    }
+
+    // Bottom of a line's cells in CSS px (the gap below it is not included).
+    _lineBottom(line) {
+        const l = this._lines[line];
+        return (this._tops[line] ?? 0) + (l?.header ? this._st.sectionH : 0) + this._st.gridCell;
+    }
+
+    // How many results to create so that `heightPx` of the list is filled, plus a few lines ahead.
+    _fillCount(heightPx) {
+        const n = this._results.length;
+        if (heightPx <= 0)
+            return 0;
+        const sf = scaleFactor();
+        if (this._grid) {
+            let ln = 0;
+            while (ln < this._lines.length && this._tops[ln] * sf < heightPx)
+                ln++;
+            const last = this._lines[Math.min(this._lines.length - 1, ln + 2)];
+            return last ? last.base + last.count : 0;
+        }
+        return Math.min(n, Math.ceil(heightPx / ((this._st.rowH + this._st.gap) * sf)) + 3);
+    }
+
     // Entries created per batch: a few lines of cells in the grid, 40 rows in the list.
     _chunk() {
         return this._grid ? this._st.gridCols * 6 : CHUNK;
@@ -827,14 +964,15 @@ export class Launcher {
         const from = this._shown;
         let target = Math.min(n, upto > from ? Math.max(upto, from + this._chunk()) : from);
         if (this._grid) {
-            const cols = this._st.gridCols;
-            const lines = Math.ceil(target / cols);
-            for (let r = Math.floor(from / cols); r < lines; r++) {
-                const row = this._gridRows[r] ?? this._makeGridRow();
-                row.set(this._results, r * cols);
+            const want = target > 0 ? Math.min(this._lines.length, this._gridPos(target - 1).line + 1) : 0;
+            for (let ln = this._gridShown; ln < want; ln++) {
+                const row = this._gridRows[ln] ?? this._makeGridRow();
+                row.set(this._results, this._lines[ln]);
                 row.actor.show();
             }
-            target = Math.min(n, lines * cols);
+            this._gridShown = Math.max(this._gridShown, want);
+            const last = this._lines[this._gridShown - 1];
+            target = last ? last.base + last.count : from;
         } else {
             for (let i = from; i < target; i++) {
                 const row = this._rows[i] ?? this._makeRow(i);
@@ -854,13 +992,11 @@ export class Launcher {
         return row;
     }
 
-    // Row/cell geometry in actor pixels: distance between lines, size of one line, entries per line.
+    // Row geometry of the list view in actor pixels: distance between rows, size of one row.
     _metrics() {
         const st = this._st;
         const sf = scaleFactor();
-        if (this._grid)
-            return {stride: (st.gridCell + st.gridGap) * sf, size: st.gridCell * sf, perRow: st.gridCols};
-        return {stride: (st.rowH + st.gap) * sf, size: st.rowH * sf, perRow: 1};
+        return {stride: (st.rowH + st.gap) * sf, size: st.rowH * sf};
     }
 
     // The visual item (row or cell) for result index i.
@@ -868,8 +1004,8 @@ export class Launcher {
         if (i < 0)
             return null;
         if (this._grid) {
-            const cols = this._st.gridCols;
-            return this._gridRows[Math.floor(i / cols)]?.cells[i % cols] ?? null;
+            const p = this._gridPos(i);
+            return this._gridRows[p.line]?.cells[p.col] ?? null;
         }
         return this._rows[i] ?? null;
     }
@@ -881,9 +1017,15 @@ export class Launcher {
         const adj = vAdjustment(this._scroll);
         if (!adj)
             return;
-        const {stride, perRow} = this._metrics();
-        const lines = Math.ceil(this._shown / perRow);
-        if (adj.value + adj.page_size >= lines * stride - stride * 3)
+        const sf = scaleFactor();
+        if (this._grid) {
+            const ahead = (this._st.gridCell + this._st.gridGap) * sf * 3;
+            if (adj.value + adj.page_size >= this._tops[this._gridShown] * sf - ahead)
+                this._grow(this._shown + 1);
+            return;
+        }
+        const {stride} = this._metrics();
+        if (adj.value + adj.page_size >= this._shown * stride - stride * 3)
             this._grow(this._shown + 1);
     }
 
@@ -929,9 +1071,19 @@ export class Launcher {
             const st = this._st;
             if (!adj || !st || this._sel < 0 || adj.page_size <= 0)
                 return;
-            const {stride, size, perRow} = this._metrics();
-            const top = Math.floor(this._sel / perRow) * stride;
-            const bottom = top + size;
+            let top;
+            let bottom;
+            if (this._grid) {
+                // From the top of the line (its section title included) to the bottom of its cells.
+                const ln = this._gridPos(this._sel).line;
+                const sf = scaleFactor();
+                top = this._tops[ln] * sf;
+                bottom = this._lineBottom(ln) * sf;
+            } else {
+                const {stride, size} = this._metrics();
+                top = this._sel * stride;
+                bottom = top + size;
+            }
             if (top < adj.value)
                 adj.value = top;
             else if (bottom > adj.value + adj.page_size)
@@ -944,6 +1096,7 @@ export class Launcher {
         this._clearSel();
         for (const row of this._gridRows.splice(KEEP_ROWS / 4))
             row.actor.destroy();
+        this._gridShown = Math.min(this._gridShown, this._gridRows.length);
         if (this._rows.length <= KEEP_ROWS)
             return;
         for (const row of this._rows.splice(KEEP_ROWS))
@@ -967,6 +1120,22 @@ export class Launcher {
             clamp = true;
         i = clamp ? Math.min(n - 1, Math.max(0, i)) : (i + n) % n;
         this._select(i);
+    }
+
+    // Grid: move whole lines, keeping the column where the line is long enough. Down on the last line stays
+    // where it is; Up on the first line goes to the first cell.
+    _moveLines(d) {
+        if (this._results.length === 0)
+            return;
+        const p = this._gridPos(Math.max(0, this._sel));
+        const target = Math.min(this._lines.length - 1, Math.max(0, p.line + d));
+        if (target === p.line) {
+            if (d < 0)
+                this._select(0);
+            return;
+        }
+        const ln = this._lines[target];
+        this._select(ln.base + Math.min(p.col, ln.count - 1));
     }
 
     // `how` says which modifier was held with Enter: '', 'ctrl', 'alt' or 'shift'. Most entries ignore
@@ -998,8 +1167,6 @@ export class Launcher {
 
         // Grid view: the arrow keys move in two dimensions.
         if (this._grid && !ctrl && !alt) {
-            const cols = this._st.gridCols;
-            const n = this._results.length;
             switch (sym) {
             case Clutter.KEY_Left:
                 this._move(-1, true);
@@ -1008,18 +1175,16 @@ export class Launcher {
                 this._move(1, true);
                 return Clutter.EVENT_STOP;
             case Clutter.KEY_Up:
-                this._move(-cols, true);
+                this._moveLines(-1);
                 return Clutter.EVENT_STOP;
             case Clutter.KEY_Down:
-                // Already on the last line: stay instead of jumping to the last cell.
-                if (n > 0 && Math.floor(this._sel / cols) < Math.floor((n - 1) / cols))
-                    this._move(cols, true);
+                this._moveLines(1);
                 return Clutter.EVENT_STOP;
             case Clutter.KEY_Page_Down:
-                this._move(cols * 4, true);
+                this._moveLines(4);
                 return Clutter.EVENT_STOP;
             case Clutter.KEY_Page_Up:
-                this._move(-cols * 4, true);
+                this._moveLines(-4);
                 return Clutter.EVENT_STOP;
             default:
             }
@@ -1038,9 +1203,15 @@ export class Launcher {
             }
             return Clutter.EVENT_PROPAGATE;
         case Clutter.KEY_Down:
+            if (this._hCursor >= 0 && this._historyStep(1))
+                return Clutter.EVENT_STOP;
             this._move(1);
             return Clutter.EVENT_STOP;
         case Clutter.KEY_Up:
+            // Up on the first result (or with nothing listed) recalls earlier searches; once recalling,
+            // every Up goes one further back and Down comes forward again to what was typed.
+            if (this._canBrowse() && (this._hCursor >= 0 || this._sel <= 0) && this._historyStep(-1))
+                return Clutter.EVENT_STOP;
             this._move(-1);
             return Clutter.EVENT_STOP;
         case Clutter.KEY_Tab:

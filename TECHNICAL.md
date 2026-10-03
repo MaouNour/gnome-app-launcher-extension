@@ -1,5 +1,60 @@
 # Technical notes
 
+## 0.5.2: emoji sections, grid fix, recent start list, search history
+
+### Grid fix (`ui/launcher.js`)
+Cause: `_render()` created `_chunk()` = 6 lines of cells and nothing more, while the list height is
+`min(content, maxListH)`. A window taller than 6 lines showed empty space until the selection moved (which calls
+`_grow`) or the list scrolled. Now the height is computed first and `_grow(max(chunk, _fillCount(h)))` creates enough
+lines to fill it plus 3 lines (list view: rows, same rule).
+
+### Grid layout in lines (`ui/launcher.js`, `ui/style.js`)
+- `_layoutGrid()` turns the results into `_lines` `[{base, count, header}]`, `_tops` (top of each line in CSS px, header
+  included), and `_secs` (section bounds). `_sections` comes from the search result array (`results._sections =
+  [{title, count}]`); without it the grid is one block. A section starts on a new line with its title above.
+- `GridRow` is now a vertical box: a header (`St.Bin` with a label, fixed height `sectionH`) and the line of cells;
+  `set(results, line)` fills cells up to `line.count` and hides the others.
+- `_gridPos(i)` -> `{line, col}`; `_item`, `_grow`, `_scrollToSelected` (from the top of the line incl. its title to the
+  bottom of its cells), `_onScrolled` and the new `_moveLines(d)` (Up/Down/Page keys) use it. Replaces the fixed
+  `floor(i / cols)` arithmetic. `style.js` adds `sectionTitle` and `sectionH`.
+
+### Emoji sections (`extension.js`)
+`_emojiMode(query)`: only for an empty query in the grid layout with `emoji-recent` on and at least one emoji used:
+recent = stats entries that exist in the emoji engine, newest `stat[1]` first, `emoji-recent-count` of them; all = natural
+order, no frecency. Result `[...recent, ...all]` with `_sections = [Recent, All emoji]`. Anything else is the old
+`_emojiSearch`. `_pickEmoji` records a hit when `emoji-remember` or `emoji-recent` is on.
+
+### Recent start list (`search/engine.js`, `extension.js`)
+`search('', {recent: {fill}})` -> `_initial(..., recent)`: entries from usage stats sorted by last use; `fill` false stops
+there, true fills with the usual list. New `SearchEngine.get(id)`. `_remember(id)` records usage when `frecency` or
+`start-recent` is on (previously only `frecency`).
+
+### Search history (`search/history.js`, `extension.js`, `ui/launcher.js`, `cache/store.js`)
+- `QueryHistory` (pure): newest first, de-duplicated (a repeat moves to the front), max length (0 = unlimited),
+  200-character cap, `step(cursor, dir)` for the arrows, `load`/`merge` validate stored data.
+- `extension.js`: `_recordSearch(entry)` at the top of `_activate` (skipped for accounts, when the launcher is closed or
+  not in the main search, and for `!commands` if `history-commands` is off). Stored with `JsonStore(..., {private: true})`
+  in the state folder, saved debounced (1.5 s), synchronously on disable. `history-max`, `history-persist` (off deletes
+  the file) and `history-generation` (clear) are handled in `_onConfigChanged`.
+- `JsonStore` gains `{private}`: folder 0700, files created with `FileCreateFlags.PRIVATE` (0600).
+- Launcher: Up with `_sel <= 0` (or already walking) calls `_historyStep(-1)`; Down while walking steps forward and finally
+  restores the draft (`_draft`). `_hCursor`/`_histSet` keep typing and recalling apart (text-changed resets the walk
+  unless the launcher set the text itself, and auto-launch is skipped for recalled text). Reset on open and when a mode
+  is left.
+
+### Schema
+`start-recent`, `start-fill`, `history-enabled`, `history-persist`, `history-max`, `history-commands`,
+`history-generation`, `emoji-recent`, `emoji-recent-count`. Prefs: *Search* page groups "When the launcher opens" and
+"Search history"; emoji group gets the Recent switch and count.
+
+### Tests (126)
+History list, arrows, validation and merge; wiring checks; recent-first start list; grid fill/sections wiring.
+
+### Not verified
+No GNOME Shell was available. Check: open the emoji grid in a tall window (no empty lower half), pick a few emoji and
+reopen (Recent above All emoji, a gap between them, arrow keys cross the gap), open the launcher with nothing typed
+(recent first), run a few searches and press Up/Down, restart the shell and press Up again.
+
 ## 0.5.1: paste, Super key, auto-launch, unlimited history, hiding
 
 | Area | Change |

@@ -186,7 +186,7 @@ export class SearchEngine {
 
         const q = fold(query).replace(/\s+/g, ' ').trimStart();
         if (!q.trim())
-            return this._initial(opts.initial ?? 8, useFrec, now, opts.natural ?? false);
+            return this._initial(opts.initial ?? 8, useFrec, now, opts.natural ?? false, opts.recent ?? null);
 
         const tokens = q.split(' ').filter(Boolean);
         const list = this._entries;
@@ -234,15 +234,36 @@ export class SearchEngine {
         return out;
     }
 
+    get(id) {
+        return this._byId.get(id) ?? null;
+    }
+
     // Empty query: most frecent entries first, then alphabetical (or natural) fill.
-    _initial(count, useFrec, now, natural) {
+    // recent: {fill} puts the entries used most recently first instead (by last use, not by how often); `fill`
+    // says whether the rest of the list is then filled with other entries or left short.
+    _initial(count, useFrec, now, natural, recent = null) {
         this._prevIdx = null;
         this._prevQ = '';
         if (count <= 0)
             return [];
         const out = [];
         const seen = new Set();
-        if (useFrec) {
+        if (recent && this.stats) {
+            const used = [];
+            for (const [id, stat] of this.stats.entries()) {
+                const e = this._byId.get(id);
+                if (e)
+                    used.push([stat[1], e]);
+            }
+            used.sort((a, b) => b[0] - a[0]);
+            for (const [, e] of used.slice(0, count)) {
+                out.push(e);
+                seen.add(e.id);
+            }
+            if (!recent.fill)
+                return out;
+        }
+        if (useFrec && !(recent && out.length)) {
             const scored = [];
             for (const [id, stat] of this.stats.entries()) {
                 const e = this._byId.get(id);
