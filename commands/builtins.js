@@ -7,6 +7,7 @@ import {prepare} from '../search/engine.js';
 export const BUILTINS = [
     {id: 'clipboard', kind: 'mode', target: 'clipboard', name: 'Clipboard History', desc: 'Browse and re-copy recent clipboard items', icon: 'edit-paste-symbolic', keywords: 'copy paste history clip', category: 'Clipboard', needs: 'clipboard', placeholder: 'Search clipboard history…', empty: 'Clipboard history is empty'},
     {id: 'clear-clipboard', kind: 'system', target: 'clear-clipboard', name: 'Clear Clipboard History', desc: 'Forget all remembered clipboard items', icon: 'edit-clear-all-symbolic', keywords: 'wipe delete', category: 'Clipboard', needs: 'clipboard'},
+    {id: 'save-clipboard', kind: 'system', target: 'save-clipboard', name: 'Save Clipboard to History', desc: 'Add what is on the clipboard to the launcher history now', icon: 'document-save-symbolic', keywords: 'copy paste history clip remember store', category: 'Clipboard', needs: 'clipboard'},
     // Emoji entries are configured on the Emoji page of the preferences (page: 'emoji'), not in the
     // generic built-in list, so their shortcuts live next to the other emoji options.
     {id: 'emoji', kind: 'mode', target: 'emoji', name: 'Emoji Picker', desc: 'Search emoji and copy or paste them', icon: 'face-smile-symbolic', keywords: 'emoji emoticon smiley symbols unicode', category: 'Emoji', needs: 'emoji', page: 'emoji', placeholder: 'Search emoji…', empty: 'No emoji found'},

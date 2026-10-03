@@ -50,17 +50,24 @@ function checkExecutable(exe) {
     }
 }
 
-function spawn(argv, env = []) {
+function spawn(argv, env = [], opts = {}) {
     checkExecutable(argv[0]);
     const launcher = new Gio.SubprocessLauncher({flags: Gio.SubprocessFlags.NONE});
     for (const [k, v] of env)
         launcher.setenv(k, v, true);
+    if (opts.cwd)
+        launcher.set_cwd(opts.cwd);
     const proc = launcher.spawnv(argv);
-    proc.wait_check_async(null, (p, res) => {
+    proc.wait_async(null, (p, res) => {
         try {
-            p.wait_check_finish(res);
+            p.wait_finish(res);
         } catch (e) {
             dbg(`${argv[0]} exited abnormally: ${e.message}`);
+            return;
+        }
+        if (p.get_if_exited() && p.get_exit_status() !== 0) {
+            dbg(`${argv[0]} exited with status ${p.get_exit_status()}`);
+            opts.onFail?.(p.get_exit_status());
         }
     });
 }
@@ -115,9 +122,27 @@ export class Runner {
             return this._action(p);
         case 'system':
             return this._gnome(p.target);
+        case 'exec':
+            return this._exec(p);
         default:
             throw new Error(`Unknown entry kind "${entry.kind}"`);
         }
+    }
+
+    // "!command": through /bin/sh (pipes, &&, $VARS and globs work) or, when `shell` is off, split like a
+    // shell would but run directly. Runs in the home folder. A non-zero exit is reported once, nothing is
+    // captured (a program that prints a lot or keeps running must never be able to block on its output).
+    _exec({command, shell}) {
+        const text = String(command ?? '').trim();
+        if (!text)
+            throw new Error('No command given');
+        const argv = shell ? ['/bin/sh', '-c', text] : parseArgv(text);
+        const short = text.length > 60 ? `${text.slice(0, 60)}…` : text;
+        spawn(argv, [], {
+            cwd: GLib.get_home_dir(),
+            onFail: status => Main.notify('GNOME Launcher', status === 127
+                ? `Command not found: ${short}` : `"${short}" exited with status ${status}`),
+        });
     }
 
     _action(a) {
@@ -155,6 +180,8 @@ export class Runner {
             return this._hooks.clearClipboard?.();
         if (target === 'launcher-settings')
             return this._hooks.openPrefs?.();
+        if (target === 'save-clipboard')
+            return this._hooks.saveClipboard?.();
         if (target === 'emoji-paste-buffer')
             return this._hooks.pasteEmojiBuffer?.();
         const fn = GNOME[target];

@@ -119,14 +119,31 @@ function emojiPage(window, settings) {
 
 function builtinsPage(window, settings) {
     const p = page('Built-in Entries', 'emblem-system-symbolic');
+    const clip = group('Clipboard history',
+        'Updated when the clipboard changes (no polling). Text wins: an image is only kept when nothing textual was copied with it. Entries copied from a password manager that marks them as secret are skipped.');
+    clip.add(switchRow(settings, 'clipboard-enabled', 'Remember clipboard history'));
+    clip.add(comboRow(settings, 'clipboard-source', 'What to record', [
+        ['clipboard', 'The GNOME clipboard (what you copy with Ctrl+C)'],
+        ['primary', 'The Wayland primary selection (text you select, pasted with middle click)'],
+        ['both', 'Both'],
+        ['own', 'Nothing automatically: this launcher only'],
+    ], 'This launcher only: the history holds just what the launcher copies itself and what you add with "Save Clipboard to History". Choosing an entry always puts it on the normal clipboard.'));
+    clip.add(spinRow(settings, 'clipboard-max', 'Clipboard items to keep', 5, 200, 1));
+    clip.add(switchRow(settings, 'clipboard-persist', 'Keep the history on disk',
+        'Survives logging out and restarting the shell. Stored as plain text in a folder only you can read. Turning this off deletes the saved history. Clear History in the launcher also clears the disk.'));
+    clip.add(entryRow(settings, 'clipboard-dir', 'History folder (empty: ~/.local/share/gnome-launcher/clipboard)'));
+    clip.add(switchRow(settings, 'clipboard-images', 'Remember copied images',
+        'Screenshots and copied pictures, shown with a thumbnail.'));
+    clip.add(spinRow(settings, 'clipboard-image-count', 'Images to keep', 1, 30, 1));
+    clip.add(spinRow(settings, 'clipboard-image-mb', 'Largest image to copy (MB)', 1, 32, 1, 'Only applies to images that are stored as a copy. Linked files are not limited.'));
+    clip.add(switchRow(settings, 'clipboard-link-files', 'Link screenshots instead of copying them',
+        'When a copied image is identical to a file saved shortly before in the screenshot folder, the history points to that file and keeps no second copy. If the file is moved or deleted its entry disappears.'));
+    clip.add(entryRow(settings, 'clipboard-screenshot-dir', 'Screenshot folder (empty: Pictures/Screenshots, then Pictures)'));
+    clip.add(switchRow(settings, 'clipboard-videos', 'Add screen recordings to the history',
+        'Recordings made with GNOME are linked, never copied. Enter puts the file on the clipboard, Ctrl+Enter plays it, Alt+Enter shows its folder.'));
+    clip.add(entryRow(settings, 'clipboard-video-dir', 'Recordings folder (empty: Videos/Screencasts)'));
+    p.add(clip);
     const opts = group('Options');
-    opts.add(switchRow(settings, 'clipboard-enabled', 'Remember clipboard history',
-        'Kept in memory (never written to disk), updated when the clipboard changes. Turn off to stop collecting.'));
-    opts.add(spinRow(settings, 'clipboard-max', 'Clipboard items to keep', 5, 200, 1));
-    opts.add(switchRow(settings, 'clipboard-images', 'Remember copied images',
-        'Screenshots and copied pictures, kept in memory only and shown with a thumbnail. Text always wins: an image is only kept when nothing textual was copied with it.'));
-    opts.add(spinRow(settings, 'clipboard-image-count', 'Images to keep', 1, 30, 1));
-    opts.add(spinRow(settings, 'clipboard-image-mb', 'Largest image to keep (MB)', 1, 32, 1, 'Bigger images are ignored. The most memory images can use is the two numbers multiplied.'));
     opts.add(switchRow(settings, 'calculator', 'Quick calculator', 'Typing an expression such as 12*(3+4) shows the result; Enter copies it.'));
     p.add(opts);
 
@@ -494,6 +511,12 @@ function search(settings) {
         subtitle: 'Patterns that can freeze the shell are refused: more than two open-ended repeats (*, +), repeated groups that contain repeats or alternatives, back-references and look-behind. Custom commands can also use /regex/ in their keywords.',
     }));
     p.add(rx);
+    const ex = group('Run commands',
+        'Start the search with the symbol, then a command: "!ls -la ~" or "!notify-send hi". Enter runs it from your home folder. A command that fails shows a notification; its output is not shown. If the symbol is also used by another feature (for example / for regular expressions) running commands takes priority.');
+    ex.add(entryRow(settings, 'exec-prefix', 'Symbol that starts a command (empty: off)'));
+    ex.add(switchRow(settings, 'exec-shell', 'Run through a shell',
+        'On: pipes, &&, $VARIABLES and wildcards work. Off: the command is split like a shell would but started directly, with no shell involved.'));
+    p.add(ex);
     const g = group('Matching');
     g.add(switchRow(settings, 'fuzzy', 'Fuzzy matching', 'Match characters in order, for example "ffx" finds Firefox.'));
     g.add(switchRow(settings, 'search-descriptions', 'Search descriptions'));

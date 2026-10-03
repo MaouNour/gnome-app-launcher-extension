@@ -72,7 +72,24 @@
     <key name="clipboard-max" type="i"><default>25</default><range min="5" max="200"/></key>
     <key name="calculator" type="b"><default>true</default></key>
 
-    <!-- Images in clipboard history (memory only, never written to disk) -->
+    <!-- Clipboard history on disk. Source: clipboard | primary | both | own (nothing is watched; only what
+         the launcher itself copies or "Save clipboard" adds). Empty folder settings mean the defaults
+         (data dir/gnome-launcher/clipboard, Pictures/Screenshots (and Pictures), Videos/Screencasts). -->
+    <key name="clipboard-source" type="s"><default>'clipboard'</default></key>
+    <key name="clipboard-persist" type="b"><default>true</default></key>
+    <key name="clipboard-dir" type="s"><default>''</default></key>
+    <!-- Link a copied screenshot to the file it came from instead of storing a second copy -->
+    <key name="clipboard-link-files" type="b"><default>true</default></key>
+    <key name="clipboard-screenshot-dir" type="s"><default>''</default></key>
+    <!-- Screen recordings made with GNOME (linked, never copied) -->
+    <key name="clipboard-videos" type="b"><default>true</default></key>
+    <key name="clipboard-video-dir" type="s"><default>''</default></key>
+
+    <!-- Run a command: "!ls -la". Empty prefix turns it off. -->
+    <key name="exec-prefix" type="s"><default>'!'</default></key>
+    <key name="exec-shell" type="b"><default>true</default></key>
+
+    <!-- Images in clipboard history -->
     <key name="clipboard-images" type="b"><default>true</default></key>
     <key name="clipboard-image-count" type="i"><default>8</default><range min="1" max="30"/></key>
     <key name="clipboard-image-mb" type="i"><default>4</default><range min="1" max="32"/></key>

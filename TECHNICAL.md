@@ -1,5 +1,40 @@
 # Technical notes
 
+## 0.4.4: clipboard on disk, linked files, `!command`
+
+Not touched: `_place()`, overlay/box layout, blur, animations.
+
+### New files
+| File | Purpose |
+|---|---|
+| `clipboard/persist.js` (pure JS) | Rules and validation: `serializeItems`/`reviveItems` (index format, rejects malformed or hostile entries: copies must match `img-<sha256>.<ext>`, links must be absolute, only `video` files), `linkCandidates` (same-size images saved within 20 s), `watchedSelections(source)`, `isSecret`, name helpers, `fileLabels`. |
+| `commands/exec.js` (pure JS) | `parseExec(query, prefix)` for the run-a-command prefix. |
+
+### `clipboard/history.js` (rewritten)
+- **Source:** `clipboard-source` = `clipboard | primary | both | own`. One `owner-changed` handler is connected only when something is watched; CLIPBOARD (120 ms debounce) and PRIMARY (500 ms, text of 2+ characters only). `own` connects nothing; `captureNow()` (built-in "Save Clipboard to History") and `noteCopied(text)` (calculator/entry copies) feed it.
+- **Disk:** index `history.json` (`{v:1, items}`) plus image copies `img-<sha256>.<ext>` in the history folder (default `$XDG_DATA_HOME/gnome-launcher/clipboard`). Dir created 0700, files written with `FileCreateFlags.PRIVATE` (0600), replace-destination (atomic). Saves are debounced (1.2 s) and async; a synchronous flush runs in `stop()`/`destroy()`. Loaded asynchronously at start and merged with anything already captured (deduplicated). Orphaned `img-*` copies are removed on load. Missing files drop their entries. Turning persistence off reads copies back into memory and deletes `history.json` and `img-*`; changing the folder copies image files over.
+- **Linking:** a new image is kept in memory first, then `_resolveImage` looks for its source file at 0 s, 1.5 s and 4 s (the file may be written after the clipboard is set): list the folder (async, batched), pick candidates by size and mtime, confirm with a SHA-256 of the file contents. A match stores `{path, linked: true}` and drops the bytes; otherwise a copy is written (if saving is on and the size limit allows). `_discard` deletes only our own copies (`!linked` and `isCopyName`).
+- **Recordings:** `Gio.File.monitor_directory` on the recordings folder; `CHANGES_DONE_HINT`/`MOVED_IN`/`RENAMED` for video extensions add a `file` item (size from `query_info`). If the folder does not exist yet it is retried when the launcher opens (`ensureWatching`).
+- **Using an item:** `useItem(id, how)`: images go back as their image mime (read from the file when linked), videos as `text/uri-list`; `ctrl` opens via the default app, `alt` opens the folder. A missing file removes the entry and notifies.
+- Secrets: items with `x-kde-passwordManagerHint` are skipped.
+
+### Other files
+| File | Change |
+|---|---|
+| `schemas/...gschema.xml` | New keys: `clipboard-source`, `clipboard-persist`, `clipboard-dir`, `clipboard-link-files`, `clipboard-screenshot-dir`, `clipboard-videos`, `clipboard-video-dir`, `exec-prefix` (`!`), `exec-shell` (true). |
+| `extension.js` | Passes `{openUri, notify}` to the history; `_syncClipboardOptions()` on enable and when those keys change; `clipimage`/`clipfile` activation passes the modifier; `clip`/`calc` copies call `noteCopied`; `onOpen` calls `ensureWatching`; `!command` handled in `_search` (before the launcher's own keyword) and `exec` kind in `_activate` (no frecency); runner hook `saveClipboard`. |
+| `commands/runner.js` | `exec` kind: `/bin/sh -c` or a shell-split argv, cwd = home, no pipes captured (nothing can block on output), one notification on non-zero exit. `spawn` now uses `wait_async` and reports the status. `save-clipboard` target. |
+| `commands/builtins.js` | New entry "Save Clipboard to History". |
+| `ui/launcher.js` | Tag labels for `clipfile` and `exec`. |
+| `prefs/pages.js` | Built-in Entries page: "Clipboard history" group with all options; Search page: "Run commands" group. |
+| `tests/run.mjs`, `TESTING.md` | 9 new tests (index round trip and rejection, copy names, link candidates, recordings, source selection, secrets, `!` parsing, linked files are never deleted). 108 pass. |
+
+### Not verified
+Only the pure logic is covered by tests; the GNOME-side code (selection signals, file monitor, async file I/O, GJS signatures) was syntax-checked but not run in a live Shell. Check: copy text, restart the shell (log out/in on Wayland) and reopen history; take a screenshot with Print and look for "linked: <file name>"; record a screencast; try `!echo hi > /tmp/x`, `!nonexistent` and a failing command; switch the source to primary and select some text.
+
+### Not included
+Running a command in a terminal, command output in the launcher, copying a file from the file manager as a file entry (it stays a text entry), and a screenshots-folder monitor (screenshots are linked through the clipboard only).
+
 ## 0.4.3: Escape, Launcher Settings, more animation styles
 
 Nothing here touches `_place()`, the overlay/box layout or blur; `_place()` is byte-identical to 0.4.1.

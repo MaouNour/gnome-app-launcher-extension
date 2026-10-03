@@ -11,6 +11,8 @@ import {buildUserEntries} from '../commands/userEntries.js';
 import {calculate} from '../search/calc.js';
 import {buildStyles, cssFontFamily} from '../ui/style.js';
 import {compileBlocklist} from '../shortcuts/blocklist.js';
+import {copyName, fileLabels, isCopyName, isSecret, isTempName, isVideoName, linkCandidates, reviveItems, serializeItems, watchedSelections} from '../clipboard/persist.js';
+import {parseExec} from '../commands/exec.js';
 import {parseRegexQuery, isRiskyPattern, extractRegexKeywords} from '../search/regex.js';
 import {sanitizeProviders, sanitizeProvider, validTemplate, buildUrl, webEntries, explicitWebQuery, offerWeb, DEFAULT_PROVIDERS} from '../search/web.js';
 import {sanitizeAccount, sanitizeAccounts, accountEntries, safeUrl, hostOf, generatePassword, newAccountId, clearDelaySeconds} from '../accounts/accounts.js';
@@ -680,7 +682,7 @@ test('process separation: shell code never loads GTK, prefs never load Shell lib
     }
 });
 test('prefs-reachable modules are pure (only relative imports)', () => {
-    for (const f of ['themes/themes.js', 'commands/schema.js', 'commands/builtins.js', 'search/engine.js', 'emoji/emoji.js', 'emoji/data.js', 'clipboard/image.js', 'accounts/accounts.js', 'search/regex.js', 'search/web.js']) {
+    for (const f of ['themes/themes.js', 'commands/schema.js', 'commands/builtins.js', 'search/engine.js', 'emoji/emoji.js', 'emoji/data.js', 'clipboard/image.js', 'clipboard/persist.js', 'commands/exec.js', 'accounts/accounts.js', 'search/regex.js', 'search/web.js']) {
         const src = readFileSync(join(root, f), 'utf8');
         for (const m of src.matchAll(/^import .* from '([^']+)'/gm))
             assert.ok(m[1].startsWith('.'), `${f} imports ${m[1]}`);
@@ -724,6 +726,87 @@ test('Launcher Settings is built in with Ctrl+I as the default window shortcut',
     const cleared = buildBuiltinEntries({'launcher-settings': {windowShortcut: ''}}, {});
     assert.deepEqual(cleared.windowShortcuts, []);
     assert.deepEqual(sanitizeBuiltins({reboot: {windowShortcut: ''}}), {}); // '' only means "cleared" where a default exists
+});
+const H = 'a'.repeat(64);
+test('history on disk: text, copied image, linked image and video survive a round trip', () => {
+    const items = [
+        {ts: 5, text: 'hello'},
+        {ts: 4, image: {mime: 'image/png', hash: H, size: 10, info: {type: 'PNG', width: 3, height: 2}, path: copyName(H, 'image/png'), linked: false}},
+        {ts: 3, image: {mime: 'image/png', hash: H, size: 10, info: null, path: '/home/u/Pictures/Screenshots/a.png', linked: true}},
+        {ts: 2, file: {path: '/home/u/Videos/Screencasts/r.webm', kind: 'video', size: 99, name: 'r.webm'}},
+        {ts: 1, image: {mime: 'image/png', hash: H, size: 10, bytes: {}, path: null, linked: false}}, // memory only: not stored
+    ];
+    const stored = serializeItems(items);
+    assert.equal(stored.length, 4);
+    const back = reviveItems(JSON.parse(JSON.stringify(stored)));
+    assert.deepEqual(back.map(b => b.t), ['text', 'image', 'image', 'file']);
+    assert.equal(back[2].linked, true);
+    assert.equal(back[3].name, 'r.webm');
+});
+test('history on disk: damaged or hostile index entries are rejected', () => {
+    const bad = [
+        null, 7, {t: 'text', text: '   '}, {t: 'text', text: 'x'.repeat(20001)},
+        {t: 'image', mime: 'image/png', hash: 'zz', path: copyName(H, 'image/png')},
+        {t: 'image', mime: 'image/png', hash: H, path: '../../etc/passwd', linked: false},      // a copy must be a plain img-<hash> name
+        {t: 'image', mime: 'image/png', hash: H, path: 'relative/file.png', linked: true},     // a link must be absolute
+        {t: 'image', mime: 'text/plain', hash: H, path: copyName(H, 'image/png')},
+        {t: 'file', path: '/x/y.txt', kind: 'script'}, {t: 'file', path: 'rel.webm', kind: 'video'}, {t: 'other'},
+    ];
+    assert.deepEqual(reviveItems(bad), []);
+    assert.deepEqual(reviveItems('nope'), []);
+    assert.equal(reviveItems(Array.from({length: 300}, (_, i) => ({t: 'text', text: `t${i}`})), 200).length, 200);
+});
+test('copied image names: only our own pattern counts as a copy', () => {
+    assert.ok(isCopyName(copyName(H, 'image/jpeg')));
+    assert.ok(!isCopyName('img-short.png') && !isCopyName('notes.txt') && !isCopyName('../img-' + H + '.png'));
+    assert.equal(copyName(H, 'image/webp'), `img-${H}.webp`);
+});
+test('screenshot linking only considers same-size images saved around the same time', () => {
+    const files = [
+        {name: 'Screenshot 1.png', size: 500, mtime: 1000},
+        {name: 'Screenshot 2.png', size: 500, mtime: 1003},
+        {name: 'other.png', size: 501, mtime: 1000},
+        {name: 'old.png', size: 500, mtime: 100},
+        {name: 'notes.txt', size: 500, mtime: 1000},
+        {name: '.hidden.png', size: 500, mtime: 1000},
+        {name: 'a.png.part', size: 500, mtime: 1000},
+    ];
+    assert.deepEqual(linkCandidates(files, 500, 1002).map(f => f.name), ['Screenshot 2.png', 'Screenshot 1.png']);
+    assert.deepEqual(linkCandidates(files, 999, 1002), []);
+    assert.equal(linkCandidates(files, 500, 1002, 20, 1).length, 1);
+});
+test('recordings: video names are recognised, unfinished files are not', () => {
+    assert.ok(isVideoName('Screencast from 2026.webm') && isVideoName('a.MP4') && !isVideoName('a.png') && !isVideoName('webm'));
+    assert.ok(isTempName('.x.webm') && isTempName('a.part') && isTempName('b~') && !isTempName('a.webm'));
+    assert.match(fileLabels({name: 'r.webm', size: 5 * 1024 * 1024}).desc, /5\.0 MB/);
+});
+test('clipboard source decides which selections are watched', () => {
+    assert.deepEqual(watchedSelections('clipboard'), {clipboard: true, primary: false});
+    assert.deepEqual(watchedSelections('primary'), {clipboard: false, primary: true});
+    assert.deepEqual(watchedSelections('both'), {clipboard: true, primary: true});
+    assert.deepEqual(watchedSelections('own'), {clipboard: false, primary: false});
+    assert.deepEqual(watchedSelections('nonsense'), {clipboard: true, primary: false});
+});
+test('copies marked secret by a password manager are skipped', () => {
+    assert.ok(isSecret(['text/plain', 'x-kde-passwordManagerHint']));
+    assert.ok(!isSecret(['text/plain']) && !isSecret(undefined));
+});
+test('run-a-command prefix', () => {
+    assert.deepEqual(parseExec('!ls -la', '!'), {command: 'ls -la'});
+    assert.deepEqual(parseExec('  !  echo hi  ', '!'), {command: 'echo hi'});
+    assert.deepEqual(parseExec('!', '!'), {command: ''});
+    assert.equal(parseExec('ls', '!'), null);
+    assert.equal(parseExec('a !b', '!'), null);
+    assert.equal(parseExec('!ls', ''), null);
+    assert.equal(parseExec('!ls', '   '), null);
+    assert.deepEqual(parseExec('>> top', '>>'), {command: 'top'});   // any symbol, also several characters
+    assert.equal(parseExec('!ls', undefined), null);
+});
+test('the history never deletes files it only links', () => {
+    const src = readFileSync(join(root, 'clipboard/history.js'), 'utf8');
+    const i = src.indexOf('_discard(it) {');
+    const body = src.slice(i, src.indexOf('\n    }\n', i));
+    assert.ok(body.includes('!it.image.linked') && body.includes('isCopyName'), 'discard must skip linked files and only touch our own copies');
 });
 test('blocklist: exact, case, .desktop and wildcard matching', () => {
     const b = compileBlocklist(['Steam_App_*', 'org.gnome.Nautilus.desktop', '  ', 'vmw?are*']);

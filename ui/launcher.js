@@ -13,7 +13,7 @@ import {dbg, warn} from '../utils/log.js';
 
 const TAGS = {
     app: 'App', command: 'Command', action: 'Action', system: 'System',
-    mode: 'Mode', clip: 'Clipboard', clipimage: 'Image', account: 'Account', web: 'Web', calc: 'Result', emoji: 'Emoji',
+    mode: 'Mode', clip: 'Clipboard', clipimage: 'Image', clipfile: 'File', exec: 'Run', account: 'Account', web: 'Web', calc: 'Result', emoji: 'Emoji',
 };
 
 // Rows are created lazily in batches while scrolling, so even a list of thousands of

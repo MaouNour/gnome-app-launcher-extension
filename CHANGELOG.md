@@ -2,6 +2,38 @@
 
 All notable changes to GNOME Launcher (`gnome-launcher@maou-nournar`). Newest first.
 
+## 0.4.4
+
+Window layout, positioning and blur code are unchanged (0.4.1 behaviour).
+
+### New features
+- **Clipboard history is kept on disk** (on by default). It survives logging out and restarting the shell.
+  Stored in `~/.local/share/gnome-launcher/clipboard/` (folder configurable), readable only by you
+  (folder mode 0700, files 0600), as plain text. Turning the option off deletes the saved history, and
+  *Clear Clipboard History* clears the disk too.
+- **Choose what is recorded** (*Built-in Entries > Clipboard history*): the GNOME clipboard (default), the
+  Wayland primary selection (selected text), both, or nothing automatically ("this launcher only": the
+  history then holds only what the launcher copies itself plus entries added with the new
+  **Save Clipboard to History** built-in).
+- **Screenshots are linked, not copied** (on by default). A copied image that is identical to a file saved
+  just before in the screenshot folder (Pictures/Screenshots, then Pictures; configurable) is stored as a link
+  to that file, with its thumbnail, instead of a second copy. If the file is moved or deleted its entry is
+  removed. Images with no matching file are copied into the history folder.
+- **Screen recordings** made with GNOME (Videos/Screencasts, configurable) are added to the history when the
+  recording finishes, as links. Enter puts the file on the clipboard, Ctrl+Enter plays it, Alt+Enter shows
+  the folder.
+- **Run a command:** start the search with `!` (the symbol is configurable, empty turns it off), for example
+  `!ls -la ~`. Enter runs it from your home folder, through a shell by default (pipes, `&&`, variables) or
+  directly without a shell (option). A command that fails shows a notification (exit 127: "Command not found").
+
+### Behaviour notes
+- Clipboard copies marked as secret by a password manager (`x-kde-passwordManagerHint`) are not recorded.
+- Linked files are never deleted by the launcher; only its own image copies are.
+- Images are no longer held in memory once they are on disk or linked; thumbnails come from the file.
+
+### Housekeeping
+- Tests 99 -> 108.
+
 ## 0.4.3
 
 Still built on 0.4.1. Adds more items from 0.5.x that cannot affect where the window is placed

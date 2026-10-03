@@ -12,6 +12,7 @@ import {accountEntries, clearDelaySeconds} from './accounts/accounts.js';
 import {openVault} from './accounts/vault.js';
 import {ClipboardHistory, clearClipboardIf, copyText} from './clipboard/history.js';
 import {buildBuiltinEntries} from './commands/builtins.js';
+import {parseExec} from './commands/exec.js';
 import {parseEmoji, emojiPlan, emojiOptions, inlineEmojiQuery} from './emoji/emoji.js';
 import {Paster} from './emoji/paste.js';
 import {Runner, openUri} from './commands/runner.js';
@@ -78,9 +79,13 @@ export default class GnomeLauncherExtension extends Extension {
             pasteEmojiBuffer: () => this._pasteEmojiBuffer(),
             // Same window `gnome-extensions prefs <uuid>` opens, without spawning a process.
             openPrefs: () => this.openPreferences(),
+            saveClipboard: () => this._clip?.captureNow(),
         });
         this._keys = new Keybindings();
-        this._clip = new ClipboardHistory(() => this._onClipboardChanged());
+        this._clip = new ClipboardHistory(() => this._onClipboardChanged(), {
+            openUri: uri => openUri(uri),
+            notify: text => Main.notify(NOTIFY_TITLE, text),
+        });
         this._clip.setMax(cfg.int('clipboard-max'));
 
         this._paster = new Paster({
@@ -113,6 +118,7 @@ export default class GnomeLauncherExtension extends Extension {
             getStyle: () => this._styleInputs(),
             // Only does work before the cache has arrived; afterwards it is a no-op.
             onOpen: () => {
+                this._clip?.ensureWatching();
                 if (this._apps.ensureReady())
                     this._rebuildEntries();
             },
@@ -196,6 +202,15 @@ export default class GnomeLauncherExtension extends Extension {
         case 'clipboard-image-count':
         case 'clipboard-image-mb':
             this._syncClipboardImages();
+            break;
+        case 'clipboard-source':
+        case 'clipboard-persist':
+        case 'clipboard-dir':
+        case 'clipboard-link-files':
+        case 'clipboard-screenshot-dir':
+        case 'clipboard-videos':
+        case 'clipboard-video-dir':
+            this._syncClipboardOptions();
             break;
         case 'clipboard-max':
             this._clip.setMax(this._config.int('clipboard-max'));
@@ -300,7 +315,17 @@ export default class GnomeLauncherExtension extends Extension {
         this._clip.setImages(c.bool('clipboard-images'), c.int('clipboard-image-count'), c.int('clipboard-image-mb'));
     }
 
+    _syncClipboardOptions() {
+        const c = this._config;
+        this._clip.configure({
+            source: c.str('clipboard-source'), persist: c.bool('clipboard-persist'), dir: c.str('clipboard-dir'),
+            link: c.bool('clipboard-link-files'), shotDir: c.str('clipboard-screenshot-dir'),
+            videos: c.bool('clipboard-videos'), videoDir: c.str('clipboard-video-dir'),
+        });
+    }
+
     _syncClipboard() {
+        this._syncClipboardOptions();
         this._syncClipboardImages();
         if (this._config.bool('clipboard-enabled'))
             this._clip.start();
@@ -403,6 +428,18 @@ export default class GnomeLauncherExtension extends Extension {
                 fuzzy: c.bool('fuzzy'), descriptions: true, frecency: false, limit: Infinity, initial: Infinity,
             });
         }
+        // "!ls -la": offers to run what follows the prefix (a symbol of your choice; empty = off).
+        const ex = parseExec(query, c.str('exec-prefix'));
+        if (ex) {
+            this._launcher?.setEmptyText(`Type a command after ${c.str('exec-prefix').trim()} and press Enter`);
+            if (!ex.command)
+                return [];
+            return [prepare({
+                id: 'exec:run', kind: 'exec', name: ex.command,
+                desc: c.bool('exec-shell') ? 'Run in a shell · Enter' : 'Run directly, no shell · Enter',
+                icon: 'utilities-terminal-symbolic', category: 'Run', payload: {command: ex.command, shell: c.bool('exec-shell')},
+            })];
+        }
         // Typing exactly the shared keyword lists every entry that belongs to the launcher itself.
         const own = c.str('own-keyword').trim().toLowerCase();
         if (own && query.trim().toLowerCase() === own && this._ownEntries?.length)
@@ -494,12 +531,23 @@ export default class GnomeLauncherExtension extends Extension {
             return;
         case 'clipimage':
             this._launcher.close();
-            this._clip.copyImage(entry.payload.imageId);
+            this._clip.useItem(entry.payload.imageId, how);
+            return;
+        case 'clipfile':
+            this._launcher.close();
+            this._clip.useItem(entry.payload.fileId, how);
             return;
         case 'clip':
         case 'calc':
             this._launcher.close();
             copyText(entry.payload.text);
+            this._clip.noteCopied(entry.payload.text);
+            return;
+        case 'exec':
+            // Same path as every other entry: run after the grab is released; no frecency for typed commands.
+            this._launcher.close();
+            this._pending = entry;
+            this._runIdle.schedule();
             return;
         default:
         }
