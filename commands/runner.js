@@ -99,7 +99,7 @@ const GNOME = {
 // Executes entries. Every failure path throws an Error with a user-presentable message;
 // the caller catches it, so a broken entry never takes the extension down.
 export class Runner {
-    // hooks: {clearClipboard(), pasteEmojiBuffer()} provided by the extension for built-in entries.
+    // hooks: {clearClipboard(), pasteEmojiBuffer(), openPrefs()} provided by the extension for built-in entries.
     constructor(hooks = {}) {
         this._hooks = hooks;
     }
@@ -153,6 +153,8 @@ export class Runner {
     _gnome(target) {
         if (target === 'clear-clipboard')
             return this._hooks.clearClipboard?.();
+        if (target === 'launcher-settings')
+            return this._hooks.openPrefs?.();
         if (target === 'emoji-paste-buffer')
             return this._hooks.pasteEmojiBuffer?.();
         const fn = GNOME[target];

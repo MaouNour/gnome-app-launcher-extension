@@ -51,6 +51,18 @@ function parseAccel(accel) {
 }
 const FALLBACK_ICON = 'application-x-executable';
 
+// Opening/closing animations: how small the window starts (scale), how far it travels vertically (ty,
+// in px, as a transform: the layout position never changes) and the easing for each direction.
+const AM = Clutter.AnimationMode;
+const ANIMS = {
+    'fade-scale': {scale: 0.96, ty: 0, open: AM.EASE_OUT_QUAD, close: AM.EASE_OUT_QUAD},
+    'fade': {scale: 1, ty: 0, open: AM.EASE_OUT_QUAD, close: AM.EASE_OUT_QUAD},
+    'slide': {scale: 1, ty: -14, open: AM.EASE_OUT_QUAD, close: AM.EASE_OUT_QUAD},
+    'pop': {scale: 0.9, ty: 0, open: AM.EASE_OUT_BACK, close: AM.EASE_IN_QUAD},
+    'drop': {scale: 0.985, ty: -10, open: AM.EASE_OUT_CUBIC, close: AM.EASE_IN_QUAD},
+    'rise': {scale: 0.985, ty: 12, open: AM.EASE_OUT_CUBIC, close: AM.EASE_IN_QUAD},
+};
+
 // The scroll adjustment lives under different names across Shell versions.
 function vAdjustment(scroll) {
     return scroll.vadjustment ?? scroll.vscroll?.adjustment ?? scroll.get_vscroll_bar?.()?.adjustment ?? null;
@@ -648,12 +660,8 @@ export class Launcher {
         const enabled = St.Settings.get().enable_animations && style !== 'none';
         const duration = enabled ? this._cfg.int('anim-duration') : 0;
         const shown = {opacity: 255, scale_x: 1, scale_y: 1, translation_y: 0};
-        const hidden = {
-            opacity: 0,
-            scale_x: style === 'fade-scale' ? 0.96 : 1,
-            scale_y: style === 'fade-scale' ? 0.96 : 1,
-            translation_y: style === 'slide' ? -14 : 0,
-        };
+        const a = ANIMS[style] ?? ANIMS['fade-scale'];
+        const hidden = {opacity: 0, scale_x: a.scale, scale_y: a.scale, translation_y: a.ty};
         // While fading, paint the whole window as one flattened layer. Otherwise the translucent
         // background, border and shadow are blended separately and the shadow visibly pulses.
         const redirect = mode => {
@@ -686,7 +694,7 @@ export class Launcher {
         box.ease({
             ...(opening ? shown : hidden),
             duration: opening ? duration : Math.round(duration * 0.8),
-            mode: Clutter.AnimationMode.EASE_OUT_QUAD,
+            mode: opening ? a.open : a.close,
             onComplete: done,
         });
     }
@@ -974,8 +982,9 @@ export class Launcher {
 
         switch (sym) {
         case Clutter.KEY_Escape:
-            if (!this.exitMode())
-                this.close();
+            // Closes the launcher from anywhere, including clipboard/emoji/accounts. Backspace on an
+            // empty field still steps back from a sub-view to the main search.
+            this.close();
             return Clutter.EVENT_STOP;
         case Clutter.KEY_BackSpace:
             if (this._mode && this._entry.get_text() === '') {

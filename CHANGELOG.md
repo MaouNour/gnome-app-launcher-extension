@@ -2,6 +2,25 @@
 
 All notable changes to GNOME Launcher (`gnome-launcher@maou-nournar`). Newest first.
 
+## 0.4.3
+
+Still built on 0.4.1. Adds more items from 0.5.x that cannot affect where the window is placed
+(window layout, positioning and blur code are unchanged).
+
+### New features
+- **Launcher Settings** built-in entry: type "settings", "preferences" or "prefs" in the launcher to open
+  this extension's preferences. **Ctrl+I** does the same while the launcher is open. The shortcut can be
+  changed or cleared on the *Built-in Entries* page (a cleared default stays cleared).
+- **More opening animations:** Pop (springy), Drop in and Rise, in *Appearance > Animation > Style*.
+  The default is still Fade and scale.
+
+### Behaviour changes
+- **Escape always closes the launcher**, also from clipboard history, emoji and accounts. Before, the first
+  Escape only went back to the main search. Backspace on an empty field still steps back.
+
+### Housekeeping
+- Tests 96 -> 99 (Launcher Settings entry, animation styles offered are defined, Escape behaviour).
+
 ## 0.4.2
 
 Built on the stable 0.4.1 code. The 0.5.x line (blur/shadow layering, launcher-style themes, window

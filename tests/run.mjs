@@ -204,7 +204,7 @@ test('built-ins respect enable flags and clipboard switch', () => {
 test('built-in shortcuts: global and window-only are kept apart', () => {
     const r = buildBuiltinEntries({reboot: {shortcut: '<Control><Alt>r', windowShortcut: '<Control>r'}}, {clipboard: false});
     assert.deepEqual(r.shortcuts, [{id: 'system:reboot', accel: '<Control><Alt>r'}]);
-    assert.deepEqual(r.windowShortcuts, [{id: 'system:reboot', accel: '<Control>r'}]);
+    assert.deepEqual(r.windowShortcuts.filter(w => w.id === 'system:reboot'), [{id: 'system:reboot', accel: '<Control>r'}]);
 });
 test('built-in overrides are sanitized', () => {
     assert.deepEqual(sanitizeBuiltins('x'), {});
@@ -423,7 +423,7 @@ test('emoji built-ins follow the emoji flag and carry their mode texts', () => {
 test('emoji built-in shortcuts are collected like any other built-in', () => {
     const r = buildBuiltinEntries({'emoji-paste-buffer': {shortcut: '<Super>v'}, emoji: {windowShortcut: '<Alt>e'}}, {clipboard: true, emoji: true});
     assert.deepEqual(r.shortcuts, [{id: 'system:emoji-paste-buffer', accel: '<Super>v'}]);
-    assert.deepEqual(r.windowShortcuts, [{id: 'system:emoji', accel: '<Alt>e'}]);
+    assert.deepEqual(r.windowShortcuts.filter(w => w.id === 'system:emoji'), [{id: 'system:emoji', accel: '<Alt>e'}]);
 });
 
 // ---- clipboard images -----------------------------------------------------------------------
@@ -715,6 +715,16 @@ test('metadata uuid matches the owner', () => {
     assert.equal(meta.uuid, 'gnome-launcher@maou-nournar');
 });
 
+test('Launcher Settings is built in with Ctrl+I as the default window shortcut', () => {
+    const r = buildBuiltinEntries({}, {});
+    assert.ok(r.entries.some(e => e.id === 'system:launcher-settings' && e.kind === 'system'));
+    assert.deepEqual(r.windowShortcuts, [{id: 'system:launcher-settings', accel: '<Control>i'}]);
+    const own = buildBuiltinEntries({'launcher-settings': {windowShortcut: '<Control>o'}}, {});
+    assert.deepEqual(own.windowShortcuts, [{id: 'system:launcher-settings', accel: '<Control>o'}]);
+    const cleared = buildBuiltinEntries({'launcher-settings': {windowShortcut: ''}}, {});
+    assert.deepEqual(cleared.windowShortcuts, []);
+    assert.deepEqual(sanitizeBuiltins({reboot: {windowShortcut: ''}}), {}); // '' only means "cleared" where a default exists
+});
 test('blocklist: exact, case, .desktop and wildcard matching', () => {
     const b = compileBlocklist(['Steam_App_*', 'org.gnome.Nautilus.desktop', '  ', 'vmw?are*']);
     assert.equal(b.size, 3);
@@ -769,4 +779,16 @@ test('prefs page builders are called with the arguments they declare', () => {
     }
 });
 
+test('every animation style offered in prefs exists in the launcher', () => {
+    const pages = readFileSync(join(root, 'prefs/pages.js'), 'utf8');
+    const ui = readFileSync(join(root, 'ui/launcher.js'), 'utf8');
+    const line = pages.split('\n').find(l => l.includes("'anim-style'"));
+    for (const m of line.matchAll(/\['([a-z-]+)', '/g))
+        assert.ok(m[1] === 'none' || ui.includes(`'${m[1]}': {scale:`), `animation "${m[1]}" is offered but not defined`);
+});
+test('Escape closes the launcher from any view', () => {
+    const ui = readFileSync(join(root, 'ui/launcher.js'), 'utf8');
+    const i = ui.indexOf('case Clutter.KEY_Escape:');
+    assert.ok(i > 0 && !ui.slice(i, i + 300).includes('exitMode()'));
+});
 console.log(`\n${passed} tests passed`);

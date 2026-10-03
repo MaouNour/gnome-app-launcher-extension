@@ -1,5 +1,24 @@
 # Technical notes
 
+## 0.4.3: Escape, Launcher Settings, more animation styles
+
+Nothing here touches `_place()`, the overlay/box layout or blur; `_place()` is byte-identical to 0.4.1.
+
+| File | Change |
+|---|---|
+| `ui/launcher.js` `_onKey` | Escape: `if (!this.exitMode()) this.close();` -> `this.close();`. Backspace on an empty field still calls `exitMode()`. |
+| `commands/builtins.js` | New system entry `launcher-settings` (target `launcher-settings`, default window shortcut `<Control>i`). `windowShortcut: ''` is kept in the overrides only where the entry ships a default, meaning "cleared"; the default is used when no override exists. |
+| `commands/runner.js` | `target === 'launcher-settings'` calls the `openPrefs` hook. |
+| `extension.js` | Runner hook `openPrefs: () => this.openPreferences()`. |
+| `prefs/pages.js` | Built-in store keeps `''` for entries with a shipped window-shortcut default; the shortcut row falls back to that default. |
+| `ui/launcher.js` `ANIMS` + `_animate` | Table of animations (scale, vertical offset, easing for open/close) replaces the inline `fade-scale`/`slide` conditions; adds `pop`, `drop`, `rise`. The offset is a transform (`translation_y`), the layout position is not changed. Unknown values fall back to `fade-scale`. |
+| `prefs/pages.js` | Animation Style combo lists the three new styles. Schema default unchanged (`fade-scale`). |
+| `tests/run.mjs` | Window-shortcut assertions filtered by id (the new entry adds one); new tests for Launcher Settings, offered animation styles, and Escape. 99 pass. |
+| `metadata.json`, `TESTING.md` | 0.4.3, test count 99. |
+
+Not ported: theme `anim`/`animMs` ("Follow the theme" animation), divider, brightness, blur and shadow layering.
+Not run in GNOME Shell: check Escape from the emoji view, Ctrl+I, typing "settings" and Enter, and each animation.
+
 ## 0.4.2: selective port onto 0.4.1
 
 Base: the uploaded 0.4.1 tree. Ported from the 0.5.x tree only the items below. `ui/launcher.js` positioning,

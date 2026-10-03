@@ -49,7 +49,9 @@ function builtinsStore(settings) {
     const write = (id, key, value) => {
         const o = read();
         const e = {...(o[id] ?? {})};
-        if (value === '' || value === undefined)
+        // Clearing a shortcut that has a shipped default is stored as '' so the default stays off.
+        const hasDefault = key === 'windowShortcut' && BUILTINS.find(b => b.id === id)?.windowShortcut;
+        if (value === undefined || (value === '' && !hasDefault))
             delete e[key];
         else
             e[key] = value;
@@ -140,7 +142,7 @@ function builtinsPage(window, settings) {
         row.add_row(shortcutRow(window, 'Global shortcut', () => read()[b.id]?.shortcut ?? '', v => write(b.id, 'shortcut', v),
             accel => ownShortcuts(settings).filter(([a, n]) => a === accel && n !== b.name).map(([, n]) => `"${n}"`)));
         row.add_row(shortcutRow(window, 'Window shortcut (only while the launcher is open)',
-            () => read()[b.id]?.windowShortcut ?? '', v => write(b.id, 'windowShortcut', v), () => [], true));
+            () => read()[b.id]?.windowShortcut ?? b.windowShortcut ?? '', v => write(b.id, 'windowShortcut', v), () => [], true));
         g.add(row);
     }
     p.add(g);
@@ -295,7 +297,7 @@ function appearance(window, settings) {
     p.add(scroll);
 
     const anim = group('Animation');
-    anim.add(comboRow(settings, 'anim-style', 'Style', [['fade-scale', 'Fade and scale'], ['fade', 'Fade'], ['slide', 'Slide'], ['none', 'None (disabled)']]));
+    anim.add(comboRow(settings, 'anim-style', 'Style', [['fade-scale', 'Fade and scale'], ['fade', 'Fade'], ['slide', 'Slide'], ['pop', 'Pop (springy)'], ['drop', 'Drop in'], ['rise', 'Rise'], ['none', 'None (disabled)']]));
     anim.add(spinRow(settings, 'anim-duration', 'Duration (ms)', 0, 1000, 10));
     p.add(anim);
 
