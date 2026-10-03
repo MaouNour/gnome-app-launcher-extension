@@ -57,7 +57,11 @@ export function buildStyles(l, t) {
     return {
         box: `width: ${px(l.width)}; ${minH}padding: ${px(l.padding)}; spacing: ${px(l.padding * 0.6)}; ` +
             `background-color: ${cssColor(t.background, t.opacity)}; ` +
-            `border: ${px(t.borderWidth)} solid ${cssColor(t.border)}; border-radius: ${px(t.radius)}; ${shadow}`,
+            `border: ${px(t.borderWidth)} solid ${cssColor(t.border)}; border-radius: ${px(t.radius)};`,
+        // The shadow is drawn by its own layer behind the content (see Launcher.build), never on the
+        // box that the blur sits under.
+        shadow: shadow ? `border-radius: ${px(t.radius)}; ${shadow}` : '',
+        cornerR: Math.max(0, Math.round(t.radius * s)),
         entry: `min-height: ${px(l.searchHeight)}; padding: 0 ${px(l.searchPadding)}; spacing: ${px(l.iconSpacing)}; ` +
             `border-radius: ${px(t.searchRadius)}; background-color: ${cssColor(t.searchBackground)}; ` +
             `color: ${fg}; caret-color: ${cssColor(t.accent)}; selection-background-color: ${cssColor(t.accent)}; ` +

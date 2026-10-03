@@ -51,6 +51,25 @@ function parseAccel(accel) {
 }
 const FALLBACK_ICON = 'application-x-executable';
 
+// Optional "GNOME Rounded Blur" library (gi://Blur): a copy of Shell's own blur effect that clips to a
+// corner radius. Blur my Shell uses it the same way when it is installed. Loaded once, only if blur is on.
+let roundLib;            // undefined = not tried yet, null = not installed
+let roundLoading = false;
+function loadRoundLib(done) {
+    if (roundLib !== undefined || roundLoading)
+        return;
+    roundLoading = true;
+    import('gi://Blur').then(m => {
+        roundLib = m.default?.BlurEffect ? m.default : null;
+    }).catch(() => {
+        roundLib = null;
+    }).finally(() => {
+        roundLoading = false;
+        if (roundLib)
+            done();
+    });
+}
+
 // The scroll adjustment lives under different names across Shell versions.
 function vAdjustment(scroll) {
     return scroll.vadjustment ?? scroll.vscroll?.adjustment ?? scroll.get_vscroll_bar?.()?.adjustment ?? null;
@@ -265,9 +284,10 @@ export class Launcher {
         this._st = null;
         this._dirty = true;
         this._order = null;
-        this._blurFx = null;
+        this._blurFx = null; // {effect, prop, round}
         this._blurSigma = 0;
         this._blurWarned = false;
+        this._selItem = null; // the row/cell that is painted as selected right now
         this._suppress = false;
         this._lastListH = -2;
         this._shown = 0;
@@ -327,13 +347,28 @@ export class Launcher {
             visible: false,
             layout_manager: new Clutter.BinLayout(),
         });
-        this._box = new St.BoxLayout({
-            vertical: true,
-            reactive: true,
+        // Same layering Blur my Shell uses: the blur effect lives on its own actor behind the content
+        // and is never put on the window itself. Putting it on the animated, shadowed window made the
+        // blur sample its own shadow, repaint wrongly while fading and glitch. Layout is a BinLayout so
+        // the blur and shadow layers always have exactly the size of the content box (no signals, no
+        // polling). The frame is what gets animated and positioned.
+        //   frame
+        //     |- blur layer   (Shell.BlurEffect, background blur only)
+        //     |- shadow layer (box-shadow only, never blurred)
+        //     `- box          (background, border, entry and results)
+        this._frame = new St.Widget({
+            name: 'gnome-launcher-frame',
+            layout_manager: new Clutter.BinLayout(),
             x_align: Clutter.ActorAlign.CENTER,
             y_align: Clutter.ActorAlign.START,
         });
-        this._box.set_pivot_point(0.5, 0.5);
+        this._frame.set_pivot_point(0.5, 0.5);
+        this._blurBg = new St.Widget({x_expand: true, y_expand: true, visible: false});
+        this._shadowBg = new St.Widget({x_expand: true, y_expand: true, visible: false});
+        this._box = new St.BoxLayout({vertical: true, reactive: true, x_expand: true, y_expand: true});
+        this._frame.add_child(this._blurBg);
+        this._frame.add_child(this._shadowBg);
+        this._frame.add_child(this._box);
 
         this._entry = new St.Entry({can_focus: true, x_expand: true});
         // EXTERNAL: the list still scrolls (wheel, keys, touchpad) but no scrollbar is ever drawn.
@@ -350,7 +385,7 @@ export class Launcher {
         this._hint = new St.Label({visible: false});
         this._hint.clutter_text.ellipsize = Pango.EllipsizeMode.END;
 
-        this._overlay.add_child(this._box);
+        this._overlay.add_child(this._frame);
         Main.uiGroup.add_child(this._overlay);
 
         // More rows are created as the user scrolls towards the end of what exists so far.
@@ -451,6 +486,8 @@ export class Launcher {
         this._dirty = false;
 
         this._box.set_style(st.box);
+        this._shadowBg.set_style(st.shadow);
+        this._shadowBg.visible = !!st.shadow;
         this._entry.set_style(st.entry);
         this._entry.hint_text = st.placeholder;
         try {
@@ -486,7 +523,7 @@ export class Launcher {
                 this._box.add_child(this._hint);
             }
         }
-        this._applyBlur(st.blur);
+        this._applyBlur(st);
         this._lastListH = -2;
         if (this._state !== 'hidden')
             this._render();
@@ -510,60 +547,81 @@ export class Launcher {
         }));
     }
 
-    // Blur uses Shell.BlurEffect (the native Shell blur). If it is missing or its construction fails
-    // on this Shell version, blur is skipped; transparency still works.
-    //
-    // The effect is only attached while the window is fully open and static. Samples of the
-    // background taken while the window is fading or scaling do not line up with the pixels behind
-    // it, which showed up as glitches (and flickering window borders/shadows) with an application
-    // window behind the launcher. Attaching it after the opening animation and removing it before
-    // the closing one avoids that; the blur appears as soon as the window has settled.
-    _applyBlur(sigma) {
+    // Blur: Shell.BlurEffect in BACKGROUND mode on the dedicated blur layer (see build()). The effect is
+    // created once and stays attached while blur is on; changing the strength only updates its property,
+    // so there is no attach/detach at open or close and nothing pops in after the animation.
+    // With the optional rounded-blur library the layer is clipped to the window's corner radius. Without
+    // it the native effect can only blur a rectangle, so the layer is inset by r*(1-1/sqrt 2): its corners
+    // then sit exactly on the rounded border and never poke out of it.
+    _applyBlur(st) {
+        const sigma = st.blur;
         this._blurSigma = sigma;
-        this._detachBlur();
-        if (this._state === 'open')
-            this._attachBlur();
-    }
-
-    _attachBlur() {
-        const sigma = this._blurSigma;
-        if (!(sigma > 0) || this._blurFx?.attached)
-            return;
-        if (!Shell.BlurEffect) {
-            if (!this._blurWarned)
-                warn('Shell.BlurEffect unavailable on this GNOME Shell; blur disabled');
-            this._blurWarned = true;
+        if (!(sigma > 0)) {
+            this._removeBlur();
             return;
         }
-        if (!this._blurFx || this._blurFx.sigma !== sigma) {
+        loadRoundLib(() => {
+            // The library arrived after the first attach: rebuild once with the rounded version.
+            if (this._built && this._blurSigma > 0 && this._blurFx && !this._blurFx.round) {
+                this._removeBlur();
+                this._applyBlur(this._st);
+            }
+        });
+        const sf = scaleFactor();
+        const corner = Math.round(st.cornerR * sf);
+        if (!this._blurFx && !this._makeBlur(sigma, corner)) {
+            this._blurBg.visible = false;
+            return;
+        }
+        const fx = this._blurFx;
+        try {
+            fx.effect[fx.prop] = fx.prop === 'sigma' ? sigma : sigma * 2;
+            if (fx.round)
+                fx.effect.corner_radius = corner;
+        } catch (_e) { /* property differs between versions; the effect keeps its value */ }
+        const inset = fx.round ? 0 : Math.round(st.cornerR * 0.293 * sf);
+        this._blurBg.margin_top = this._blurBg.margin_bottom = inset;
+        this._blurBg.margin_left = this._blurBg.margin_right = inset;
+        this._blurBg.visible = true;
+    }
+
+    _makeBlur(sigma, corner) {
+        const tries = [];
+        if (roundLib) {
+            const mode = roundLib.BlurMode?.BACKGROUND ?? 1;
+            tries.push(
+                {lib: roundLib, round: true, prop: 'radius', props: {radius: sigma * 2, mode, brightness: 1.0, corner_radius: corner}},
+                {lib: roundLib, round: true, prop: 'sigma', props: {sigma, mode, brightness: 1.0, corner_radius: corner}});
+        }
+        if (Shell.BlurEffect) {
             const mode = Shell.BlurMode?.BACKGROUND ?? 1;
-            let effect = null;
-            for (const props of [{sigma, mode}, {radius: sigma * 2, mode}]) {
-                try {
-                    effect = new Shell.BlurEffect(props);
-                    break;
-                } catch (_e) { /* property name differs between Shell versions */ }
-            }
-            if (!effect) {
-                if (!this._blurWarned)
-                    warn('could not construct Shell.BlurEffect; blur disabled');
-                this._blurWarned = true;
-                return;
-            }
-            try {
-                effect.brightness = 1.0;
-            } catch (_e) { /* optional */ }
-            this._blurFx = {effect, sigma, attached: false};
+            tries.push(
+                {lib: Shell, round: false, prop: 'sigma', props: {sigma, mode, brightness: 1.0}},
+                {lib: Shell, round: false, prop: 'radius', props: {radius: sigma * 2, mode, brightness: 1.0}});
         }
-        this._box.add_effect_with_name('gl-blur', this._blurFx.effect);
-        this._blurFx.attached = true;
+        for (const t of tries) {
+            try {
+                const effect = new t.lib.BlurEffect(t.props);
+                this._blurBg.add_effect_with_name('gl-blur', effect);
+                this._blurFx = {effect, prop: t.prop, round: t.round};
+                return true;
+            } catch (_e) { /* property names differ between versions: try the next form */ }
+        }
+        if (!this._blurWarned)
+            warn('Shell.BlurEffect unavailable or could not be constructed; blur disabled (transparency still works)');
+        this._blurWarned = true;
+        return false;
     }
 
-    _detachBlur() {
-        if (!this._blurFx?.attached)
-            return;
-        this._box?.remove_effect(this._blurFx.effect);
-        this._blurFx.attached = false;
+    _removeBlur() {
+        if (this._blurFx) {
+            try {
+                this._blurBg?.remove_effect(this._blurFx.effect);
+            } catch (_e) { /* already gone */ }
+            this._blurFx = null;
+        }
+        if (this._blurBg)
+            this._blurBg.visible = false;
     }
 
     // --- open / close ------------------------------------------------------
@@ -627,21 +685,20 @@ export class Launcher {
         this._overlay.set_size(mon.width, mon.height);
         const pos = this._cfg.int('position');
         if (this._order === 'bottom') {
-            this._box.y_align = Clutter.ActorAlign.END;
-            this._box.margin_top = 0;
-            this._box.margin_bottom = Math.round(mon.height * (100 - pos) / 100);
+            this._frame.y_align = Clutter.ActorAlign.END;
+            this._frame.margin_top = 0;
+            this._frame.margin_bottom = Math.round(mon.height * (100 - pos) / 100);
         } else {
-            this._box.y_align = Clutter.ActorAlign.START;
-            this._box.margin_bottom = 0;
-            this._box.margin_top = Math.round(mon.height * pos / 100);
+            this._frame.y_align = Clutter.ActorAlign.START;
+            this._frame.margin_bottom = 0;
+            this._frame.margin_top = Math.round(mon.height * pos / 100);
         }
     }
 
     _animate(opening) {
-        const box = this._box;
+        const box = this._frame;
         box.remove_all_transitions();
         this._state = opening ? 'opening' : 'closing';
-        this._detachBlur();
 
         const style = this._cfg.str('anim-style');
         const enabled = St.Settings.get().enable_animations && style !== 'none';
@@ -655,6 +712,9 @@ export class Launcher {
         };
         // While fading, paint the whole window as one flattened layer. Otherwise the translucent
         // background, border and shadow are blended separately and the shadow visibly pulses.
+        // Not with blur on: a background blur has to read the screen behind it, which an offscreen
+        // layer does not contain, so the blur would vanish or turn dark for the length of the fade.
+        const flatten = !this._blurFx;
         const redirect = mode => {
             try {
                 box.set_offscreen_redirect(mode);
@@ -664,10 +724,10 @@ export class Launcher {
             redirect(Clutter.OffscreenRedirect.AUTOMATIC_FOR_OPACITY);
             if (opening) {
                 this._state = 'open';
-                this._attachBlur();
             } else {
                 this._overlay.hide();
                 this._state = 'hidden';
+                this._clearSel(); // nothing may stay painted as selected while the window is hidden
                 this._trimPool();
                 this._onClose?.();
             }
@@ -680,7 +740,8 @@ export class Launcher {
             done();
             return;
         }
-        redirect(Clutter.OffscreenRedirect.ALWAYS);
+        if (flatten)
+            redirect(Clutter.OffscreenRedirect.ALWAYS);
         box.ease({
             ...(opening ? shown : hidden),
             duration: opening ? duration : Math.round(duration * 0.8),
@@ -745,11 +806,20 @@ export class Launcher {
             this._lastListH = h;
         }
 
-        this._sel = -1;
+        this._clearSel();
         this._select(n > 0 ? 0 : -1);
         const adj = vAdjustment(this._scroll);
         if (adj)
             adj.value = 0;
+    }
+
+    // Un-highlight whatever is painted as selected (even if the view switched between list and grid
+    // since) and forget the index. The old code only reset the index, so the previous row/cell kept its
+    // highlight and showed up next to the new one.
+    _clearSel() {
+        this._selItem?.setSelected(false);
+        this._selItem = null;
+        this._sel = -1;
     }
 
     // Entries created per batch: a few lines of cells in the grid, 40 rows in the list.
@@ -834,7 +904,8 @@ export class Launcher {
     _select(i) {
         if (this._sel === i)
             return;
-        this._item(this._sel)?.setSelected(false);
+        this._selItem?.setSelected(false);
+        this._selItem = null;
         this._sel = i;
         if (i < 0)
             return;
@@ -843,6 +914,7 @@ export class Launcher {
         if (!row)
             return;
         row.setSelected(true);
+        this._selItem = row;
         if (this._grid) {
             const e = this._results[i];
             this._hint.text = e ? (e.desc ? `${e.name}  ·  ${e.desc}` : e.name) : '';
@@ -875,6 +947,7 @@ export class Launcher {
 
     // After the window has closed, give back rows that only a very long list needed.
     _trimPool() {
+        this._clearSel();
         for (const row of this._gridRows.splice(KEEP_ROWS / 4))
             row.actor.destroy();
         if (this._rows.length <= KEEP_ROWS)
@@ -882,7 +955,6 @@ export class Launcher {
         for (const row of this._rows.splice(KEEP_ROWS))
             row.actor.destroy();
         this._shown = Math.min(this._shown, this._rows.length);
-        this._sel = -1;
     }
 
     _hover(i) {
@@ -961,8 +1033,9 @@ export class Launcher {
 
         switch (sym) {
         case Clutter.KEY_Escape:
-            if (!this.exitMode())
-                this.close();
+            // Closes the launcher from anywhere, including clipboard/emoji/accounts. Backspace on an
+            // empty field still steps back from a sub-view to the main search.
+            this.close();
             return Clutter.EVENT_STOP;
         case Clutter.KEY_BackSpace:
             if (this._mode && this._entry.get_text() === '') {
@@ -1023,13 +1096,15 @@ export class Launcher {
             this._grab = null;
         }
         this._reveal.cancel();
-        this._box?.remove_all_transitions();
+        this._frame?.remove_all_transitions();
+        this._removeBlur();
         this._overlay?.destroy();
-        this._overlay = this._box = this._entry = this._scroll = this._list = this._empty = this._hint = null;
+        this._overlay = this._frame = this._box = this._blurBg = this._shadowBg = null;
+        this._entry = this._scroll = this._list = this._empty = this._hint = null;
+        this._selItem = null;
         this._gridRows = [];
         this._rows = [];
         this._results = [];
-        this._blurFx = null;
         this._shown = 0;
         this._siKey = '';
         this._built = false;

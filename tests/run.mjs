@@ -195,7 +195,17 @@ test('built-ins respect enable flags and clipboard switch', () => {
 test('built-in shortcuts: global and window-only are kept apart', () => {
     const r = buildBuiltinEntries({reboot: {shortcut: '<Control><Alt>r', windowShortcut: '<Control>r'}}, {clipboard: false});
     assert.deepEqual(r.shortcuts, [{id: 'system:reboot', accel: '<Control><Alt>r'}]);
-    assert.deepEqual(r.windowShortcuts, [{id: 'system:reboot', accel: '<Control>r'}]);
+    assert.deepEqual(r.windowShortcuts.filter(w => w.id === 'system:reboot'), [{id: 'system:reboot', accel: '<Control>r'}]);
+});
+test('Launcher Settings is built in with Ctrl+I as the default window shortcut', () => {
+    const r = buildBuiltinEntries({}, {});
+    assert.ok(r.entries.some(e => e.id === 'system:launcher-settings' && e.kind === 'system'));
+    assert.deepEqual(r.windowShortcuts, [{id: 'system:launcher-settings', accel: '<Control>i'}]);
+    const own = buildBuiltinEntries({'launcher-settings': {windowShortcut: '<Control>o'}}, {});
+    assert.deepEqual(own.windowShortcuts, [{id: 'system:launcher-settings', accel: '<Control>o'}]);
+    const cleared = buildBuiltinEntries({'launcher-settings': {windowShortcut: ''}}, {});
+    assert.deepEqual(cleared.windowShortcuts, []);
+    assert.deepEqual(sanitizeBuiltins({reboot: {windowShortcut: ''}}), {}); // '' only means "cleared" where a default exists
 });
 test('built-in overrides are sanitized', () => {
     assert.deepEqual(sanitizeBuiltins('x'), {});
@@ -341,6 +351,14 @@ const LAYOUT = {
     searchPosition: 'top', showDescriptions: true, showTags: true, placeholder: '', searchIcon: 'edit-find-symbolic',
     searchIconSize: 16, showScrollbar: false,
 };
+test('shadow is its own style string, not part of the blurred box', () => {
+    const st = buildStyles(LAYOUT, builtinThemes()['default-dark']);
+    assert.ok(!st.box.includes('box-shadow'));
+    assert.ok(st.shadow.includes('box-shadow'));
+    const none = buildStyles(LAYOUT, {...builtinThemes()['default-dark'], shadowOpacity: 0});
+    assert.equal(none.shadow, '');
+    assert.equal(typeof st.cornerR, 'number');
+});
 test('emoji grid geometry: columns fit the window and the grid is centred', () => {
     const st = buildStyles(LAYOUT, builtinThemes()['default-dark']);
     assert.equal(st.gridCell, 44);
@@ -414,7 +432,7 @@ test('emoji built-ins follow the emoji flag and carry their mode texts', () => {
 test('emoji built-in shortcuts are collected like any other built-in', () => {
     const r = buildBuiltinEntries({'emoji-paste-buffer': {shortcut: '<Super>v'}, emoji: {windowShortcut: '<Alt>e'}}, {clipboard: true, emoji: true});
     assert.deepEqual(r.shortcuts, [{id: 'system:emoji-paste-buffer', accel: '<Super>v'}]);
-    assert.deepEqual(r.windowShortcuts, [{id: 'system:emoji', accel: '<Alt>e'}]);
+    assert.deepEqual(r.windowShortcuts.filter(w => w.id === 'system:emoji'), [{id: 'system:emoji', accel: '<Alt>e'}]);
 });
 
 // ---- clipboard images -----------------------------------------------------------------------
