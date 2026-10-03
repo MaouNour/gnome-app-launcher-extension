@@ -1,43 +1,38 @@
 # Changelog
 
-All notable changes to GNOME Launcher (`gnome-launcher@maou-nournar`).
-Newest version first.
+All notable changes to GNOME Launcher (`gnome-launcher@maou-nournar`). Newest first.
 
-## 0.5.2
+## 0.4.2
 
-### Bug fixes
-- **Launcher window jumped to the top of the screen when you started typing and stayed there until the
-  extension was restarted.** The window is now placed with explicit coordinates that are recalculated every
-  time the results change, so it keeps its configured position (*Appearance > Position*) while it grows
-  and shrinks, with the search box on top or on the bottom.
-
-> Not verified in a live GNOME Shell (see TECHNICAL.md, "Verification"). If it still moves, send the
-> output of `journalctl -f -o cat /usr/bin/gnome-shell` with *Advanced > Verbose logging* on.
-
-## 0.5.1
+Built on the stable 0.4.1 code. The 0.5.x line (blur/shadow layering, launcher-style themes, window
+positioning changes) was dropped because it introduced a window that jumped to the top of the screen.
+Only the low-risk items below were carried over.
 
 ### Bug fixes
-- **Preferences window failed to open.** Opening the extension settings threw
-  `TypeError: can't access property "bind", settings is undefined` and the window never appeared.
-  The *Keyboard Shortcuts* page now builds correctly, so the whole preferences window loads again.
-  Cause: the "Block the launcher in some applications" section was being created with the wrong arguments.
-
-### Improvements
-- Added an automated check that fails if any preferences page builder is called with a different number of
-  arguments than it declares, so this kind of mistake is caught by `node tests/run.mjs` before release.
-
-### Housekeeping
-- Version bumped to 0.5.1 in `metadata.json`.
-- `TESTING.md` updated with the current test count (101).
-
-## 0.5.0
-
-### Bug fixes
-- Fixed the background blur.
+- **Highlight issue:** after the results changed, the previously selected row or grid cell could stay
+  highlighted next to the new selection. The launcher now remembers which item is painted as selected and
+  un-highlights it before any new selection, when results are re-rendered, when the window closes, and when
+  spare rows are trimmed.
 
 ### New features
-- Several small additions, including the "Block the launcher in some applications" section on the
-  *Keyboard Shortcuts* page (release the launcher's shortcuts while chosen apps or fullscreen windows have focus).
+- **Block the launcher in some applications** (*Keyboard Shortcuts* page). While a listed application has
+  focus, every launcher shortcut (main shortcut, Super key, per-entry shortcuts) is released and goes to that
+  application. Add entries by typing a window class / app id (wildcards `*` and `?`), or pick an installed app.
+- **Also block in any fullscreen window** switch (useful for games; also affects fullscreen video/browsers).
+- **Regular-expression help:** an "i" button on the Search page and on the *Search keywords* field of custom
+  commands and actions explains how to write `/regex/` keywords, with a cheat sheet, examples and safety notes.
+- **More colour themes** (plain palettes, no blur): Nord (light and dark), Solarized (light and dark),
+  Catppuccin (Latte / Mocha), Tokyo Night (Day / Night), Gruvbox (light / dark), Rosé Pine (Dawn / default).
+  Each is available from the *Quick preset* row, which sets the light and dark theme together.
 
-> Note: 0.5.0 notes are summarised from the maintainer's description; see `TECHNICAL.md` for the exact code
-> involved in 0.5.1.
+### Not included (on purpose)
+- Blur/shadow layering, rounded blur, blur brightness, theme dividers and per-theme animations.
+- The new Raycast / Vicinae / Spotlight / Glass styles (the 0.4.1 Raycast and Vicinae themes are unchanged).
+- The "Launcher Settings" built-in entry and the animation styles beyond fade-scale / fade / slide / none.
+
+### Housekeeping
+- Version 0.4.2; tests 92 -> 96 (blocklist matching, preset families, and a check that preferences page
+  builders are called with the arguments they declare).
+
+## 0.4.1
+Baseline: font crash fix (last commit of the supplied repository).

@@ -5,7 +5,7 @@ import {join, dirname} from 'node:path';
 import {fileURLToPath} from 'node:url';
 
 import {SearchEngine, prepare, fold, frecency} from '../search/engine.js';
-import {sanitizeTheme, resolveTheme, builtinThemes, cssColor, THEME_FAMILIES, THEME_GROUPS, THEME_FIELDS} from '../themes/themes.js';
+import {sanitizeTheme, resolveTheme, builtinThemes, cssColor, THEME_FAMILIES} from '../themes/themes.js';
 import {sanitizeCommand, sanitizeAction, validateCommand, validateAction} from '../commands/schema.js';
 import {buildUserEntries} from '../commands/userEntries.js';
 import {calculate} from '../search/calc.js';
@@ -111,7 +111,15 @@ test('theme overrides applied', () => assert.equal(resolveTheme({custom: [], nam
 test('unknown theme falls back', () => assert.equal(resolveTheme({custom: [], name: 'nope', dark: true}).name, 'default-dark'));
 test('custom theme resolved', () => assert.equal(resolveTheme({custom: [{name: 'mine', accent: '#ff0000'}], name: 'mine', dark: true}).accent, '#ff0000'));
 test('cssColor alpha', () => assert.equal(cssColor('#000000', 0.5), 'rgba(0,0,0,0.5)'));
-test('built-in themes present', () => assert.equal(Object.keys(builtinThemes()).length, Object.keys(THEME_FAMILIES).length * 2 - 0));
+test('built-in themes present', () => assert.equal(Object.keys(builtinThemes()).length, 19));
+test('every quick-preset family points at two existing themes', () => {
+    const all = builtinThemes();
+    for (const [name, pair] of Object.entries(THEME_FAMILIES))
+        for (const id of pair)
+            assert.ok(all[id], `${name}: unknown theme ${id}`);
+    for (const f of ['Tokyo Night', 'Catppuccin', 'Gruvbox', 'Rosé Pine', 'Nord', 'Solarized'])
+        assert.ok(THEME_FAMILIES[f], f);
+});
 test('raycast and vicinae presets exist in light and dark and survive sanitising', () => {
     const all = builtinThemes();
     for (const n of ['raycast-dark', 'raycast-light', 'vicinae-dark', 'vicinae-light']) {
@@ -119,34 +127,6 @@ test('raycast and vicinae presets exist in light and dark and survive sanitising
         assert.deepEqual(sanitizeTheme(all[n], all[n]), all[n], `${n} must be valid as written`);
     }
     assert.equal(all['raycast-dark'].accent, '#ff6363');
-});
-test('launcher styles bring blur, brightness, a divider and their own motion', () => {
-    const all = builtinThemes();
-    for (const n of ['raycast-dark', 'raycast-light', 'vicinae-dark', 'vicinae-light', 'spotlight-dark', 'spotlight-light']) {
-        const t = all[n];
-        assert.ok(t.blur > 0 && t.opacity < 1, `${n} is glass`);
-        assert.notEqual(t.anim, 'default', `${n} animates`);
-        assert.ok(t.animMs > 0, `${n} has its own length`);
-        assert.equal(t.divider.length, 9, `${n} has a divider`);
-    }
-    assert.notEqual(all['raycast-dark'].anim, all['vicinae-dark'].anim);
-    assert.ok(all['raycast-dark'].brightness < 1);
-});
-test('theme groups only list known families, and every family belongs to one group or is Default', () => {
-    for (const fams of Object.values(THEME_GROUPS))
-        for (const f of fams)
-            assert.ok(THEME_FAMILIES[f], f);
-    const grouped = new Set(Object.values(THEME_GROUPS).flat());
-    for (const f of Object.keys(THEME_FAMILIES))
-        assert.ok(grouped.has(f), `${f} is not in any preset row`);
-});
-test('theme fields: animation and brightness are sanitised', () => {
-    const t = sanitizeTheme({anim: 'bogus', animMs: 1e9, brightness: -3, divider: 'red'});
-    assert.equal(t.anim, 'default');
-    assert.equal(t.animMs, 1000);
-    assert.equal(t.brightness, 0.3);
-    assert.equal(t.divider, '#00000000');
-    assert.ok(THEME_FIELDS.some(f => f.key === 'anim'));
 });
 test('theme families only reference existing themes', () => {
     const all = builtinThemes();
@@ -224,17 +204,7 @@ test('built-ins respect enable flags and clipboard switch', () => {
 test('built-in shortcuts: global and window-only are kept apart', () => {
     const r = buildBuiltinEntries({reboot: {shortcut: '<Control><Alt>r', windowShortcut: '<Control>r'}}, {clipboard: false});
     assert.deepEqual(r.shortcuts, [{id: 'system:reboot', accel: '<Control><Alt>r'}]);
-    assert.deepEqual(r.windowShortcuts.filter(w => w.id === 'system:reboot'), [{id: 'system:reboot', accel: '<Control>r'}]);
-});
-test('Launcher Settings is built in with Ctrl+I as the default window shortcut', () => {
-    const r = buildBuiltinEntries({}, {});
-    assert.ok(r.entries.some(e => e.id === 'system:launcher-settings' && e.kind === 'system'));
-    assert.deepEqual(r.windowShortcuts, [{id: 'system:launcher-settings', accel: '<Control>i'}]);
-    const own = buildBuiltinEntries({'launcher-settings': {windowShortcut: '<Control>o'}}, {});
-    assert.deepEqual(own.windowShortcuts, [{id: 'system:launcher-settings', accel: '<Control>o'}]);
-    const cleared = buildBuiltinEntries({'launcher-settings': {windowShortcut: ''}}, {});
-    assert.deepEqual(cleared.windowShortcuts, []);
-    assert.deepEqual(sanitizeBuiltins({reboot: {windowShortcut: ''}}), {}); // '' only means "cleared" where a default exists
+    assert.deepEqual(r.windowShortcuts, [{id: 'system:reboot', accel: '<Control>r'}]);
 });
 test('built-in overrides are sanitized', () => {
     assert.deepEqual(sanitizeBuiltins('x'), {});
@@ -380,34 +350,6 @@ const LAYOUT = {
     searchPosition: 'top', showDescriptions: true, showTags: true, placeholder: '', searchIcon: 'edit-find-symbolic',
     searchIconSize: 16, showScrollbar: false,
 };
-test('divider only appears when the theme asks for one', () => {
-    const base = builtinThemes()['default-dark'];
-    assert.ok(!buildStyles(LAYOUT, base).entry.includes('border-bottom'));
-    const ray = buildStyles(LAYOUT, builtinThemes()['raycast-dark']);
-    assert.ok(ray.entry.includes('border-bottom'));
-    assert.equal(ray.blurBrightness, 0.8);
-    assert.equal(ray.anim, 'drop');
-});
-test('blocklist: exact, case, .desktop and wildcard matching', () => {
-    const b = compileBlocklist(['Steam_App_*', 'org.gnome.Nautilus.desktop', '  ', 'vmw?are*']);
-    assert.equal(b.size, 3);
-    assert.ok(b.test(['steam_app_730']));
-    assert.ok(b.test([null, 'org.gnome.nautilus']));
-    assert.ok(b.test(['VMwXare-player']));
-    assert.ok(!b.test(['VMware']));
-    assert.ok(!b.test(['firefox', undefined, '']));
-    assert.ok(!b.test(['steam']));
-    assert.equal(compileBlocklist(undefined).size, 0);
-    assert.ok(!compileBlocklist(['a.b']).test(['axb'])); // dots are literal
-});
-test('shadow is its own style string, not part of the blurred box', () => {
-    const st = buildStyles(LAYOUT, builtinThemes()['default-dark']);
-    assert.ok(!st.box.includes('box-shadow'));
-    assert.ok(st.shadow.includes('box-shadow'));
-    const none = buildStyles(LAYOUT, {...builtinThemes()['default-dark'], shadowOpacity: 0});
-    assert.equal(none.shadow, '');
-    assert.equal(typeof st.cornerR, 'number');
-});
 test('emoji grid geometry: columns fit the window and the grid is centred', () => {
     const st = buildStyles(LAYOUT, builtinThemes()['default-dark']);
     assert.equal(st.gridCell, 44);
@@ -481,7 +423,7 @@ test('emoji built-ins follow the emoji flag and carry their mode texts', () => {
 test('emoji built-in shortcuts are collected like any other built-in', () => {
     const r = buildBuiltinEntries({'emoji-paste-buffer': {shortcut: '<Super>v'}, emoji: {windowShortcut: '<Alt>e'}}, {clipboard: true, emoji: true});
     assert.deepEqual(r.shortcuts, [{id: 'system:emoji-paste-buffer', accel: '<Super>v'}]);
-    assert.deepEqual(r.windowShortcuts.filter(w => w.id === 'system:emoji'), [{id: 'system:emoji', accel: '<Alt>e'}]);
+    assert.deepEqual(r.windowShortcuts, [{id: 'system:emoji', accel: '<Alt>e'}]);
 });
 
 // ---- clipboard images -----------------------------------------------------------------------
@@ -768,6 +710,23 @@ test('every settings key used in code exists in the schema', () => {
         assert.ok(keys.has(k), k);
     assert.ok(!keys.has('saved-overlay-key'));
 });
+test('metadata uuid matches the owner', () => {
+    const meta = JSON.parse(readFileSync(join(root, 'metadata.json'), 'utf8'));
+    assert.equal(meta.uuid, 'gnome-launcher@maou-nournar');
+});
+
+test('blocklist: exact, case, .desktop and wildcard matching', () => {
+    const b = compileBlocklist(['Steam_App_*', 'org.gnome.Nautilus.desktop', '  ', 'vmw?are*']);
+    assert.equal(b.size, 3);
+    assert.ok(b.test(['steam_app_730']));
+    assert.ok(b.test([null, 'org.gnome.nautilus']));
+    assert.ok(b.test(['VMwXare-player']));
+    assert.ok(!b.test(['VMware']));
+    assert.ok(!b.test(['firefox', undefined, '']));
+    assert.ok(!b.test(['steam']));
+    assert.equal(compileBlocklist(undefined).size, 0);
+    assert.ok(!compileBlocklist(['a.b']).test(['axb'])); // dots are literal
+});
 test('prefs page builders are called with the arguments they declare', () => {
     const src = readFileSync(join(root, 'prefs/pages.js'), 'utf8');
     const argc = str => {
@@ -808,10 +767,6 @@ test('prefs page builders are called with the arguments they declare', () => {
             assert.equal(argc(args), want, `${name}(${args}) passes ${argc(args)} argument(s), expected ${want} (${params})`);
         }
     }
-});
-test('metadata uuid matches the owner', () => {
-    const meta = JSON.parse(readFileSync(join(root, 'metadata.json'), 'utf8'));
-    assert.equal(meta.uuid, 'gnome-launcher@maou-nournar');
 });
 
 console.log(`\n${passed} tests passed`);

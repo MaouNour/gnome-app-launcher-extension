@@ -76,8 +76,6 @@ export default class GnomeLauncherExtension extends Extension {
         this._runner = new Runner({
             clearClipboard: () => this._clip?.clear(),
             pasteEmojiBuffer: () => this._pasteEmojiBuffer(),
-            // Same window `gnome-extensions prefs <uuid>` opens, without spawning a process.
-            openPrefs: () => this.openPreferences(),
         });
         this._keys = new Keybindings();
         this._clip = new ClipboardHistory(() => this._onClipboardChanged());

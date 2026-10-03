@@ -6,7 +6,7 @@ import Pango from 'gi://Pango';
 
 import {BUILTINS, sanitizeBuiltins} from '../commands/builtins.js';
 import {ACTION_FIELDS, COMMAND_FIELDS, newAction, newCommand, sanitizeAction, sanitizeCommand} from '../commands/schema.js';
-import {THEME_FIELDS, THEME_BASE, THEME_FAMILIES, THEME_GROUPS, builtinThemes, resolveTheme, sanitizeTheme, themeNames} from '../themes/themes.js';
+import {THEME_FIELDS, THEME_BASE, THEME_FAMILIES, builtinThemes, resolveTheme, sanitizeTheme, themeNames} from '../themes/themes.js';
 import {sanitizeProvider, newProvider} from '../search/web.js';
 import {accountsPage} from './accounts.js';
 import {compileBlocklist, normalizeBlockEntry} from '../shortcuts/blocklist.js';
@@ -49,9 +49,7 @@ function builtinsStore(settings) {
     const write = (id, key, value) => {
         const o = read();
         const e = {...(o[id] ?? {})};
-        // Clearing a shortcut that has a shipped default is stored as '' so the default stays off.
-        const hasDefault = key === 'windowShortcut' && BUILTINS.find(b => b.id === id)?.windowShortcut;
-        if (value === undefined || (value === '' && !hasDefault))
+        if (value === '' || value === undefined)
             delete e[key];
         else
             e[key] = value;
@@ -142,7 +140,7 @@ function builtinsPage(window, settings) {
         row.add_row(shortcutRow(window, 'Global shortcut', () => read()[b.id]?.shortcut ?? '', v => write(b.id, 'shortcut', v),
             accel => ownShortcuts(settings).filter(([a, n]) => a === accel && n !== b.name).map(([, n]) => `"${n}"`)));
         row.add_row(shortcutRow(window, 'Window shortcut (only while the launcher is open)',
-            () => read()[b.id]?.windowShortcut ?? b.windowShortcut ?? '', v => write(b.id, 'windowShortcut', v), () => [], true));
+            () => read()[b.id]?.windowShortcut ?? '', v => write(b.id, 'windowShortcut', v), () => [], true));
         g.add(row);
     }
     p.add(g);
@@ -297,11 +295,8 @@ function appearance(window, settings) {
     p.add(scroll);
 
     const anim = group('Animation');
-    anim.add(comboRow(settings, 'anim-style', 'Style', [
-        ['theme', 'Follow the theme'], ['fade-scale', 'Fade and scale'], ['fade', 'Fade'], ['slide', 'Slide'],
-        ['pop', 'Pop (springy)'], ['drop', 'Drop in'], ['rise', 'Rise'], ['none', 'None (disabled)'],
-    ], 'Raycast, Vicinae and the other launcher styles bring their own motion; pick another style here to override it.'));
-    anim.add(spinRow(settings, 'anim-duration', 'Duration (ms)', 0, 1000, 10, '0 turns the animation off. With "Follow the theme" a theme\'s own length is used when this is above 0.'));
+    anim.add(comboRow(settings, 'anim-style', 'Style', [['fade-scale', 'Fade and scale'], ['fade', 'Fade'], ['slide', 'Slide'], ['none', 'None (disabled)']]));
+    anim.add(spinRow(settings, 'anim-duration', 'Duration (ms)', 0, 1000, 10));
     p.add(anim);
 
     const look = group('Look overrides', 'These override the selected theme. Use the undo button to return to the theme value.');
@@ -320,32 +315,28 @@ function themes(window, settings) {
     sel.add(comboRow(settings, 'theme-mode', 'Mode', [['auto', 'Follow GNOME dark/light mode'], ['light', 'Always light'], ['dark', 'Always dark']]));
     sel.add(comboRow(settings, 'theme-light', 'Light theme', names));
     sel.add(comboRow(settings, 'theme-dark', 'Dark theme', names));
-    // One row per group: launcher styles (colours + blur + shadow + motion) and plain colour schemes.
-    for (const [title, fams] of Object.entries(THEME_GROUPS)) {
-        const quick = new Adw.ComboRow({
-            title: `Quick preset: ${title.toLowerCase()}`,
-            subtitle: title === 'Launcher style'
-                ? 'Sets the light and dark theme together, including blur, shadow and animation.'
-                : 'Sets the light and dark theme together.',
-            model: Gtk.StringList.new(['Choose a preset…', ...fams]),
-        });
-        const syncQuick = () => {
-            const pair = [settings.get_string('theme-light'), settings.get_string('theme-dark')];
-            const i = fams.findIndex(f => THEME_FAMILIES[f][0] === pair[0] && THEME_FAMILIES[f][1] === pair[1]);
-            quick.selected = i + 1;
-        };
-        syncQuick();
-        quick.connect('notify::selected', () => {
-            const fam = fams[quick.selected - 1];
-            if (!fam)
-                return;
-            settings.set_string('theme-light', THEME_FAMILIES[fam][0]);
-            settings.set_string('theme-dark', THEME_FAMILIES[fam][1]);
-        });
-        settings.connect('changed::theme-light', syncQuick);
-        settings.connect('changed::theme-dark', syncQuick);
-        sel.add(quick);
-    }
+    const fams = Object.keys(THEME_FAMILIES);
+    const quick = new Adw.ComboRow({
+        title: 'Quick preset',
+        subtitle: 'Sets the light and dark theme together, for example Raycast or Vicinae.',
+        model: Gtk.StringList.new(['Choose a preset…', ...fams]),
+    });
+    const syncQuick = () => {
+        const pair = [settings.get_string('theme-light'), settings.get_string('theme-dark')];
+        const i = fams.findIndex(f => THEME_FAMILIES[f][0] === pair[0] && THEME_FAMILIES[f][1] === pair[1]);
+        quick.selected = i + 1;
+    };
+    syncQuick();
+    quick.connect('notify::selected', () => {
+        const fam = fams[quick.selected - 1];
+        if (!fam)
+            return;
+        settings.set_string('theme-light', THEME_FAMILIES[fam][0]);
+        settings.set_string('theme-dark', THEME_FAMILIES[fam][1]);
+    });
+    settings.connect('changed::theme-light', syncQuick);
+    settings.connect('changed::theme-dark', syncQuick);
+    sel.add(quick);
     p.add(sel);
 
     const editor = new ListEditor({

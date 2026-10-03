@@ -1,99 +1,61 @@
 # Technical notes
 
-## 0.5.2: launcher window snaps to the top while typing
+## 0.4.2: selective port onto 0.4.1
 
-### Symptom
-After the first characters were typed, the window moved to the top of the screen and stayed there
-until the extension was restarted.
+Base: the uploaded 0.4.1 tree. Ported from the 0.5.x tree only the items below. `ui/launcher.js` positioning,
+blur, animation and the overlay/box layout are exactly as in 0.4.1.
 
-### Cause (best assessment)
-`ui/launcher.js` placed the window frame only through alignment and margins:
-`y_align = START` plus `margin_top = monitor height * position / 100` (or `END` + `margin_bottom` for a bottom
-search box), set once in `_place()` when the launcher opened. Nothing re-applied the position when the result
-list changed the window height. Since the cause could not be reproduced outside a live Shell, the fix removes
-that dependency instead of patching one suspected trigger.
+### Highlight fix: `ui/launcher.js`
+Cause: `_render()` did `this._sel = -1` and then `_select(0)`. That forgot the index but never cleared the
+painted state of the old row/cell, so it stayed highlighted (also when switching between list and grid).
 
-### Changes
-
-| File | Change |
+| Where | Change |
 |---|---|
-| `ui/launcher.js` `build()` | Removed `layout_manager: new Clutter.BinLayout()` from the overlay and `x_align` / `y_align` from the frame. The overlay now uses the default fixed layout; the frame's inner `BinLayout` (blur / shadow / box layers) is unchanged. |
-| `ui/launcher.js` `_place()` | Still sizes the overlay to the monitor; the margin / `y_align` code is replaced by a call to `_position()`. |
-| `ui/launcher.js` `_position()` (new) | Reads the frame's preferred width and height, computes `anchor = overlay height * position / 100`, then `y = anchor` (search box on top) or `y = anchor - height` (search box on bottom), x centred, clamped to the screen, and calls `frame.set_position()`. |
-| `ui/launcher.js` `_render()` | Calls `_position()` at the end, so every change of results, style, mode or grid re-pins the window. Nothing about the position is stored between renders. |
-| `metadata.json` | `version-name` 0.5.1 -> 0.5.2 |
-| `CHANGELOG.md`, `TECHNICAL.md` | This entry |
+| constructor | new `this._selItem = null` (the item currently painted as selected) |
+| `_clearSel()` (new) | `this._selItem?.setSelected(false); this._selItem = null; this._sel = -1;` |
+| `_render()` | `this._sel = -1` -> `this._clearSel()` |
+| `_select(i)` | un-highlights `this._selItem` (not `_item(this._sel)`, which could point at another actor after a view change); stores `this._selItem = row` after `setSelected(true)` |
+| close `done()` in `_animate` | calls `_clearSel()` before `_trimPool()` |
+| `_trimPool()` | calls `_clearSel()` first, so no `setSelected` runs on an actor that is about to be destroyed; the old trailing `this._sel = -1` is removed |
+| `destroy()` | `this._selItem = null` |
 
-Same visual placement as before for both orders: the *Position* setting is the top edge when the search box
-is on top and the bottom edge when it is on the bottom. Animations act on the frame's transform, not its
-position, so they are unaffected.
+### Blocklist (apps + fullscreen)
+- `shortcuts/blocklist.js` (new, pure JS): `compileBlocklist(list)` -> `{size, test(names)}`, case-insensitive,
+  `.desktop` suffix ignored, `*`/`?` wildcards, dots literal; `normalizeBlockEntry()`.
+- `shortcuts/keybindings.js`: `setBlocked(bool)`. The main binding and the per-entry grabs remember their
+  arguments (`_mainArgs`, `_customArgs`) so they can be removed when blocked and put back afterwards;
+  `clearMain()` / `clearCustom()` also forget them. Window-level handlers return early while blocked.
+- `extension.js`: `_syncBlocklist()` compiles the list, and connects `global.display` `notify::focus-window`
+  only while the feature is configured; `_checkFocus()` watches the focused window's `notify::fullscreen` only
+  when the fullscreen switch is on; `_isBlocked(win)` compares wm class, instance, GTK app id, sandboxed app id,
+  and the Shell app's id/name. Handled in `_onSetting` for keys `blocklist` and `block-fullscreen`; focus
+  watching is removed in `disable()` via `_unwatchFocus()`. Added `import Shell`. The `openPrefs` hook of 0.5.x
+  was left out.
+- `schemas/...gschema.xml`: new keys `blocklist` (`as`, `[]`) and `block-fullscreen` (`b`, `false`), inside the
+  `<schema>` element. Validated with `glib-compile-schemas --strict --dry-run`.
+- `prefs/pages.js`: new `blocklistGroup(window, settings)` (text entry, installed-app picker, removable rows,
+  fullscreen switch) added to `shortcuts(window, settings)`. Added `import GLib` and the blocklist import.
+  The call passes both arguments (the 0.5.0 "settings is undefined" crash was a one-argument call).
 
-### Verification
-`node tests/run.mjs`: 101 passed, and the file parses. Layout behaviour is not covered by the tests and was
-not run in GNOME Shell. To check: open the launcher, type a few characters, delete them, close and reopen;
-repeat with search box on top and on bottom, and with *Position* at 0, 18 and 80.
+### Regex help
+- `prefs/widgets.js`: `REGEX_HELP` text and `regexHelpButton()` (info button with a scrollable popover). The
+  generic text-field builder adds it as a suffix when a field has `help: 'regex'`.
+- `commands/schema.js`: both `keywords` fields get the new label and `help: 'regex'`.
+- `prefs/pages.js` Search page: description mentions per-entry regex keywords; `rx.set_header_suffix(regexHelpButton())`.
 
-## 0.5.1: fix for "settings is undefined" in preferences
+### Themes (colours only): `themes/themes.js`
+Added colour-scheme entries `nord-light`, `solarized-dark`, `catppuccin-latte`, `catppuccin-mocha`, `tokyo-day`,
+`tokyo-night`, `gruvbox-light`, `gruvbox-dark`, `rose-pine-dawn`, `rose-pine` (existing `nord` and
+`solarized-light` untouched) and quick-preset families Nord, Solarized, Catppuccin, Tokyo Night, Gruvbox,
+Rosé Pine. No new theme fields (no divider, brightness or animation keys); the preferences still show a
+single "Quick preset" row.
 
-### Symptom
-```
-TypeError: can't access property "bind", settings is undefined
-  switchRow@prefs/widgets.js:11:5
-  blocklistGroup@prefs/pages.js:196:11
-  shortcuts@prefs/pages.js:178:11
-  buildPages@prefs/pages.js:595:84
-  fillPreferencesWindow@prefs.js:10:38
-```
-The preferences window did not open.
+### Tests / housekeeping
+- `tests/run.mjs`: built-in theme count 9 -> 19; new tests for preset families, blocklist matching and the
+  argument-count check of `prefs/pages.js` functions. 96 pass.
+- `metadata.json` 0.4.1 -> 0.4.2; `TESTING.md` count 92 -> 96; `CHANGELOG.md`, `TECHNICAL.md` added.
 
-### Root cause
-`blocklistGroup` is declared with two parameters:
-
-```js
-function blocklistGroup(window, settings) { ... }
-```
-
-but `shortcuts()` called it with one:
-
-```js
-p.add(blocklistGroup(settings));   // settings landed in `window`; `settings` was undefined
-```
-
-So inside the function `settings` was `undefined`. Its first use, `switchRow(settings, 'block-fullscreen', ...)`,
-passed that `undefined` on to `widgets.js`, where `settings.bind(...)` threw. Because `buildPages()` builds every page
-before adding any to the window, one failing page prevented the entire window from opening.
-
-### Changes
-
-| File | Change |
-|---|---|
-| `prefs/pages.js` (line 178, in `shortcuts()`) | `blocklistGroup(settings)` → `blocklistGroup(window, settings)` |
-| `tests/run.mjs` | New test `prefs page builders are called with the arguments they declare` (added just before the `metadata uuid matches the owner` test) |
-| `metadata.json` | `version-name` `0.5.0` → `0.5.1` |
-| `TESTING.md` | Test count in the automated-tests comment: 92 → 101 |
-| `CHANGELOG.md` | New file |
-| `TECHNICAL.md` | New file (this one) |
-
-No schema, `extension.js` or runtime (Shell-side) code changed.
-
-### The new regression test
-Static check over `prefs/pages.js`:
-1. Finds every top-level `function name(params) {` and counts its parameters
-   (declarations with default values or destructuring are skipped).
-2. Finds every call `name(...)` in the file (ignoring method calls like `obj.name(...)`), counting top-level
-   arguments with a small scanner that respects nested brackets and string literals.
-3. Fails when the counts differ, reporting the call and the expected parameters.
-
-Verified: with the old call restored, the test fails with
-`blocklistGroup(settings) passes 1 argument(s), expected 2 (window, settings)`; with the fix it passes.
-Full suite: 101 passed.
-
-### Known limits
-- The check is textual, not a real parser. It covers plain top-level functions in `prefs/pages.js` only.
-- It checks argument count, not order or type.
-- Not run inside a live GNOME Shell: verify by opening the preferences (`gnome-extensions prefs gnome-launcher@maou-nournar`)
-  and visiting *Keyboard Shortcuts*.
-
-## 0.5.0 (previous release)
-Blur fix plus small features, as described by the maintainer. This archive contained no prior changelog, so
-file-level details for this version are not listed.
+### Not run
+Nothing here was run inside GNOME Shell. Check on device: open prefs and the Keyboard Shortcuts page; add a
+blocklist entry for an app, focus it and confirm the shortcut reaches the app; type searches and arrow through
+results to confirm only one row is highlighted; apply Tokyo Night.

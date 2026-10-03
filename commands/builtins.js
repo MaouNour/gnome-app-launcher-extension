@@ -14,8 +14,6 @@ export const BUILTINS = [
     // Accounts live on the Accounts page of the preferences (page: 'accounts'). Passwords are never
     // part of the main search: the vault is a mode of its own.
     {id: 'accounts', kind: 'mode', target: 'accounts', name: 'Passwords & Accounts', desc: 'Find a saved account and copy its password', icon: 'dialog-password-symbolic', keywords: 'password passwords account accounts login credentials vault username', category: 'Passwords', needs: 'accounts', page: 'accounts', placeholder: 'Search accounts…', empty: 'No accounts saved. Add them in Preferences > Accounts.'},
-    // Opens this extension's own preferences. Ctrl+I works while the launcher is open (window shortcut).
-    {id: 'launcher-settings', kind: 'system', target: 'launcher-settings', name: 'Launcher Settings', desc: 'Open the launcher preferences', icon: 'preferences-system-symbolic', keywords: 'settings preferences prefs configure options extension launcher', windowShortcut: '<Control>i'},
     {id: 'power-off', kind: 'system', target: 'power-off', name: 'Shut Down', desc: 'Power off the computer', icon: 'system-shutdown-symbolic', keywords: 'poweroff shutdown halt turn off'},
     {id: 'reboot', kind: 'system', target: 'reboot', name: 'Restart', desc: 'Restart the computer', icon: 'system-reboot-symbolic', keywords: 'reboot'},
     {id: 'logout', kind: 'system', target: 'logout', name: 'Log Out', desc: 'End the current session', icon: 'system-log-out-symbolic', keywords: 'sign out exit'},
@@ -44,8 +42,7 @@ export function sanitizeBuiltins(raw) {
             e.enabled = false;
         if (clean(o.shortcut))
             e.shortcut = clean(o.shortcut);
-        // An empty window shortcut is kept only where the entry ships a default: it means "cleared".
-        if (clean(o.windowShortcut) || (b.windowShortcut && o.windowShortcut === ''))
+        if (clean(o.windowShortcut))
             e.windowShortcut = clean(o.windowShortcut);
         if (Object.keys(e).length)
             out[b.id] = e;
@@ -71,9 +68,8 @@ export function buildBuiltinEntries(overrides, flags = {}) {
         }));
         if (o.shortcut)
             shortcuts.push({id, accel: o.shortcut});
-        const ws = o.windowShortcut ?? b.windowShortcut;
-        if (ws)
-            windowShortcuts.push({id, accel: ws});
+        if (o.windowShortcut)
+            windowShortcuts.push({id, accel: o.windowShortcut});
     }
     return {entries, shortcuts, windowShortcuts};
 }

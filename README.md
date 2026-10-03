@@ -172,22 +172,11 @@ General > *Pointer outside the window*: close on click (default), close when the
 - URL actions are limited to `http(s)`, `ftp` and `mailto`. Theme values are validated before reaching any CSS string.
 - Nothing needs root; the launcher never executes search results, only entries from the index.
 
-## Blocklist, launcher styles and regex help
-
-- **Blocklist** (Preferences > Keyboard Shortcuts): while a listed application has focus (or any fullscreen window, if
-  chosen) every launcher shortcut is released, so the keys reach the app. Entries match the window class, application id
-  or desktop id, case-insensitively, with `*` and `?` wildcards (`steam_app_*`). Event driven: a focus signal is
-  connected only while the feature is configured.
-- **Launcher styles** (Raycast, Vicinae, Spotlight, Glass) are full looks: translucent surface, blur strength and
-  brightness, hairline under the search field, shadow and their own open/close motion. Themes gained the fields
-  `divider`, `brightness`, `anim` and `animMs`. Colour schemes (Nord, Solarized, Catppuccin, Tokyo Night, Gruvbox,
-  Rosé Pine) are separate presets. Set Appearance > Animation to anything but "Follow the theme" to override a theme's motion.
-- **Regular expressions**: the *i* button on the Search page and next to the *Search keywords* field of commands and
-  actions explains the syntax. In keywords, write the pattern between slashes: `terminal /^(open )?term(inal)?$/`.
-
 ## Known limitations
 
-- **Blur** follows Blur my Shell's layout: `Shell.BlurEffect` (background mode) sits on its own layer behind the window content, is created once and stays attached, and is never put on the shadowed, animated window itself. The shadow is a separate layer too. While blur is on, the open/close fade is not flattened offscreen (a background blur cannot read the screen from an offscreen layer). With the optional *GNOME Rounded Blur* library (`gi://Blur`, the same one Blur my Shell uses) the blur is clipped to the window's corner radius; without it the blur layer is inset so its corners stay inside the rounded border. If blur is unavailable the launcher logs once and keeps working with transparency only.
+- **Blur** uses `Shell.BlurEffect` (background blur), attached only once the opening animation has finished and removed before closing (sampling the background while the window fades or scales produced glitches with application windows behind it), so the blur appears an instant after the window settles. If unavailable or constructed differently on your version, the
+  launcher logs once and keeps working with transparency only. The blurred region is rectangular, so a large window
+  corner radius shows square blur corners; use a small radius with blur.
 - **Bare Super**: turning the option on runs the equivalent of `gsettings set org.gnome.mutter overlay-key ''` and the launcher detects the Super press itself; turning it off or disabling the extension runs `gsettings reset org.gnome.mutter overlay-key`. If the shell crashes while it is on, run that reset command yourself (a custom overlay-key you had set is not preserved).
 - Shortcut conflict detection in prefs covers GNOME's own keybinding schemas only, not other extensions or apps.
 - The theme drop-downs list themes at the time the preferences window opens.

@@ -27,23 +27,6 @@ export function entryRow(settings, key, title) {
     return row;
 }
 
-// options: [[value, label], ...] bound to a string key.
-export function comboRow(settings, key, title, options, subtitle = '') {
-    const row = new Adw.ComboRow({title, subtitle, model: Gtk.StringList.new(options.map(o => o[1]))});
-    const sync = () => {
-        const i = options.findIndex(o => o[0] === settings.get_string(key));
-        row.selected = i >= 0 ? i : 0;
-    };
-    sync();
-    row.connect('notify::selected', () => {
-        const v = options[row.selected]?.[0];
-        if (v !== undefined && v !== settings.get_string(key))
-            settings.set_string(key, v);
-    });
-    settings.connect(`changed::${key}`, sync);
-    return row;
-}
-
 // "i" button with a popover that explains regular expressions. Shared by the Search page and the
 // keywords field of commands/actions.
 const REGEX_HELP = `<b>Regular expressions</b>
@@ -83,6 +66,23 @@ export function regexHelpButton() {
         icon_name: 'dialog-information-symbolic', css_classes: ['flat'], valign: Gtk.Align.CENTER,
         tooltip_text: 'How to write regular expressions', popover: new Gtk.Popover({child: scroll}),
     });
+}
+
+// options: [[value, label], ...] bound to a string key.
+export function comboRow(settings, key, title, options, subtitle = '') {
+    const row = new Adw.ComboRow({title, subtitle, model: Gtk.StringList.new(options.map(o => o[1]))});
+    const sync = () => {
+        const i = options.findIndex(o => o[0] === settings.get_string(key));
+        row.selected = i >= 0 ? i : 0;
+    };
+    sync();
+    row.connect('notify::selected', () => {
+        const v = options[row.selected]?.[0];
+        if (v !== undefined && v !== settings.get_string(key))
+            settings.set_string(key, v);
+    });
+    settings.connect(`changed::${key}`, sync);
+    return row;
 }
 
 export function group(title, description = '') {

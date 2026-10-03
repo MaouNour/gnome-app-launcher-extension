@@ -3,7 +3,7 @@
 ## Automated (no GNOME needed)
 
 ```sh
-node tests/run.mjs          # 101 tests: search, frecency, themes and presets, emoji, clipboard images, accounts, validation, calculator, built-ins, static lint
+node tests/run.mjs          # 96 tests: search, frecency, themes and presets, emoji, clipboard images, accounts, validation, calculator, built-ins, static lint
 node tools/bench.mjs 20000  # search latency (use `gjs -m tools/bench.mjs` for SpiderMonkey numbers)
 glib-compile-schemas --strict --dry-run schemas
 ```

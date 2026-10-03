@@ -35,10 +35,6 @@ export function buildStyles(l, t) {
     const shadow = t.shadowOpacity > 0
         ? `box-shadow: 0 ${px(t.shadowOffsetY)} ${px(t.shadowBlur)} rgba(0,0,0,${t.shadowOpacity}); `
         : '';
-    // A hairline under the search field (Raycast/Vicinae style); fully transparent = none. The field
-    // loses its own rounding then, so the line runs straight across.
-    const hasDivider = t.divider.length === 9 && parseInt(t.divider.slice(7, 9), 16) > 0;
-    const divider = hasDivider ? `border-bottom: ${px(1)} solid ${cssColor(t.divider)}; border-radius: 0; ` : '';
     const minH = l.windowHeight > 0 ? `min-height: ${px(l.windowHeight)}; ` : '';
     const fg = cssColor(t.foreground);
     const sel = cssColor(t.selectionText);
@@ -61,15 +57,11 @@ export function buildStyles(l, t) {
     return {
         box: `width: ${px(l.width)}; ${minH}padding: ${px(l.padding)}; spacing: ${px(l.padding * 0.6)}; ` +
             `background-color: ${cssColor(t.background, t.opacity)}; ` +
-            `border: ${px(t.borderWidth)} solid ${cssColor(t.border)}; border-radius: ${px(t.radius)};`,
-        // The shadow is drawn by its own layer behind the content (see Launcher.build), never on the
-        // box that the blur sits under.
-        shadow: shadow ? `border-radius: ${px(t.radius)}; ${shadow}` : '',
-        cornerR: Math.max(0, Math.round(t.radius * s)),
+            `border: ${px(t.borderWidth)} solid ${cssColor(t.border)}; border-radius: ${px(t.radius)}; ${shadow}`,
         entry: `min-height: ${px(l.searchHeight)}; padding: 0 ${px(l.searchPadding)}; spacing: ${px(l.iconSpacing)}; ` +
             `border-radius: ${px(t.searchRadius)}; background-color: ${cssColor(t.searchBackground)}; ` +
             `color: ${fg}; caret-color: ${cssColor(t.accent)}; selection-background-color: ${cssColor(t.accent)}; ` +
-            `selected-color: ${sel}; font-size: ${pt(searchSize)}; ${searchFont}border-width: 0; ${divider}`,
+            `selected-color: ${sel}; font-size: ${pt(searchSize)}; ${searchFont}border-width: 0;`,
         hint: `color: ${sec}; ${searchFont}`,
         list: `spacing: ${gap}px;`,
         row: `${rowBase}background-color: transparent;`,
@@ -101,9 +93,6 @@ export function buildStyles(l, t) {
         showTags: l.showTags,
         searchPosition: l.searchPosition,
         blur: t.blur,
-        blurBrightness: t.brightness,
-        anim: t.anim,
-        animMs: t.animMs,
         placeholder: l.placeholder,
         searchIcon: l.searchIcon,
         searchIconSize: Math.max(8, Math.round(l.searchIconSize * s)),

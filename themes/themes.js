@@ -5,9 +5,6 @@
 const HEX = /^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$/;
 const FONT = /^[\w\s,\-'"]{0,120}$/;
 
-// Opening/closing animations a theme can ask for ('default' = whatever the Animation setting says).
-export const ANIM_STYLES = ['fade-scale', 'fade', 'slide', 'pop', 'drop', 'rise', 'none'];
-
 const num = (key, label, min, max, step, digits = 0) => ({key, label, type: 'number', min, max, step, digits});
 const color = (key, label) => ({key, label, type: 'color'});
 
@@ -20,11 +17,9 @@ export const THEME_FIELDS = [
     color('selection', 'Selection background'),
     color('selectionText', 'Selection text'),
     color('border', 'Border'),
-    color('divider', 'Line under the search field (transparent = none)'),
     color('searchBackground', 'Search field background'),
     num('opacity', 'Background opacity', 0, 1, 0.05, 2),
     num('blur', 'Blur strength (0 = off)', 0, 100, 1),
-    num('brightness', 'Blur brightness (1 = unchanged, lower = darker glass)', 0.3, 1.5, 0.05, 2),
     num('radius', 'Window corner radius', 0, 60, 1),
     num('rowRadius', 'Result corner radius', 0, 40, 1),
     num('searchRadius', 'Search field corner radius', 0, 40, 1),
@@ -32,8 +27,6 @@ export const THEME_FIELDS = [
     num('shadowBlur', 'Shadow blur', 0, 120, 1),
     num('shadowOffsetY', 'Shadow vertical offset', -40, 80, 1),
     num('shadowOpacity', 'Shadow opacity', 0, 1, 0.05, 2),
-    {key: 'anim', label: 'Animation (default = use the Animation setting)', type: 'combo', options: ['default', ...ANIM_STYLES]},
-    num('animMs', 'Animation length in ms (0 = use the Animation setting)', 0, 1000, 10),
     {key: 'fontFamily', label: 'Font family (empty = system)', type: 'text'},
     num('fontWeight', 'Font weight', 100, 900, 100),
     {key: 'iconStyle', label: 'Icon style', type: 'combo', options: ['requested', 'regular', 'symbolic']},
@@ -43,10 +36,9 @@ export const THEME_BASE = {
     name: '',
     background: '#242424', foreground: '#ffffff', secondary: '#ffffff99',
     accent: '#3584e4', selection: '#3584e4', selectionText: '#ffffff',
-    border: '#ffffff26', divider: '#00000000', searchBackground: '#ffffff14',
-    opacity: 0.96, blur: 0, brightness: 1, radius: 16, rowRadius: 10, searchRadius: 10, borderWidth: 1,
+    border: '#ffffff26', searchBackground: '#ffffff14',
+    opacity: 0.96, blur: 0, radius: 16, rowRadius: 10, searchRadius: 10, borderWidth: 1,
     shadowBlur: 48, shadowOffsetY: 16, shadowOpacity: 0.45,
-    anim: 'default', animMs: 0,
     fontFamily: '', fontWeight: 400, iconStyle: 'requested',
 };
 
@@ -56,91 +48,21 @@ const PARTIAL_BUILTINS = {
         background: '#fafafa', foreground: '#1c1c1c', secondary: '#1c1c1c99',
         border: '#00000026', searchBackground: '#0000000d', shadowOpacity: 0.25,
     },
-
-    // --- Launcher styles: a whole look (surface, blur, shadow, motion), not just colours --------------
-    // The values are approximations of the real launchers' look, not exact copies. Blur needs
-    // Shell.BlurEffect; without it the same theme still works as a translucent surface.
-
-    // Raycast: deep neutral glass, hairline border, a rule under the search field, a barely-there
-    // selection and a quick drop-in. Raycast's red (#ff6363) is from its public brand page.
-    'raycast-dark': {
-        background: '#121214', foreground: '#f4f4f5', secondary: '#8e8e93',
-        accent: '#ff6363', selection: '#ffffff14', selectionText: '#ffffff',
-        border: '#ffffff1f', divider: '#ffffff12', searchBackground: '#00000000',
-        opacity: 0.8, blur: 40, brightness: 0.8,
-        radius: 14, rowRadius: 8, searchRadius: 0, borderWidth: 1,
-        shadowBlur: 64, shadowOffsetY: 22, shadowOpacity: 0.6, fontWeight: 500,
-        anim: 'drop', animMs: 140,
-    },
-    'raycast-light': {
-        background: '#ffffff', foreground: '#1c1c1e', secondary: '#6c6c70',
-        accent: '#ff6363', selection: '#0000000f', selectionText: '#1c1c1e',
-        border: '#0000001a', divider: '#0000000d', searchBackground: '#00000000',
-        opacity: 0.78, blur: 36, brightness: 1.05,
-        radius: 14, rowRadius: 8, searchRadius: 0, borderWidth: 1,
-        shadowBlur: 56, shadowOffsetY: 18, shadowOpacity: 0.28, fontWeight: 500,
-        anim: 'drop', animMs: 140,
-    },
-
-    // Vicinae: tighter and flatter than Raycast, accent-tinted selection, springy pop-in.
-    'vicinae-dark': {
-        background: '#141416', foreground: '#e8e8ea', secondary: '#8b8b94',
-        accent: '#5b8cff', selection: '#5b8cff2e', selectionText: '#ffffff',
-        border: '#ffffff1a', divider: '#ffffff10', searchBackground: '#00000000',
-        opacity: 0.86, blur: 32, brightness: 0.85,
-        radius: 12, rowRadius: 7, searchRadius: 0, borderWidth: 1,
-        shadowBlur: 44, shadowOffsetY: 14, shadowOpacity: 0.55,
-        anim: 'pop', animMs: 150,
-    },
-    'vicinae-light': {
-        background: '#fbfbfc', foreground: '#1f1f23', secondary: '#7a7a84',
-        accent: '#3b6fe0', selection: '#3b6fe01f', selectionText: '#1f1f23',
-        border: '#00000020', divider: '#0000000f', searchBackground: '#00000000',
-        opacity: 0.88, blur: 30, brightness: 1.03,
-        radius: 12, rowRadius: 7, searchRadius: 0, borderWidth: 1,
-        shadowBlur: 44, shadowOffsetY: 14, shadowOpacity: 0.24,
-        anim: 'pop', animMs: 150,
-    },
-
-    // Spotlight: big radius, strong frosted blur, solid system-blue selection.
-    'spotlight-dark': {
-        background: '#1c1c1e', foreground: '#f5f5f7', secondary: '#98989d',
-        accent: '#0a84ff', selection: '#0a84ff', selectionText: '#ffffff',
-        border: '#ffffff26', divider: '#ffffff1a', searchBackground: '#00000000',
-        opacity: 0.68, blur: 60, brightness: 0.9,
-        radius: 22, rowRadius: 10, searchRadius: 0, borderWidth: 1,
-        shadowBlur: 80, shadowOffsetY: 26, shadowOpacity: 0.5,
-        anim: 'fade-scale', animMs: 170,
-    },
-    'spotlight-light': {
-        background: '#f5f5f7', foreground: '#1d1d1f', secondary: '#6e6e73',
-        accent: '#0a84ff', selection: '#0a84ff', selectionText: '#ffffff',
-        border: '#00000024', divider: '#00000014', searchBackground: '#00000000',
-        opacity: 0.7, blur: 60, brightness: 1.08,
-        radius: 22, rowRadius: 10, searchRadius: 0, borderWidth: 1,
-        shadowBlur: 80, shadowOffsetY: 26, shadowOpacity: 0.3,
-        anim: 'fade-scale', animMs: 170,
-    },
-
-    // Glass: lighter, clearer, more see-through.
     'glass-dark': {
-        background: '#101418', opacity: 0.5, blur: 34, brightness: 0.8, border: '#ffffff30',
-        searchBackground: '#ffffff1f', shadowOpacity: 0.35, radius: 18,
-        anim: 'fade-scale', animMs: 160,
+        background: '#101418', opacity: 0.55, blur: 30, border: '#ffffff30',
+        searchBackground: '#ffffff1f', shadowOpacity: 0.35,
     },
-    'glass-light': {
-        background: '#ffffff', foreground: '#1a1a1a', secondary: '#1a1a1a99',
-        selection: '#00000014', selectionText: '#1a1a1a', border: '#00000022',
-        searchBackground: '#0000000d', opacity: 0.45, blur: 36, brightness: 1.1,
-        shadowOpacity: 0.2, radius: 18, anim: 'fade-scale', animMs: 160,
-    },
-
-    // --- Colour schemes: plain palettes, no blur --------------------------------------------------
     'nord': {
         background: '#2e3440', foreground: '#eceff4', secondary: '#d8dee9b3',
         accent: '#88c0d0', selection: '#88c0d0', selectionText: '#2e3440',
         border: '#4c566a', searchBackground: '#3b4252',
     },
+    'solarized-light': {
+        background: '#fdf6e3', foreground: '#586e75', secondary: '#93a1a1',
+        accent: '#268bd2', selection: '#eee8d5', selectionText: '#073642',
+        border: '#eee8d5', searchBackground: '#eee8d5', shadowOpacity: 0.2,
+    },
+
     'nord-light': {
         background: '#eceff4', foreground: '#2e3440', secondary: '#4c566a',
         accent: '#5e81ac', selection: '#5e81ac', selectionText: '#eceff4',
@@ -196,27 +118,52 @@ const PARTIAL_BUILTINS = {
         accent: '#d7827e', selection: '#f2e9e1', selectionText: '#575279',
         border: '#dfdad9', searchBackground: '#f2e9e1', shadowOpacity: 0.2,
     },
+
+    // Raycast / Vicinae look-alikes: flat near-solid surface, hairline border, a very subtle
+    // row highlight (translucent white/black instead of a solid accent) and a search field
+    // with no fill of its own. Raycast's red (#ff6363) and dark surface (#151515) come from
+    // Raycast's public brand page; the rest are close approximations, not exact copies.
+    'raycast-dark': {
+        background: '#151515', foreground: '#f9f9f9', secondary: '#9c9c9d',
+        accent: '#ff6363', selection: '#ffffff14', selectionText: '#ffffff',
+        border: '#ffffff14', searchBackground: '#ffffff00',
+        opacity: 0.98, radius: 12, rowRadius: 8, searchRadius: 8,
+        shadowBlur: 40, shadowOffsetY: 12, shadowOpacity: 0.5, fontWeight: 500,
+    },
+    'raycast-light': {
+        background: '#fcfcfc', foreground: '#1d1d1f', secondary: '#6e6e73',
+        accent: '#ff6363', selection: '#0000000f', selectionText: '#1d1d1f',
+        border: '#0000001a', searchBackground: '#00000000',
+        opacity: 0.98, radius: 12, rowRadius: 8, searchRadius: 8,
+        shadowBlur: 40, shadowOffsetY: 12, shadowOpacity: 0.22, fontWeight: 500,
+    },
+    'vicinae-dark': {
+        background: '#131315', foreground: '#e8e8ea', secondary: '#8b8b92',
+        accent: '#4f8cff', selection: '#ffffff14', selectionText: '#ffffff',
+        border: '#2a2a2e', searchBackground: '#ffffff00',
+        opacity: 0.98, radius: 10, rowRadius: 8, searchRadius: 8,
+        shadowBlur: 36, shadowOffsetY: 10, shadowOpacity: 0.5,
+    },
+    'vicinae-light': {
+        background: '#fafafa', foreground: '#1f1f23', secondary: '#7a7a84',
+        accent: '#3b6fe0', selection: '#00000012', selectionText: '#1f1f23',
+        border: '#0000001f', searchBackground: '#00000000',
+        opacity: 0.98, radius: 10, rowRadius: 8, searchRadius: 8,
+        shadowBlur: 36, shadowOffsetY: 10, shadowOpacity: 0.22,
+    },
 };
 
-// Name pairs for the "quick preset" rows in preferences: one click sets both modes.
-// THEME_GROUPS says which row a family belongs to: whole launcher looks (colours, blur, shadow and
-// motion) are kept apart from plain colour schemes.
+// Name pairs for the "quick preset" row in preferences: one click sets both modes.
 export const THEME_FAMILIES = {
     'Default': ['default-light', 'default-dark'],
     'Raycast': ['raycast-light', 'raycast-dark'],
     'Vicinae': ['vicinae-light', 'vicinae-dark'],
-    'Spotlight': ['spotlight-light', 'spotlight-dark'],
-    'Glass': ['glass-light', 'glass-dark'],
     'Nord': ['nord-light', 'nord'],
     'Solarized': ['solarized-light', 'solarized-dark'],
     'Catppuccin': ['catppuccin-latte', 'catppuccin-mocha'],
     'Tokyo Night': ['tokyo-day', 'tokyo-night'],
     'Gruvbox': ['gruvbox-light', 'gruvbox-dark'],
     'Rosé Pine': ['rose-pine-dawn', 'rose-pine'],
-};
-export const THEME_GROUPS = {
-    'Launcher style': ['Raycast', 'Vicinae', 'Spotlight', 'Glass'],
-    'Colour scheme': ['Default', 'Nord', 'Solarized', 'Catppuccin', 'Tokyo Night', 'Gruvbox', 'Rosé Pine'],
 };
 
 // Validate/clamp every known field; anything invalid falls back to `base`.
