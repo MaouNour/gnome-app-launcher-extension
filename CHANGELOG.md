@@ -3,6 +3,17 @@
 All notable changes to GNOME Launcher (`gnome-launcher@maou-nournar`).
 Newest version first.
 
+## 0.5.2
+
+### Bug fixes
+- **Launcher window jumped to the top of the screen when you started typing and stayed there until the
+  extension was restarted.** The window is now placed with explicit coordinates that are recalculated every
+  time the results change, so it keeps its configured position (*Appearance > Position*) while it grows
+  and shrinks, with the search box on top or on the bottom.
+
+> Not verified in a live GNOME Shell (see TECHNICAL.md, "Verification"). If it still moves, send the
+> output of `journalctl -f -o cat /usr/bin/gnome-shell` with *Advanced > Verbose logging* on.
+
 ## 0.5.1
 
 ### Bug fixes

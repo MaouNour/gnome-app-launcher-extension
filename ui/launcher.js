@@ -359,7 +359,6 @@ export class Launcher {
             name: 'gnome-launcher-overlay',
             reactive: true,
             visible: false,
-            layout_manager: new Clutter.BinLayout(),
         });
         // Same layering Blur my Shell uses: the blur effect lives on its own actor behind the content
         // and is never put on the window itself. Putting it on the animated, shadowed window made the
@@ -373,8 +372,6 @@ export class Launcher {
         this._frame = new St.Widget({
             name: 'gnome-launcher-frame',
             layout_manager: new Clutter.BinLayout(),
-            x_align: Clutter.ActorAlign.CENTER,
-            y_align: Clutter.ActorAlign.START,
         });
         this._frame.set_pivot_point(0.5, 0.5);
         this._blurBg = new St.Widget({x_expand: true, y_expand: true, visible: false});
@@ -698,16 +695,26 @@ export class Launcher {
             : (lm.currentMonitor ?? lm.primaryMonitor);
         this._overlay.set_position(mon.x, mon.y);
         this._overlay.set_size(mon.width, mon.height);
-        const pos = this._cfg.int('position');
-        if (this._order === 'bottom') {
-            this._frame.y_align = Clutter.ActorAlign.END;
-            this._frame.margin_top = 0;
-            this._frame.margin_bottom = Math.round(mon.height * (100 - pos) / 100);
-        } else {
-            this._frame.y_align = Clutter.ActorAlign.START;
-            this._frame.margin_bottom = 0;
-            this._frame.margin_top = Math.round(mon.height * pos / 100);
-        }
+        this._position();
+    }
+
+    // The frame is positioned with explicit coordinates instead of align + margins, and this runs again
+    // after every render. The window changes height as results come and go; with alignment-based
+    // placement it could end up pinned to the top of the screen and stay there. Here the anchor line
+    // (position % of the monitor height) is always recomputed from the current size, so there is no
+    // state that can get stuck. Search box on top: that line is the top edge. On the bottom: the bottom edge.
+    _position() {
+        const frame = this._frame, ov = this._overlay;
+        if (!frame || !ov)
+            return;
+        const W = ov.width, H = ov.height;
+        if (!(W > 0 && H > 0))
+            return;
+        const [, w] = frame.get_preferred_width(-1);
+        const [, h] = frame.get_preferred_height(w);
+        const anchor = Math.round(H * this._cfg.int('position') / 100);
+        const y = this._order === 'bottom' ? anchor - h : anchor;
+        frame.set_position(Math.round((W - w) / 2), Math.max(0, Math.min(y, H - h)));
     }
 
     _animate(opening) {
@@ -829,6 +836,7 @@ export class Launcher {
         const adj = vAdjustment(this._scroll);
         if (adj)
             adj.value = 0;
+        this._position();
     }
 
     // Un-highlight whatever is painted as selected (even if the view switched between list and grid

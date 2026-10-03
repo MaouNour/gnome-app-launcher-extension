@@ -1,5 +1,38 @@
 # Technical notes
 
+## 0.5.2: launcher window snaps to the top while typing
+
+### Symptom
+After the first characters were typed, the window moved to the top of the screen and stayed there
+until the extension was restarted.
+
+### Cause (best assessment)
+`ui/launcher.js` placed the window frame only through alignment and margins:
+`y_align = START` plus `margin_top = monitor height * position / 100` (or `END` + `margin_bottom` for a bottom
+search box), set once in `_place()` when the launcher opened. Nothing re-applied the position when the result
+list changed the window height. Since the cause could not be reproduced outside a live Shell, the fix removes
+that dependency instead of patching one suspected trigger.
+
+### Changes
+
+| File | Change |
+|---|---|
+| `ui/launcher.js` `build()` | Removed `layout_manager: new Clutter.BinLayout()` from the overlay and `x_align` / `y_align` from the frame. The overlay now uses the default fixed layout; the frame's inner `BinLayout` (blur / shadow / box layers) is unchanged. |
+| `ui/launcher.js` `_place()` | Still sizes the overlay to the monitor; the margin / `y_align` code is replaced by a call to `_position()`. |
+| `ui/launcher.js` `_position()` (new) | Reads the frame's preferred width and height, computes `anchor = overlay height * position / 100`, then `y = anchor` (search box on top) or `y = anchor - height` (search box on bottom), x centred, clamped to the screen, and calls `frame.set_position()`. |
+| `ui/launcher.js` `_render()` | Calls `_position()` at the end, so every change of results, style, mode or grid re-pins the window. Nothing about the position is stored between renders. |
+| `metadata.json` | `version-name` 0.5.1 -> 0.5.2 |
+| `CHANGELOG.md`, `TECHNICAL.md` | This entry |
+
+Same visual placement as before for both orders: the *Position* setting is the top edge when the search box
+is on top and the bottom edge when it is on the bottom. Animations act on the frame's transform, not its
+position, so they are unaffected.
+
+### Verification
+`node tests/run.mjs`: 101 passed, and the file parses. Layout behaviour is not covered by the tests and was
+not run in GNOME Shell. To check: open the launcher, type a few characters, delete them, close and reopen;
+repeat with search box on top and on bottom, and with *Position* at 0, 18 and 80.
+
 ## 0.5.1: fix for "settings is undefined" in preferences
 
 ### Symptom
