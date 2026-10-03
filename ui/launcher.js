@@ -10,6 +10,7 @@ import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import {buildStyles} from './style.js';
 import {Idle} from '../utils/timing.js';
 import {dbg, warn} from '../utils/log.js';
+import {resolveBlur} from '../blur/defs.js';
 
 const TAGS = {
     app: 'App', command: 'Command', action: 'Action', system: 'System',
@@ -278,9 +279,9 @@ export class Launcher {
         this._st = null;
         this._dirty = true;
         this._order = null;
-        this._blurFx = null;
-        this._blurSigma = 0;
-        this._blurWarned = false;
+        this._blur = null; // LauncherBlur (blur/blur.js), loaded the first time blur is needed
+        this._blurSpec = {kind: 'none'};
+        this._blurFailed = false;
         this._suppress = false;
         this._lastListH = -2;
         this._shown = 0;
@@ -499,7 +500,7 @@ export class Launcher {
                 this._box.add_child(this._hint);
             }
         }
-        this._applyBlur(st.blur);
+        this._applyBlur(st, this._monitor());
         this._lastListH = -2;
         if (this._state !== 'hidden')
             this._render();
@@ -523,60 +524,34 @@ export class Launcher {
         }));
     }
 
-    // Blur uses Shell.BlurEffect (the native Shell blur). If it is missing or its construction fails
-    // on this Shell version, blur is skipped; transparency still works.
-    //
-    // The effect is only attached while the window is fully open and static. Samples of the
-    // background taken while the window is fading or scaling do not line up with the pixels behind
-    // it, which showed up as glitches (and flickering window borders/shadows) with an application
-    // window behind the launcher. Attaching it after the opening animation and removing it before
-    // the closing one avoids that; the blur appears as soon as the window has settled.
-    _applyBlur(sigma) {
-        this._blurSigma = sigma;
-        this._detachBlur();
-        if (this._state === 'open')
-            this._attachBlur();
-    }
-
-    _attachBlur() {
-        const sigma = this._blurSigma;
-        if (!(sigma > 0) || this._blurFx?.attached)
-            return;
-        if (!Shell.BlurEffect) {
-            if (!this._blurWarned)
-                warn('Shell.BlurEffect unavailable on this GNOME Shell; blur disabled');
-            this._blurWarned = true;
+    // Blur, built the way Blur my Shell blurs application windows (see blur/blur.js): an empty widget right
+    // behind the window carries the effect, so the window itself is never wrapped in an effect (that, plus
+    // sampling while it animated, is what glitched). The blur keeps running during the open/close
+    // animation and follows it (opacity, scale, translation).
+    // The module is loaded the first time blur is needed; if that fails the launcher just has no blur.
+    _applyBlur(st, mon) {
+        this._blurSpec = resolveBlur({
+            mode: this._cfg.str('blur-mode'), themeSigma: st.blur, themeRadius: st.radius,
+            sigma: this._cfg.int('blur-sigma'), brightness: this._cfg.num('blur-brightness'),
+            cornerAuto: this._cfg.bool('blur-corner-auto'), cornerRadius: this._cfg.int('blur-corner-radius'),
+            pipelines: this._cfg.json('blur-pipelines', {}), pipeline: this._cfg.str('blur-pipeline'),
+        });
+        this._blurMon = {index: mon.index, width: mon.width, height: mon.height};
+        if (this._blur) {
+            this._blur.apply(this._blurSpec, this._blurMon);
             return;
         }
-        if (!this._blurFx || this._blurFx.sigma !== sigma) {
-            const mode = Shell.BlurMode?.BACKGROUND ?? 1;
-            let effect = null;
-            for (const props of [{sigma, mode}, {radius: sigma * 2, mode}]) {
-                try {
-                    effect = new Shell.BlurEffect(props);
-                    break;
-                } catch (_e) { /* property name differs between Shell versions */ }
-            }
-            if (!effect) {
-                if (!this._blurWarned)
-                    warn('could not construct Shell.BlurEffect; blur disabled');
-                this._blurWarned = true;
+        if (this._blurSpec.kind === 'none' || this._blurFailed)
+            return;
+        import('../blur/blur.js').then(lib => {
+            if (!this._overlay || this._blur)
                 return;
-            }
-            try {
-                effect.brightness = 1.0;
-            } catch (_e) { /* optional */ }
-            this._blurFx = {effect, sigma, attached: false};
-        }
-        this._box.add_effect_with_name('gl-blur', this._blurFx.effect);
-        this._blurFx.attached = true;
-    }
-
-    _detachBlur() {
-        if (!this._blurFx?.attached)
-            return;
-        this._box?.remove_effect(this._blurFx.effect);
-        this._blurFx.attached = false;
+            this._blur = new lib.LauncherBlur(this._overlay, this._box, () => (this._cfg.bool('blur-repaint') ? 1 : 0));
+            this._blur.apply(this._blurSpec, this._blurMon);
+        }).catch(e => {
+            this._blurFailed = true;
+            warn(`blur unavailable: ${e.message}`);
+        });
     }
 
     // --- open / close ------------------------------------------------------
@@ -631,11 +606,13 @@ export class Launcher {
         this._animate(false);
     }
 
-    _place() {
+    _monitor() {
         const lm = Main.layoutManager;
-        const mon = this._cfg.str('monitor') === 'primary'
-            ? lm.primaryMonitor
-            : (lm.currentMonitor ?? lm.primaryMonitor);
+        return this._cfg.str('monitor') === 'primary' ? lm.primaryMonitor : (lm.currentMonitor ?? lm.primaryMonitor);
+    }
+
+    _place() {
+        const mon = this._monitor();
         this._overlay.set_position(mon.x, mon.y);
         this._overlay.set_size(mon.width, mon.height);
         const pos = this._cfg.int('position');
@@ -648,13 +625,14 @@ export class Launcher {
             this._box.margin_bottom = 0;
             this._box.margin_top = Math.round(mon.height * pos / 100);
         }
+        this._blur?.place({index: mon.index, width: mon.width, height: mon.height});
     }
 
     _animate(opening) {
         const box = this._box;
         box.remove_all_transitions();
+        this._blur?.removeTransitions();
         this._state = opening ? 'opening' : 'closing';
-        this._detachBlur();
 
         const style = this._cfg.str('anim-style');
         const enabled = St.Settings.get().enable_animations && style !== 'none';
@@ -673,7 +651,6 @@ export class Launcher {
             redirect(Clutter.OffscreenRedirect.AUTOMATIC_FOR_OPACITY);
             if (opening) {
                 this._state = 'open';
-                this._attachBlur();
             } else {
                 this._overlay.hide();
                 this._state = 'hidden';
@@ -683,20 +660,26 @@ export class Launcher {
             }
         };
 
-        if (opening)
+        if (opening) {
             box.set(duration > 0 ? hidden : shown);
+            this._blur?.set(duration > 0 ? hidden : shown);
+        }
         if (duration <= 0) {
             box.set(opening ? shown : hidden);
+            this._blur?.set(opening ? shown : hidden);
             done();
             return;
         }
+        // Only the window is flattened into one layer while it fades; the blur is a separate widget and
+        // is never part of that off-screen copy.
         redirect(Clutter.OffscreenRedirect.ALWAYS);
-        box.ease({
+        const props = {
             ...(opening ? shown : hidden),
             duration: opening ? duration : Math.round(duration * 0.8),
             mode: opening ? a.open : a.close,
-            onComplete: done,
-        });
+        };
+        this._blur?.ease(props);
+        box.ease({...props, onComplete: done});
     }
 
     // --- search + render ---------------------------------------------------
@@ -1046,13 +1029,14 @@ export class Launcher {
         }
         this._reveal.cancel();
         this._box?.remove_all_transitions();
+        this._blur?.destroy(); // before the overlay: the blur widget is one of its children
+        this._blur = null;
         this._overlay?.destroy();
         this._overlay = this._box = this._entry = this._scroll = this._list = this._empty = this._hint = null;
         this._selItem = null;
         this._gridRows = [];
         this._rows = [];
         this._results = [];
-        this._blurFx = null;
         this._shown = 0;
         this._siKey = '';
         this._built = false;

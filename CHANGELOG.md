@@ -2,6 +2,29 @@
 
 All notable changes to GNOME Launcher (`gnome-launcher@maou-nournar`). Newest first.
 
+## 0.5.0
+
+### Blur rebuilt on Blur my Shell
+- **The blur now works like Blur my Shell's application blur.** It is an empty widget placed right behind the
+  launcher window that carries the blur effect, and it follows the window's size, position and open/close
+  animation. Before, the effect was attached to the window itself and removed during animations, which is what
+  caused the glitches. The blur now stays on while the window fades in and out.
+- **New Blur page** in preferences:
+  - Mode: follow the theme, dynamic, static, or off.
+  - Dynamic: strength (sigma), brightness, corner radius (or follow the theme's), and "keep the blur repainting".
+  - Static: blur the wallpaper through a **pipeline of effects**, with the full Blur my Shell effect set:
+    native gaussian blur, gaussian blur, Monte Carlo blur, color (18 blend modes), luminosity, noise, pixelize,
+    derivative, corner, plus advanced effects (downscale, upscale, RGB<->HSL). Create, duplicate, rename, delete and
+    reset pipelines; add, remove, reorder effects and edit every parameter.
+- The blur code is loaded only when blur is used.
+
+### Licensing
+- The code taken from Blur my Shell (GPL-3.0) is in `blur/` with its license and a `NOTICE.md`. The extension
+  is distributed under GPL-3.0 terms because of it.
+
+### Housekeeping
+- Tests 108 -> 115. Version 0.5.0 (a new feature set, so the minor number goes up).
+
 ## 0.4.4
 
 Window layout, positioning and blur code are unchanged (0.4.1 behaviour).

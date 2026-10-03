@@ -93,6 +93,7 @@ export function buildStyles(l, t) {
         showTags: l.showTags,
         searchPosition: l.searchPosition,
         blur: t.blur,
+        radius: t.radius,
         placeholder: l.placeholder,
         searchIcon: l.searchIcon,
         searchIconSize: Math.max(8, Math.round(l.searchIconSize * s)),

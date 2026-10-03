@@ -30,9 +30,9 @@ The directory name must equal the UUID (`gnome-launcher@maou-nournar`). Default 
 | GJS | The version shipped with those Shell releases (ES modules, `Gio._promisify`) |
 | Required | Nothing beyond GNOME Shell, GLib/Gio, Clutter, St, libadwaita (prefs) |
 | Optional | `gnome-session-quit`, `systemctl`, `gnome-control-center` for the matching built-in GNOME actions |
-| Mutter/Shell dependent | Blur (`Shell.BlurEffect`), bare-Super activation (`overlay-key`), per-entry shortcuts (`grab_accelerator`) |
+| Mutter/Shell dependent | Blur (`blur/`, native `BlurEffect`), bare-Super activation (`overlay-key`), per-entry shortcuts (`grab_accelerator`) |
 
-Version-specific code is isolated: blur in `ui/launcher.js#_applyBlur`, key handling in `shortcuts/keybindings.js`,
+Version-specific code is isolated: blur in `blur/blur.js`, key handling in `shortcuts/keybindings.js`,
 Shell-only APIs in `commands/runner.js` (`GNOME` table).
 
 ## Architecture
@@ -174,9 +174,12 @@ General > *Pointer outside the window*: close on click (default), close when the
 
 ## Known limitations
 
-- **Blur** uses `Shell.BlurEffect` (background blur), attached only once the opening animation has finished and removed before closing (sampling the background while the window fades or scales produced glitches with application windows behind it), so the blur appears an instant after the window settles. If unavailable or constructed differently on your version, the
-  launcher logs once and keeps working with transparency only. The blurred region is rectangular, so a large window
-  corner radius shows square blur corners; use a small radius with blur.
+- **Blur** is built the way Blur my Shell blurs application windows (see `blur/NOTICE.md`; the code taken from it is GPL-3.0).
+  It is a separate widget right behind the launcher window, not an effect on the window itself, and it follows the
+  window's open/close animation. Modes (Blur page): follow the theme's strength, dynamic (native blur of what is
+  behind the launcher, with strength, brightness and corner radius), static (the wallpaper through a pipeline of
+  effects: native gaussian, gaussian, Monte Carlo, color, luminosity, noise, pixelize, derivative, corner, ...), or off.
+  A theme needs some transparency to show it. If the blur cannot be created the launcher logs once and keeps working.
 - **Bare Super**: turning the option on runs the equivalent of `gsettings set org.gnome.mutter overlay-key ''` and the launcher detects the Super press itself; turning it off or disabling the extension runs `gsettings reset org.gnome.mutter overlay-key`. If the shell crashes while it is on, run that reset command yourself (a custom overlay-key you had set is not preserved).
 - Shortcut conflict detection in prefs covers GNOME's own keybinding schemas only, not other extensions or apps.
 - The theme drop-downs list themes at the time the preferences window opens.

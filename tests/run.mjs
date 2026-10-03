@@ -1,6 +1,6 @@
 // Unit tests for the pure modules:  node tests/run.mjs
 import assert from 'node:assert/strict';
-import {readFileSync, readdirSync, statSync} from 'node:fs';
+import {existsSync, readFileSync, readdirSync, statSync} from 'node:fs';
 import {join, dirname} from 'node:path';
 import {fileURLToPath} from 'node:url';
 
@@ -13,6 +13,7 @@ import {buildStyles, cssFontFamily} from '../ui/style.js';
 import {compileBlocklist} from '../shortcuts/blocklist.js';
 import {copyName, fileLabels, isCopyName, isSecret, isTempName, isVideoName, linkCandidates, reviveItems, serializeItems, watchedSelections} from '../clipboard/persist.js';
 import {parseExec} from '../commands/exec.js';
+import {DEFAULT_PIPELINES, EFFECTS, GROUPS, cleanParams, newEffect, pickPipeline, resolveBlur, sanitizePipelines} from '../blur/defs.js';
 import {parseRegexQuery, isRiskyPattern, extractRegexKeywords} from '../search/regex.js';
 import {sanitizeProviders, sanitizeProvider, validTemplate, buildUrl, webEntries, explicitWebQuery, offerWeb, DEFAULT_PROVIDERS} from '../search/web.js';
 import {sanitizeAccount, sanitizeAccounts, accountEntries, safeUrl, hostOf, generatePassword, newAccountId, clearDelaySeconds} from '../accounts/accounts.js';
@@ -682,7 +683,7 @@ test('process separation: shell code never loads GTK, prefs never load Shell lib
     }
 });
 test('prefs-reachable modules are pure (only relative imports)', () => {
-    for (const f of ['themes/themes.js', 'commands/schema.js', 'commands/builtins.js', 'search/engine.js', 'emoji/emoji.js', 'emoji/data.js', 'clipboard/image.js', 'clipboard/persist.js', 'commands/exec.js', 'accounts/accounts.js', 'search/regex.js', 'search/web.js']) {
+    for (const f of ['themes/themes.js', 'commands/schema.js', 'commands/builtins.js', 'search/engine.js', 'emoji/emoji.js', 'emoji/data.js', 'clipboard/image.js', 'clipboard/persist.js', 'blur/defs.js', 'commands/exec.js', 'accounts/accounts.js', 'search/regex.js', 'search/web.js']) {
         const src = readFileSync(join(root, f), 'utf8');
         for (const m of src.matchAll(/^import .* from '([^']+)'/gm))
             assert.ok(m[1].startsWith('.'), `${f} imports ${m[1]}`);
@@ -807,6 +808,85 @@ test('the history never deletes files it only links', () => {
     const i = src.indexOf('_discard(it) {');
     const body = src.slice(i, src.indexOf('\n    }\n', i));
     assert.ok(body.includes('!it.image.linked') && body.includes('isCopyName'), 'discard must skip linked files and only touch our own copies');
+});
+test('blur: every effect in the editor has a class, a shader (where it needs one) and defaults', () => {
+    const reg = readFileSync(join(root, 'blur/effects/registry.js'), 'utf8');
+    for (const [type, def] of Object.entries(EFFECTS)) {
+        assert.ok(reg.includes(`${type}: {class:`), `${type} missing from registry.js`);
+        assert.ok(existsSync(join(root, `blur/effects/${type}.js`)), `${type}.js missing`);
+        for (const k of Object.keys(def.editable_params))
+            assert.ok(k in def.defaults, `${type}.${k} has no default`);
+    }
+    for (const t of ['gaussian_blur', 'monte_carlo_blur', 'color', 'luminosity', 'noise', 'corner', 'derivative', 'downscale', 'upscale', 'rgb_to_hsl', 'hsl_to_rgb'])
+        assert.ok(existsSync(join(root, `blur/effects/${t}.glsl`)), `${t}.glsl missing`);
+    const grouped = Object.values(GROUPS).flatMap(g => g.contains).sort();
+    assert.deepEqual(grouped, Object.keys(EFFECTS).sort(), 'every effect belongs to exactly one group');
+});
+test('blur: parameters are clamped, unknown keys dropped, missing ones defaulted', () => {
+    assert.deepEqual(cleanParams('corner', {radius: 9999, evil: 1, corners_top: 'yes'}), {radius: 150, corners_top: true, corners_bottom: true});
+    assert.equal(cleanParams('native_static_gaussian_blur', {unscaled_radius: -5, brightness: 7}).unscaled_radius, 0);
+    assert.equal(cleanParams('native_static_gaussian_blur', {brightness: 7}).brightness, 1);
+    assert.equal(cleanParams('native_static_gaussian_blur', {unscaled_radius: NaN}).unscaled_radius, 30);
+    assert.deepEqual(cleanParams('color', {color: [2, -1, 0.5, 0.5], blend_mode: 99}), {color: [1, 0, 0.5, 0.5], blend_mode: 0});
+    assert.deepEqual(cleanParams('rgb_to_hsl', {a: 1}), {});
+    assert.equal(cleanParams('noise', null).noise, 0.4);
+});
+test('blur: stored pipelines are validated and the defaults always exist', () => {
+    const p = sanitizePipelines({
+        mine: {name: 'Mine\u0007', effects: [{type: 'corner', id: 'e1', params: {radius: 20}}, {type: 'nope'}, null, {type: 'noise', id: 'e1'}]},
+        '../bad id': {name: 'x', effects: []},
+        broken: {name: 'b', effects: 'no'},
+    });
+    assert.deepEqual(Object.keys(p).sort(), ['mine', 'pipeline_default', 'pipeline_default_rounded']);
+    assert.equal(p.mine.name, 'Mine');
+    assert.equal(p.mine.effects.length, 2);
+    assert.notEqual(p.mine.effects[0].id, p.mine.effects[1].id, 'duplicate effect ids are renamed');
+    assert.deepEqual(Object.keys(sanitizePipelines('junk')), Object.keys(DEFAULT_PIPELINES));
+    assert.equal(pickPipeline(p, 'gone'), 'pipeline_default');
+    assert.equal(pickPipeline(p, 'mine'), 'mine');
+    const e = newEffect('luminosity');
+    assert.equal(e.type, 'luminosity');
+    assert.equal(e.params.contrast, 1);
+});
+test('blur: the settings decide which kind of blur is built', () => {
+    const base = {themeSigma: 30, themeRadius: 16, sigma: 40, brightness: 0.8, cornerAuto: true, cornerRadius: 5, pipelines: null, pipeline: 'pipeline_default'};
+    assert.deepEqual(resolveBlur({...base, mode: 'off'}), {kind: 'none'});
+    assert.deepEqual(resolveBlur({...base, mode: 'theme', themeSigma: 0}), {kind: 'none'});
+    assert.deepEqual(resolveBlur({...base, mode: 'theme'}), {kind: 'dynamic', sigma: 30, brightness: 1, cornerRadius: 16});
+    assert.deepEqual(resolveBlur({...base, mode: 'dynamic'}), {kind: 'dynamic', sigma: 40, brightness: 0.8, cornerRadius: 16});
+    assert.equal(resolveBlur({...base, mode: 'dynamic', cornerAuto: false}).cornerRadius, 5);
+    assert.equal(resolveBlur({...base, mode: 'dynamic', sigma: 0}).kind, 'none');
+    const st = resolveBlur({...base, mode: 'static', pipeline: 'missing'});
+    assert.equal(st.kind, 'static');
+    assert.equal(st.pipelineId, 'pipeline_default');
+    assert.equal(st.pipeline[0].type, 'native_static_gaussian_blur');
+    assert.equal(resolveBlur({...base, mode: 'weird'}).kind, 'dynamic'); // unknown mode behaves like "theme"
+});
+test('blur: the default pipelines in the schema match the code', () => {
+    const xml = readFileSync(join(root, 'schemas/org.gnome.shell.extensions.gnome-launcher.gschema.xml'), 'utf8');
+    const m = xml.match(/<key name="blur-pipelines" type="s"><default>'(.*)'<\/default>/);
+    assert.ok(m, 'blur-pipelines key');
+    assert.deepEqual(sanitizePipelines(JSON.parse(m[1])), sanitizePipelines(null));
+    assert.deepEqual(Object.keys(JSON.parse(m[1])).sort(), Object.keys(DEFAULT_PIPELINES).sort());
+    for (const [id, p] of Object.entries(DEFAULT_PIPELINES))
+        assert.deepEqual(JSON.parse(m[1])[id].effects.map(e => [e.type, e.id]), p.effects.map(e => [e.type, e.id]));
+});
+test('blur: the shell-side module is only ever loaded on demand, and the launcher window itself carries no effect', () => {
+    for (const f of jsFiles(root)) {
+        if (f.includes('/tests/') || f.includes('/blur/'))
+            continue;
+        const src = readFileSync(f, 'utf8');
+        assert.ok(!/from '\.\.?\/blur\/blur\.js'/.test(src), `${f} imports blur/blur.js statically`);
+        assert.ok(!/blur\/effects\//.test(src.replace(/\/\/.*$/gm, '')) || f.includes('prefs/'), `${f} reaches into blur/effects`);
+    }
+    const ui = readFileSync(join(root, 'ui/launcher.js'), 'utf8');
+    assert.ok(ui.includes("import('../blur/blur.js')"));
+    assert.ok(!/_box\.add_effect|box\.add_effect/.test(ui), 'the window box must not carry a blur effect');
+    assert.ok(!ui.includes('Shell.BlurEffect'), 'blur effects are created in blur/, not in the launcher');
+});
+test('blur: license notice for the code taken from Blur my Shell is shipped', () => {
+    assert.ok(existsSync(join(root, 'blur/LICENSE-blur-my-shell')));
+    assert.match(readFileSync(join(root, 'blur/NOTICE.md'), 'utf8'), /GPL/);
 });
 test('blocklist: exact, case, .desktop and wildcard matching', () => {
     const b = compileBlocklist(['Steam_App_*', 'org.gnome.Nautilus.desktop', '  ', 'vmw?are*']);

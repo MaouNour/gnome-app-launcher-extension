@@ -9,6 +9,7 @@ import {ACTION_FIELDS, COMMAND_FIELDS, newAction, newCommand, sanitizeAction, sa
 import {THEME_FIELDS, THEME_BASE, THEME_FAMILIES, builtinThemes, resolveTheme, sanitizeTheme, themeNames} from '../themes/themes.js';
 import {sanitizeProvider, newProvider} from '../search/web.js';
 import {accountsPage} from './accounts.js';
+import {blurPage} from './blur.js';
 import {compileBlocklist, normalizeBlockEntry} from '../shortcuts/blocklist.js';
 import {ListEditor, Overrides, comboRow, entryRow, fileDialog, group, regexHelpButton, shortcutRow, spinRow, switchRow, toast} from './widgets.js';
 
@@ -608,7 +609,7 @@ export function buildPages(window, settings) {
     }).group);
 
     return [
-        general(settings), appearance(window, settings), themes(window, settings), shortcuts(window, settings),
+        general(settings), appearance(window, settings), themes(window, settings), blurPage(window, settings), shortcuts(window, settings),
         applications(settings), builtinsPage(window, settings), emojiPage(window, settings),
         accountsPage(window, settings, builtinsStore(settings), ownShortcuts), commandsPage, actionsPage, search(settings), webPage(window, settings),
         performance(window, settings), advanced(window, settings),

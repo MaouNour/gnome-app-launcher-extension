@@ -34,6 +34,8 @@ const SHORTCUT_KEY = 'gnome-launcher-toggle';
 
 // Keys that only affect appearance: a change just marks the UI style dirty.
 const STYLE_KEYS = new Set([
+    'blur-mode', 'blur-sigma', 'blur-brightness', 'blur-corner-auto', 'blur-corner-radius', 'blur-pipelines',
+    'blur-pipeline', 'blur-repaint',
     'width', 'window-height', 'max-height', 'search-height', 'search-position', 'row-height',
     'icon-size', 'font-size', 'scale', 'padding', 'result-spacing', 'search-padding',
     'icon-spacing', 'show-descriptions', 'show-tags', 'placeholder', 'theme-mode',

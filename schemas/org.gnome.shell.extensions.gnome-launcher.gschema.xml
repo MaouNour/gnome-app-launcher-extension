@@ -72,6 +72,18 @@
     <key name="clipboard-max" type="i"><default>25</default><range min="5" max="200"/></key>
     <key name="calculator" type="b"><default>true</default></key>
 
+    <!-- Blur (blur/ is built on Blur my Shell by aunetx). Mode: theme (the theme's own strength) | dynamic |
+         static (wallpaper through a pipeline of effects) | off -->
+    <key name="blur-mode" type="s"><default>'theme'</default></key>
+    <key name="blur-sigma" type="i"><default>30</default><range min="0" max="100"/></key>
+    <key name="blur-brightness" type="d"><default>1.0</default><range min="0.0" max="1.0"/></key>
+    <key name="blur-corner-auto" type="b"><default>true</default></key>
+    <key name="blur-corner-radius" type="i"><default>16</default><range min="0" max="150"/></key>
+    <!-- The blur repaints whenever it is painted (stops a blur from freezing) -->
+    <key name="blur-repaint" type="b"><default>true</default></key>
+    <key name="blur-pipeline" type="s"><default>'pipeline_default'</default></key>
+    <key name="blur-pipelines" type="s"><default>'{"pipeline_default":{"name":"Default","effects":[{"type":"native_static_gaussian_blur","id":"effect_000000000000","params":{"unscaled_radius":30,"brightness":0.6}}]},"pipeline_default_rounded":{"name":"Default rounded","effects":[{"type":"native_static_gaussian_blur","id":"effect_000000000001","params":{"unscaled_radius":30,"brightness":0.6}},{"type":"corner","id":"effect_000000000002","params":{"radius":24}}]}}'</default></key>
+
     <!-- Clipboard history on disk. Source: clipboard | primary | both | own (nothing is watched; only what
          the launcher itself copies or "Save clipboard" adds). Empty folder settings mean the defaults
          (data dir/gnome-launcher/clipboard, Pictures/Screenshots (and Pictures), Videos/Screencasts). -->

@@ -1,5 +1,40 @@
 # Technical notes
 
+## 0.5.0: blur rebuilt on Blur my Shell
+
+Window position/layout code is unchanged. Only how the blur is attached changed.
+
+### Why the old blur glitched
+`_attachBlur` added `Shell.BlurEffect` to the window box itself and removed it before/after every animation. An effect on an actor makes Clutter paint that actor and all its children into a separate buffer; combined with sampling the backdrop while the window was scaling or fading, it produced flicker.
+
+### New structure (as in Blur my Shell's application blur)
+- `blur/blur.js` `LauncherBlur`: creates an empty `St.Widget` ("blur actor") inserted **below** the window box in the overlay (`insert_child_below`). The window keeps its own translucent background on top.
+  - **dynamic:** the actor gets `NativeDynamicBlurEffect` (`BlurEffect` in `BACKGROUND` mode; radius = 2 x sigma x display scale; brightness; corner radius). Its alignment and margins copy the window's, and its size follows the window's allocation (`notify::allocation`, applied in an idle callback so no actor is resized during an allocation). With "keep repainting" on, a `PaintSignals` effect re-queues the blur repaint when the actor is painted (BMS hacks level 1).
+  - **static:** a monitor-sized actor with a `Background.BackgroundManager` (wallpaper, `controlPosition: false`), the pipeline's effects, `set_clip()` to the window rectangle, and a pivot at the window's centre so scaling matches.
+  - Animation: `set/ease/removeTransitions` mirror the window's opacity, scale and translation, so the blur is never "off" while the window animates. A blur created while the window is showing copies the window's current look first.
+  - A failed build is remembered for that configuration and not retried on every style update (warns once).
+  - `destroy()` runs before the overlay is destroyed.
+- `blur/pipeline.js`: builds a pipeline's effects on an actor from an `EffectsManager` (recycling, reverse order, `corner` radius optionally taken from the theme).
+- `blur/effects_manager.js`, `connections.js`, `paint_signals.js`, `utils.js`: from BMS (log prefix / import paths changed).
+- `blur/effects/*.js, *.glsl`: all BMS effects (native static/dynamic, gaussian, Monte Carlo, color, luminosity, noise, pixelize, derivative, downscale, upscale, rgb_to_hsl, hsl_to_rgb, corner). `native_dynamic_gaussian_blur.js` additionally stores the unscaled corner radius (BMS leaves it undefined, so a scale change would give NaN). `registry.js` maps type -> class.
+- `blur/defs.js` (pure): effect names, descriptions, editable parameters and defaults for the preferences (extracted from BMS `effects.js`), groups, default pipelines, `cleanParams`/`sanitizePipelines` (clamping, unknown keys and types dropped, duplicate ids renamed, defaults always present), `resolveBlur` (settings -> which blur to build).
+- `ui/launcher.js`: `_applyBlur(st, mon)` computes the spec with `resolveBlur` and loads `blur/blur.js` with a dynamic `import()` the first time it is needed (a failure only logs). `_attachBlur/_detachBlur` and the `gl-blur` effect on the box are gone. `_animate` drives the blur with the window. `_place` tells the blur which monitor. New `_monitor()` helper.
+- `ui/style.js`: exposes `radius` (the theme's window radius) for the blur's corners.
+- `schemas`: `blur-mode` (theme|dynamic|static|off, default theme), `blur-sigma`, `blur-brightness`, `blur-corner-auto`, `blur-corner-radius`, `blur-repaint`, `blur-pipeline`, `blur-pipelines` (JSON). `extension.js`: these keys restyle the launcher.
+- `prefs/blur.js` (new Blur page) registered in `prefs/pages.js`.
+- Default behaviour is unchanged: mode "theme" uses each theme's own blur strength like before.
+
+### Tests (115)
+Effects/registry/shaders/defaults consistent; parameter cleaning; pipeline validation; blur mode resolution; schema default pipelines match the code; `blur/blur.js` only loaded dynamically and no effect on the window box; license notice present.
+
+### Not verified
+No GNOME Shell was available: GJS/Shell-side code (`blur/blur.js`, effects, shaders, the page) is syntax-checked only. Check: blur with a window behind the launcher while opening/closing; each mode; change strength live; a static pipeline with a Corner effect; a display-scale change; disabling blur.
+
+### Known limits
+- Static mode shows the wallpaper only (it does not blur windows behind). Dynamic mode does.
+- Rounded dynamic blur depends on the Shell's blur supporting `corner_radius`; otherwise it stays rectangular.
+- The effect parameter set is BMS's; shader compile errors are logged by the Shell.
+
 ## 0.4.4: clipboard on disk, linked files, `!command`
 
 Not touched: `_place()`, overlay/box layout, blur, animations.
