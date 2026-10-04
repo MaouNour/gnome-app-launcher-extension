@@ -2,6 +2,28 @@
 
 All notable changes to GNOME Launcher (`gnome-launcher@maou-nournar`). Newest first.
 
+## 0.5.3
+
+### Bug fixes
+- **Clicking or tapping an entry could close the launcher and then show it again instead of opening the entry**
+  (reported with a mouse and with a touchpad, tap to click). The launcher only listened for a raw
+  mouse-button release on each row. Newer GNOME Shell versions recognise clicks, taps and touches with
+  gestures (the way the Shell's own menus do), and a plain button-release listener is not reliable there.
+  Rows, grid cells and "click outside to close" now use the Shell's click gesture where it exists
+  **and** the button events, and a click that arrives through both counts once. Also: clicks are ignored
+  once the window is closing, and rows that scroll under a resting pointer no longer steal the selection.
+  I could not reproduce this without a Shell, so see TECHNICAL.md for what to send if it still happens.
+
+### New features
+- **Favorites.** Press **Ctrl+D** on a result (application, your command or action, built-in entry) to make it a
+  favorite, and again to take it off. Favorites are listed first, marked with a star, when the launcher opens,
+  before the recently used entries, and all of them are shown even if there are more than "Entries shown
+  before typing". They are managed in *Search > Favorites* (remove one or all), and *Search > When the launcher
+  opens > Show favorites first* turns the feature off without losing the list.
+
+### Housekeeping
+- A statistical password test was made less random. Version 0.5.3, tests 126 -> 129.
+
 ## 0.5.2
 
 ### Bug fixes

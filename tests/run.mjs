@@ -534,7 +534,7 @@ test('generated passwords have the requested length and every character class', 
 });
 test('password generation is unbiased (rejection sampling) and survives poor randomness', () => {
     const counts = {};
-    for (let i = 0; i < 400; i++)
+    for (let i = 0; i < 2000; i++)
         for (const ch of generatePassword(rnd, {length: 40, symbols: false}))
             counts[ch] = (counts[ch] ?? 0) + 1;
     const vals = Object.values(counts);
@@ -1010,6 +1010,41 @@ test('grid: no half-filled window, sections laid out in lines, and the emoji vie
     assert.ok(ext.includes("c.str('emoji-layout') !== 'grid'"), 'the list layout keeps one plain list');
     const st = readFileSync(join(root, 'ui/style.js'), 'utf8');
     assert.ok(st.includes('sectionTitle') && st.includes('sectionH'));
+});
+test('favorites: listed first and all shown, then recent entries up to the count; hidden ones never appear', () => {
+    const mk = (id, n) => prepare({id, kind: 'app', name: n});
+    const eng = new SearchEngine();
+    eng.setEntries([mk('a', 'Alpha'), mk('b', 'Beta'), mk('c', 'Gamma'), mk('d', 'Delta'), mk('e', 'Eps')]);
+    const stat = new Map([['c', [1, 300]], ['b', [2, 200]]]);
+    eng.stats = {get: id => stat.get(id), entries: () => stat.entries()};
+    const ids = r => r.map(e => e.id).join('');
+    const o = {initial: 4, recent: {fill: true}};
+    assert.equal(ids(eng.search('', {...o, favorites: ['e', 'a']})), 'eacb', 'favorites in the order given, then recent');
+    assert.equal(ids(eng.search('', {...o, favorites: ['c']})), 'cbad', 'a favorite is not listed twice');
+    assert.equal(ids(eng.search('', {...o, initial: 1, favorites: ['e', 'a']})), 'ea', 'all favorites show even beyond the count');
+    assert.equal(ids(eng.search('', {...o, favorites: ['gone', 'e']})), 'ecba', 'unknown or hidden ids are skipped');
+    assert.equal(ids(eng.search('', {...o, favorites: []})), 'cbad');
+    assert.equal(ids(eng.search('', {initial: 0, favorites: ['a']})), 'a');
+    assert.equal(eng.search('', {initial: 0}).length, 0);
+});
+test('favorites: Ctrl+D toggles, only fixed entries qualify, a star marks them', () => {
+    const ext = readFileSync(join(root, 'extension.js'), 'utf8');
+    assert.ok(ext.includes('_toggleFavorite(entry)') && ext.includes("HIDEABLE_KINDS.has(entry.kind)"));
+    assert.ok(ext.includes("favorites: c.bool('favorites-enabled') ? this._favoriteIds() : null"));
+    const ui = readFileSync(join(root, 'ui/launcher.js'), 'utf8');
+    assert.ok(ui.includes('case Clutter.KEY_d:') && ui.includes('`★ ${entry.name}`'));
+    const xml = readFileSync(join(root, 'schemas/org.gnome.shell.extensions.gnome-launcher.gschema.xml'), 'utf8');
+    assert.match(xml, /favorites-enabled" type="b"><default>true<\/default>/);
+    assert.match(xml, /name="favorites" type="s"><default>'\[\]'<\/default>/);
+});
+test('clicks and taps: wired through the click gesture and the button events, counted once, ignored while closing', () => {
+    const ui = readFileSync(join(root, 'ui/launcher.js'), 'utf8');
+    assert.ok(ui.includes('Clutter.ClickGesture') && ui.includes("'button-release-event'"), 'both input paths');
+    assert.ok(ui.includes('function onPrimaryClick') && ui.includes('launcher._clicked(this.index)'));
+    assert.ok(!/actor\.connect\('button-release-event'/.test(ui.replace(/function onPrimaryClick[\s\S]*?\n}\n/, '')), 'rows and cells use onPrimaryClick only');
+    assert.ok(ui.includes("this._state !== 'open' && this._state !== 'opening'") && ui.includes('now - this._lastClick < 400000'));
+    assert.ok(ui.includes("'may-recognize'"), 'an outside press closes the window through the gesture too');
+    assert.ok(ui.includes('_keyRecent()'), 'rows scrolling under a resting pointer do not steal the selection');
 });
 test('blocklist: exact, case, .desktop and wildcard matching', () => {
     const b = compileBlocklist(['Steam_App_*', 'org.gnome.Nautilus.desktop', '  ', 'vmw?are*']);

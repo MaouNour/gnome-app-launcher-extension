@@ -104,6 +104,10 @@
     <key name="auto-launch-single" type="b"><default>false</default></key>
     <key name="auto-launch-delay" type="i"><default>350</default><range min="0" max="3000"/></key>
 
+    <!-- Favorites: Ctrl+D on a result. They are listed first when the launcher opens. JSON [{id, name}] -->
+    <key name="favorites-enabled" type="b"><default>true</default></key>
+    <key name="favorites" type="s"><default>'[]'</default></key>
+
     <!-- Entries hidden from the search with Ctrl+H: JSON [{id, name}] -->
     <key name="hidden-entries" type="s"><default>'[]'</default></key>
 

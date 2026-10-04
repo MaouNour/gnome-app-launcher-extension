@@ -128,6 +128,8 @@ export default class GnomeLauncherExtension extends Extension {
             getStyle: () => this._styleInputs(),
             // Only does work before the cache has arrived; afterwards it is a no-op.
             history: this._history,
+            favorites: () => (this._config.bool('favorites-enabled') ? this._favoriteIds() : []),
+            onFavorite: entry => this._toggleFavorite(entry),
             onHide: entry => this._hideEntry(entry),
             onOpen: () => {
                 this._clip?.ensureWatching();
@@ -233,6 +235,10 @@ export default class GnomeLauncherExtension extends Extension {
             break;
         case 'hidden-entries':
             this._rebuild.schedule();
+            break;
+        case 'favorites':
+        case 'favorites-enabled':
+            this._launcher?.refreshResults();
             break;
         case 'history-max':
             if (this._history.setMax(this._config.int('history-max')))
@@ -511,6 +517,7 @@ export default class GnomeLauncherExtension extends Extension {
             descriptions: c.bool('search-descriptions'),
             frecency: c.bool('frecency'),
             recent: c.bool('start-recent') ? {fill: c.bool('start-fill')} : null,
+            favorites: c.bool('favorites-enabled') ? this._favoriteIds() : null,
         });
         if (c.bool('calculator')) {
             const value = calculate(query);
@@ -670,6 +677,36 @@ export default class GnomeLauncherExtension extends Extension {
         this._clip.mute(2500);
         this._clip.useItem(entry.payload.imageId, open ? how : '',
             !open && this._wantsPaste(how) ? () => this._paster.paste('', {keys: 'auto', borrow: false}, () => this._pasteFailed()) : null);
+    }
+
+    // --- favorites -----------------------------------------------------------
+
+    _favoriteList() {
+        const list = this._config.json('favorites', []);
+        return Array.isArray(list) ? list.filter(x => x && typeof x.id === 'string') : [];
+    }
+
+    _favoriteIds() {
+        return this._favoriteList().map(x => x.id);
+    }
+
+    // Ctrl+D on a result: add it to the favorites, or take it off again. Returns true if it is a favorite now,
+    // false if it was removed, null if this kind of entry cannot be a favorite.
+    _toggleFavorite(entry) {
+        if (!this._config.bool('favorites-enabled'))
+            return null;
+        if (!HIDEABLE_KINDS.has(entry.kind)) {
+            Main.notify(NOTIFY_TITLE, 'This entry cannot be a favorite: it is not a fixed entry.');
+            return null;
+        }
+        const list = this._favoriteList();
+        const i = list.findIndex(x => x.id === entry.id);
+        if (i >= 0)
+            list.splice(i, 1);
+        else
+            list.push({id: entry.id, name: String(entry.name).slice(0, 120)});
+        this._settings.set_string('favorites', JSON.stringify(list));
+        return i < 0;
     }
 
     // --- hiding entries ------------------------------------------------------

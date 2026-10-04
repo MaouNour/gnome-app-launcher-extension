@@ -1,5 +1,39 @@
 # Technical notes
 
+## 0.5.3: click/tap fix and favorites
+
+### Click / tap / touch (`ui/launcher.js`)
+Reported: with a mouse or touchpad (tap to click; the physical touchpad button worked) choosing an entry hides the
+launcher and then shows it as if it were opening again. **Not reproduced** (no Shell here), so this is a fix for the most
+likely cause, not a confirmed one.
+- Finding: rows and cells connected only `button-release-event` and `motion-event`; the overlay used
+  `button-press-event`. The current GNOME Shell (`popupMenu.js`, `search.js` in the main branch) uses
+  `Clutter.ClickGesture`, `Clutter.KeyController` and `Clutter.MotionController` instead of those signals, so on
+  Shells with the gesture-based input a tap can be consumed by a gesture and never reach the button handlers.
+- Now: `onPrimaryClick(actor, fn)` adds a `Clutter.ClickGesture` (`recognize`, primary button) when the class exists
+  and also the `button-release-event` handler when that signal exists (`GObject.signal_lookup`). Both call
+  `Launcher._clicked(i)`, which ignores clicks unless the state is `open`/`opening`, ignores a second click within
+  400 ms (the same tap reported twice) and logs `click on result N` in debug mode. `onPointerOver` uses
+  `motion-event` where present, else `notify::hover` (ignored for 300 ms after a key press, so keyboard scrolling does
+  not move the selection). The overlay also has a `ClickGesture(recognize_on_press)` whose `may-recognize` accepts only
+  presses outside the window (same pattern as `PopupMenuManager`), closing it when "outside click" is selected.
+- If it still happens: turn on *Advanced > Verbose logging*, reproduce, and send
+  `journalctl -f -o cat /usr/bin/gnome-shell`; also the GNOME Shell version (`gnome-shell --version`), Wayland or X11,
+  and whether the click was a button press or a tap. The log shows whether a click was received, how many times, and
+  whether the window was opened again.
+
+### Favorites
+| Where | Change |
+|---|---|
+| schema | `favorites-enabled` (true), `favorites` (JSON `[{id, name}]`) |
+| `search/engine.js` `_initial(..., favorites)` | favorites (ids in order, skipping unknown/hidden ones) first and always all shown; the rest of `count` is recent/frequent/alphabetical without duplicates; `count` smaller than the number of favorites returns only favorites |
+| `extension.js` | `_favoriteList/_favoriteIds/_toggleFavorite` (same eligible kinds as hiding), start list gets `favorites`, `favorites*` keys call `launcher.refreshResults()` |
+| `ui/launcher.js` | Ctrl+D -> `_favoriteSelected`; `refreshResults()` re-runs the search and keeps the selection on the same entry; list rows show a star (`Row.set(entry, fav)`) |
+| `prefs/pages.js` | `entryListGroup` shared by *Hidden entries* and *Favorites* (Remove / Remove all); switch in *When the launcher opens* |
+
+### Tests
+129 pass: favorites ordering, favorites wiring, click/tap wiring (both paths, once, not while closing, outside press).
+
 ## 0.5.2: emoji sections, grid fix, recent start list, search history
 
 ### Grid fix (`ui/launcher.js`)

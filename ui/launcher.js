@@ -1,6 +1,7 @@
 import Clutter from 'gi://Clutter';
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
+import GObject from 'gi://GObject';
 import Pango from 'gi://Pango';
 import Shell from 'gi://Shell';
 import St from 'gi://St';
@@ -16,6 +17,63 @@ const TAGS = {
     app: 'App', command: 'Command', action: 'Action', system: 'System',
     mode: 'Mode', clip: 'Clipboard', clipimage: 'Image', clipfile: 'File', exec: 'Run', account: 'Account', web: 'Web', calc: 'Result', emoji: 'Emoji',
 };
+
+// --- pointer and touch input ----------------------------------------------------------------------
+// Newer Shells (Mutter 49/50) recognise clicks, taps and touches with gestures (`Clutter.ClickGesture`, what the
+// Shell's own menus and buttons use); older ones deliver plain button events. A click is wired through both,
+// whichever the running Shell supports, and `Launcher._clicked` ignores the second one of a pair, so a tap on a
+// touchpad or a touch on a screen activates an entry exactly once however it arrives.
+const HAS_CLICK_GESTURE = typeof Clutter.ClickGesture === 'function';
+
+function hasSignal(name) {
+    try {
+        return GObject.signal_lookup(name, Clutter.Actor) !== 0;
+    } catch (_e) {
+        return false;
+    }
+}
+const HAS_RELEASE = hasSignal('button-release-event');
+const HAS_MOTION = hasSignal('motion-event');
+
+// fn() runs once per primary-button click, tap or touch on `actor`.
+function onPrimaryClick(actor, fn) {
+    if (HAS_CLICK_GESTURE) {
+        try {
+            const g = new Clutter.ClickGesture();
+            g.connect('recognize', () => {
+                const b = typeof g.get_button === 'function' ? g.get_button() : Clutter.BUTTON_PRIMARY;
+                if (!b || b === Clutter.BUTTON_PRIMARY)
+                    fn();
+            });
+            actor.add_action(g);
+        } catch (e) {
+            warn(`click gesture unavailable: ${e.message}`);
+        }
+    }
+    if (HAS_RELEASE) {
+        actor.connect('button-release-event', (_a, ev) => {
+            if (ev.get_button() === Clutter.BUTTON_PRIMARY)
+                fn();
+            return Clutter.EVENT_STOP;
+        });
+    }
+}
+
+// fn() runs when the pointer moves over `actor` (not when the rows scroll under a resting pointer).
+function onPointerOver(actor, fn, recentKey) {
+    if (HAS_MOTION) {
+        actor.connect('motion-event', () => {
+            fn();
+            return Clutter.EVENT_PROPAGATE;
+        });
+        return;
+    }
+    actor.track_hover = true;
+    actor.connect('notify::hover', () => {
+        if (actor.hover && !recentKey())
+            fn();
+    });
+}
 
 // Rows are created lazily in batches while scrolling, so even a list of thousands of
 // entries (emoji, unlimited results) only ever costs a few dozen actors.
@@ -112,16 +170,14 @@ class Cell {
         this._st = null;
         this.label = new St.Label({x_align: Clutter.ActorAlign.CENTER, y_align: Clutter.ActorAlign.CENTER});
         this.actor = new St.Bin({reactive: true, child: this.label});
-        this.actor.connect('button-release-event', (_a, ev) => {
-            if (ev.get_button() === Clutter.BUTTON_PRIMARY && this.entry)
-                launcher._activateIndex(grid.base + this.col);
-            return Clutter.EVENT_STOP;
+        onPrimaryClick(this.actor, () => {
+            if (this.entry)
+                launcher._clicked(grid.base + this.col);
         });
-        this.actor.connect('motion-event', () => {
+        onPointerOver(this.actor, () => {
             if (this.entry)
                 launcher._hover(grid.base + this.col);
-            return Clutter.EVENT_PROPAGATE;
-        });
+        }, () => launcher._keyRecent());
     }
 
     restyle(st) {
@@ -214,15 +270,8 @@ class Row {
         this.actor.add_child(this.text);
         this.actor.add_child(this.tag);
 
-        this.actor.connect('button-release-event', (_a, ev) => {
-            if (ev.get_button() === Clutter.BUTTON_PRIMARY)
-                launcher._activateIndex(this.index);
-            return Clutter.EVENT_STOP;
-        });
-        this.actor.connect('motion-event', () => {
-            launcher._hover(this.index);
-            return Clutter.EVENT_PROPAGATE;
-        });
+        onPrimaryClick(this.actor, () => launcher._clicked(this.index));
+        onPointerOver(this.actor, () => launcher._hover(this.index), () => launcher._keyRecent());
     }
 
     restyle(st) {
@@ -251,11 +300,12 @@ class Row {
             this._paint();
     }
 
-    set(entry) {
-        if (this.entry === entry)
+    set(entry, fav = false) {
+        if (this.entry === entry && this._fav === fav)
             return;
         this.entry = entry;
-        this.title.text = entry.name;
+        this._fav = fav;
+        this.title.text = fav ? `★ ${entry.name}` : entry.name;
         this.sub.text = entry.desc || '';
         this.sub.visible = this._st.showDesc && !!entry.desc;
         this.tag.text = TAGS[entry.kind] ?? '';
@@ -277,7 +327,7 @@ class Row {
 export class Launcher {
     // search(query, mode) -> entries[]; onActivate(entry); getStyle() -> {layout, theme}; onOpen();
     // onClose() runs once the window is fully hidden.
-    constructor({config, search, onActivate, getStyle, onOpen, onClose, onWindowShortcut, onHide, history}) {
+    constructor({config, search, onActivate, getStyle, onOpen, onClose, onWindowShortcut, onHide, onFavorite, favorites, history}) {
         this._cfg = config;
         this._search = search;
         this._onActivate = onActivate;
@@ -286,6 +336,11 @@ export class Launcher {
         this._onClose = onClose;
         this._onWindowShortcut = onWindowShortcut;
         this._onHide = onHide;
+        this._onFavorite = onFavorite;
+        this._favorites = favorites;
+        this._favSet = new Set();
+        this._lastClick = 0;
+        this._lastKey = 0;
         this._autoTimer = 0;
         this._textLen = 0;
 
@@ -431,7 +486,24 @@ export class Launcher {
             }
             return Clutter.EVENT_STOP; // 'hover' and 'none' ignore outside clicks
         });
-        this._overlay.connect('motion-event', (_a, ev) => this._onMotion(ev));
+        if (HAS_MOTION)
+            this._overlay.connect('motion-event', (_a, ev) => this._onMotion(ev));
+        if (HAS_CLICK_GESTURE) {
+            // Where the press signal is not delivered for taps, a press outside the window still closes it.
+            try {
+                const g = new Clutter.ClickGesture({recognize_on_press: true});
+                g.connect('may-recognize', () => {
+                    if (this._outside !== 'click')
+                        return false;
+                    const target = global.stage.get_event_actor(g.get_point_event(0));
+                    return !!target && !this._box.contains(target);
+                });
+                g.connect('recognize', () => this.close());
+                this._overlay.add_action(g);
+            } catch (e) {
+                warn(`outside-click gesture unavailable: ${e.message}`);
+            }
+        }
 
         this._applyStyle();
     }
@@ -804,6 +876,7 @@ export class Launcher {
     }
 
     _refresh() {
+        this._favSet = new Set(this._favorites ? this._favorites() : []);
         let results;
         try {
             results = this._search(this._entry.get_text(), this._mode);
@@ -976,7 +1049,7 @@ export class Launcher {
         } else {
             for (let i = from; i < target; i++) {
                 const row = this._rows[i] ?? this._makeRow(i);
-                row.set(this._results[i]);
+                row.set(this._results[i], this._favSet.has(this._results[i].id));
                 row.actor.show();
             }
         }
@@ -1146,7 +1219,45 @@ export class Launcher {
             this._onActivate(entry, how);
     }
 
+    // A click, tap or touch on result i. Both input paths may report the same click; only the first counts, and
+    // nothing happens once the window is on its way out.
+    _clicked(i) {
+        if (this._state !== 'open' && this._state !== 'opening')
+            return;
+        const now = GLib.get_monotonic_time();
+        if (now - this._lastClick < 400000)
+            return;
+        this._lastClick = now;
+        dbg(`click on result ${i}`);
+        this._activateIndex(i);
+    }
+
+    // True shortly after a key press: rows scrolling under a resting pointer must not steal the selection.
+    _keyRecent() {
+        return GLib.get_monotonic_time() - this._lastKey < 300000;
+    }
+
+    // The search shows the same query again (favorites or hidden entries changed) and keeps the selection on
+    // the same entry where it still exists.
+    refreshResults() {
+        if (!this._built || (this._state !== 'open' && this._state !== 'opening'))
+            return;
+        const id = this._results[this._sel]?.id;
+        this._refresh();
+        const i = id ? this._results.findIndex(e => e.id === id) : -1;
+        if (i >= 0)
+            this._select(i);
+    }
+
+    // Ctrl+D: add the highlighted entry to the favorites, or remove it.
+    _favoriteSelected() {
+        const e = this._results[this._sel];
+        if (e && this._onFavorite)
+            this._onFavorite(e); // the change comes back through refreshResults()
+    }
+
     _onKey(ev) {
+        this._lastKey = GLib.get_monotonic_time();
         const sym = ev.get_key_symbol();
         const mods = ev.get_state();
         const ctrl = (mods & Clutter.ModifierType.CONTROL_MASK) !== 0;
@@ -1238,6 +1349,9 @@ export class Launcher {
             switch (sym) {
             case Clutter.KEY_h:
                 this._hideSelected();
+                return Clutter.EVENT_STOP;
+            case Clutter.KEY_d:
+                this._favoriteSelected();
                 return Clutter.EVENT_STOP;
             case Clutter.KEY_n:
             case Clutter.KEY_j:

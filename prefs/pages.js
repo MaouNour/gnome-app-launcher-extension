@@ -274,17 +274,18 @@ function blocklistGroup(window, settings) {
     return g;
 }
 
-// Entries hidden with Ctrl+H in the launcher, with a button to show each one again.
-function hiddenGroup(window, settings) {
-    const g = group('Hidden entries', 'Entries you hid with Ctrl+H in the launcher. Unhide one to see it in the search again.');
-    const all = new Gtk.Button({label: 'Unhide all', valign: Gtk.Align.CENTER});
+// A list of entries stored as JSON [{id, name}] in `key`, each with a button that removes it
+// (the hidden entries and the favorites).
+function entryListGroup(window, settings, o) {
+    const g = group(o.title, o.description);
+    const all = new Gtk.Button({label: o.allLabel, valign: Gtk.Align.CENTER});
     g.set_header_suffix(all);
     let rows = [];
     const read = () => {
-        const list = readJson(settings, 'hidden-entries', []);
+        const list = readJson(settings, o.key, []);
         return Array.isArray(list) ? list.filter(x => x && typeof x.id === 'string') : [];
     };
-    const write = list => settings.set_string('hidden-entries', JSON.stringify(list));
+    const write = list => settings.set_string(o.key, JSON.stringify(list));
     const refill = () => {
         for (const r of rows)
             g.remove(r);
@@ -292,14 +293,14 @@ function hiddenGroup(window, settings) {
         const items = read();
         all.sensitive = items.length > 0;
         if (items.length === 0) {
-            const r = new Adw.ActionRow({title: 'Nothing is hidden', subtitle: 'Press Ctrl+H on a result in the launcher to hide it.', use_markup: false});
+            const r = new Adw.ActionRow({title: o.emptyTitle, subtitle: o.emptyHint, use_markup: false});
             g.add(r);
             rows.push(r);
             return;
         }
         for (const it of items) {
             const r = new Adw.ActionRow({title: it.name || it.id, subtitle: it.id, use_markup: false});
-            const b = new Gtk.Button({label: 'Unhide', valign: Gtk.Align.CENTER});
+            const b = new Gtk.Button({label: o.buttonLabel, valign: Gtk.Align.CENTER});
             b.connect('clicked', () => write(read().filter(x => x.id !== it.id)));
             r.add_suffix(b);
             g.add(r);
@@ -308,12 +309,29 @@ function hiddenGroup(window, settings) {
     };
     all.connect('clicked', () => {
         write([]);
-        toast(window, 'All entries are visible again');
+        toast(window, o.doneToast);
     });
-    settings.connect('changed::hidden-entries', refill);
+    settings.connect(`changed::${o.key}`, refill);
     refill();
     return g;
 }
+
+const hiddenGroup = (window, settings) => entryListGroup(window, settings, {
+    key: 'hidden-entries', title: 'Hidden entries', allLabel: 'Unhide all', buttonLabel: 'Unhide',
+    description: 'Entries you hid with Ctrl+H in the launcher. Unhide one to see it in the search again.',
+    emptyTitle: 'Nothing is hidden', emptyHint: 'Press Ctrl+H on a result in the launcher to hide it.',
+    doneToast: 'All entries are visible again',
+});
+
+// Favorites: Ctrl+D in the launcher. They are listed first when the launcher opens.
+const favoritesGroup = (window, settings) => {
+    return entryListGroup(window, settings, {
+        key: 'favorites', title: 'Favorites', allLabel: 'Remove all', buttonLabel: 'Remove',
+        description: 'Press Ctrl+D on a result in the launcher to make it a favorite, and again to take it off. Favorites are listed first (marked with a star) when the launcher opens, before the recently used entries.',
+        emptyTitle: 'No favorites yet', emptyHint: 'Press Ctrl+D on an application, command or action in the launcher.',
+        doneToast: 'All favorites removed',
+    });
+};
 
 function appearance(window, settings) {
     const p = page('Appearance', 'applications-graphics-symbolic');
@@ -571,6 +589,7 @@ function search(window, settings) {
         'Needs at least two characters, only reacts to typing (not to deleting), and waits for you to stop typing.'));
     al.add(spinRow(settings, 'auto-launch-delay', 'Wait after typing (ms)', 0, 3000, 50, 'Time without typing before the match is opened. 0 opens it immediately.'));
     p.add(al);
+    p.add(favoritesGroup(window, settings));
     p.add(hiddenGroup(window, settings));
     const g = group('Matching');
     g.add(switchRow(settings, 'fuzzy', 'Fuzzy matching', 'Match characters in order, for example "ffx" finds Firefox.'));
@@ -592,6 +611,8 @@ function search(window, settings) {
     p.add(r);
     const st = group('When the launcher opens',
         'What is listed before you type anything. The number of entries is \"Entries shown before typing\" above.');
+    st.add(switchRow(settings, 'favorites-enabled', 'Show favorites first',
+        'Your favorites (Ctrl+D on a result) are listed first, marked with a star, and Ctrl+D works. Off keeps the list but hides it. Managed below.'));
     st.add(switchRow(settings, 'start-recent', 'Show recently used entries first',
         'Lists what you used most recently, newest first, instead of what you use most often. Needs usage statistics, which are collected while this or the ranking option is on.'));
     st.add(switchRow(settings, 'start-fill', 'Fill the rest of the list with other entries',

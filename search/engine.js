@@ -186,7 +186,7 @@ export class SearchEngine {
 
         const q = fold(query).replace(/\s+/g, ' ').trimStart();
         if (!q.trim())
-            return this._initial(opts.initial ?? 8, useFrec, now, opts.natural ?? false, opts.recent ?? null);
+            return this._initial(opts.initial ?? 8, useFrec, now, opts.natural ?? false, opts.recent ?? null, opts.favorites ?? null);
 
         const tokens = q.split(' ').filter(Boolean);
         const list = this._entries;
@@ -238,16 +238,34 @@ export class SearchEngine {
         return this._byId.get(id) ?? null;
     }
 
-    // Empty query: most frecent entries first, then alphabetical (or natural) fill.
-    // recent: {fill} puts the entries used most recently first instead (by last use, not by how often); `fill`
-    // says whether the rest of the list is then filled with other entries or left short.
-    _initial(count, useFrec, now, natural, recent = null) {
+    // Empty query. Favorites (ids, in the order given) come first and always all show; the rest of `count`
+    // is the entries used most recently (recent: {fill}) or most often, then an alphabetical (or natural) fill.
+    // `fill` false leaves out entries that were never used.
+    _initial(count, useFrec, now, natural, recent = null, favorites = null) {
         this._prevIdx = null;
         this._prevQ = '';
-        if (count <= 0)
-            return [];
         const out = [];
         const seen = new Set();
+        for (const id of favorites ?? []) {
+            const e = this._byId.get(id);
+            if (e && !seen.has(id)) {
+                out.push(e);
+                seen.add(id);
+            }
+        }
+        if (count <= out.length)
+            return out;
+        const take = scored => {
+            for (const [, e] of scored) {
+                if (out.length >= count)
+                    break;
+                if (!seen.has(e.id)) {
+                    out.push(e);
+                    seen.add(e.id);
+                }
+            }
+        };
+        let usedAny = false;
         if (recent && this.stats) {
             const used = [];
             for (const [id, stat] of this.stats.entries()) {
@@ -256,14 +274,12 @@ export class SearchEngine {
                     used.push([stat[1], e]);
             }
             used.sort((a, b) => b[0] - a[0]);
-            for (const [, e] of used.slice(0, count)) {
-                out.push(e);
-                seen.add(e.id);
-            }
+            take(used);
+            usedAny = used.length > 0;
             if (!recent.fill)
                 return out;
         }
-        if (useFrec && !(recent && out.length)) {
+        if (useFrec && this.stats && !usedAny) {
             const scored = [];
             for (const [id, stat] of this.stats.entries()) {
                 const e = this._byId.get(id);
@@ -271,10 +287,7 @@ export class SearchEngine {
                     scored.push([frecency(stat, now), e]);
             }
             scored.sort((a, b) => b[0] - a[0]);
-            for (const [, e] of scored.slice(0, count)) {
-                out.push(e);
-                seen.add(e.id);
-            }
+            take(scored);
         }
         if (out.length < count) {
             if (!natural && !this._alpha)
