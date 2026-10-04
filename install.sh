@@ -7,6 +7,6 @@ dest="$HOME/.local/share/gnome-shell/extensions/$uuid"
 rm -rf "$dest"
 mkdir -p "$dest"
 cp -r "$here"/. "$dest"/
-rm -rf "$dest/tests" "$dest/tools" "$dest/install.sh" "$dest/gschemas.compiled"
+rm -rf "$dest/tests" "$dest/tools" "$dest/install.sh" "$dest/gschemas.compiled" "$dest/.git" "$dest/.gitignore" "$dest/log.txt"
 glib-compile-schemas "$dest/schemas"
 echo "Installed to $dest. Log out/in (Wayland), then: gnome-extensions enable $uuid"
