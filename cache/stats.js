@@ -31,6 +31,14 @@ export class Stats {
         return this._map.entries();
     }
 
+    // Forgets how often and when an entry was used.
+    forget(id) {
+        if (this._map.delete(id)) {
+            this._dirty = true;
+            this._save.call();
+        }
+    }
+
     hit(id) {
         const s = this._map.get(id) ?? [0, 0];
         s[0] += 1;

@@ -15,6 +15,13 @@ export function cssFontFamily(name) {
 
 // Builds every inline St style string once per settings/theme change (not per
 // keystroke). Pure function: layout numbers + resolved theme in, strings out.
+function markShape(kind, s) {
+    const px = n => `${Math.max(1, Math.round(n * s))}px`;
+    if (kind === 'dash')
+        return `width: ${px(14)}; height: ${px(3)}; border-radius: ${px(2)};`;
+    return `width: ${px(6)}; height: ${px(6)}; border-radius: ${px(3)};`;
+}
+
 export function buildStyles(l, t) {
     const s = l.scale;
     const px = n => `${Math.max(0, Math.round(n * s))}px`;
@@ -32,7 +39,7 @@ export function buildStyles(l, t) {
     const searchSize = fonts.search?.size > 0 ? fonts.search.size : l.fontSize * 1.25;
     const detailSize = fonts.secondary?.size > 0 ? fonts.secondary.size : l.fontSize * 0.82;
     const tagSize = detailSize * (0.75 / 0.82);
-    const shadow = t.shadowOpacity > 0
+    const shadow = l.shadow && t.shadowOpacity > 0
         ? `box-shadow: 0 ${px(t.shadowOffsetY)} ${px(t.shadowBlur)} rgba(0,0,0,${t.shadowOpacity}); `
         : '';
     const minH = l.windowHeight > 0 ? `min-height: ${px(l.windowHeight)}; ` : '';
@@ -73,6 +80,12 @@ export function buildStyles(l, t) {
         tag: `color: ${sec}; font-size: ${pt(tagSize)}; ${detailFont}`,
         tagSel: `color: ${cssColor(t.selectionText, 0.75)}; font-size: ${pt(tagSize)}; ${detailFont}`,
         icon: `-st-icon-style: ${t.iconStyle};`,
+        // The marker of a running application (a dot or a dash). On the selected row it takes the selection
+        // text colour, because the accent colour is often the selection background itself.
+        active: `background-color: ${l.activeColor}; ${markShape(l.activeIndicator, s)}`,
+        activeSel: `background-color: ${sel}; ${markShape(l.activeIndicator, s)}`,
+        activeOn: (l.activeIndicator === 'dot' || l.activeIndicator === 'dash'),
+        activeAfter: l.activePosition === 'after',
         // Emoji rows draw the glyph as text instead of an icon, sized to fill the icon slot.
         glyph: `color: ${fg}; ${emojiFace}font-size: ${Math.round(l.iconSize * s * 0.68)}px; min-width: ${Math.round(l.iconSize * s)}px; text-align: center;`,
         cell: cellBase,
@@ -94,8 +107,6 @@ export function buildStyles(l, t) {
         showDesc: l.showDescriptions,
         showTags: l.showTags,
         searchPosition: l.searchPosition,
-        blur: t.blur,
-        radius: t.radius,
         placeholder: l.placeholder,
         searchIcon: l.searchIcon,
         searchIconSize: Math.max(8, Math.round(l.searchIconSize * s)),

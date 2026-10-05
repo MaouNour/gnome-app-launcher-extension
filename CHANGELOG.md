@@ -2,6 +2,49 @@
 
 All notable changes to GNOME Launcher (`gnome-launcher@maou-nournar`). Newest first.
 
+## 0.6.0
+
+### Bug fixes
+- **Clicking, tapping or touching an entry works again.** 0.5.3 broke it for everyone: it decided at start-up
+  which input signals the Shell has with a lookup that gave the wrong answer, so no click handler was attached at
+  all. Each input path (the Shell's click gesture and the plain button events) is now attached on its own and
+  skipped only if connecting really fails, and a click that arrives both ways counts once. The experimental
+  click gesture on the whole overlay was removed (the plain press handler closes the window on an outside click, as
+  before).
+
+### Removed
+- **Blur is gone from the extension** (the 0.5.0 Blur page, its effects, the theme "Blur strength" field and the
+  blur settings). Use Blur my Shell for blur. The shadow stays and is off by default.
+- Because the Blur my Shell code is no longer included, the GPL-3.0 notice that came with it is gone too.
+
+### New features
+- **The launcher window can be recognised by other tools:** actor name `gnome-launcher`, style classes
+  `gnome-launcher gnome-launcher-window org-gnome-shell-extensions-gnome-launcher`, accessible name "GNOME Launcher",
+  schema id `org.gnome.shell.extensions.gnome-launcher`. Note: Blur my Shell blurs *windows* by their window class.
+  The launcher is a Shell actor, not a window, so it has no window class and Blur my Shell's application list cannot
+  select it. For it to blur the launcher, Blur my Shell needs a small addition that finds this actor by its name.
+- **Running applications are marked** in the results with a dot or a dash, before the icon or at the end of the row.
+  The colour follows the desktop accent colour (GNOME 47+), the launcher theme's accent, or a colour you pick; on the
+  highlighted row the mark uses the selection text colour so it stays visible. *Appearance > Running applications*.
+- **Action menu (Ctrl+B, or right click)**, a switch in *Search > Action menu* (off by default). On: Ctrl+B lists what you
+  can do with the highlighted result, and Ctrl+H / Ctrl+F stop working (the menu has both). Off: Ctrl+H hides and
+  Ctrl+F favorites directly, as before. Escape closes only the menu. For applications: open or switch to it, new
+  window, open in a **new workspace**, the application's own actions (such as "New Private Window"), quit it, show the
+  desktop entry in the file manager, open it in a text editor, copy its path, command or name, add to or remove
+  from favorites, hide, forget usage history. For your commands and actions: run, copy, edit in the preferences,
+  favorite, hide, forget. For files: open, show in the file manager, copy path or name.
+- **Favorites are now Ctrl+F** (Ctrl+D still works), matching the new menu text.
+- **File search** (*Search > File search*, **off by default**). Files appear after the other results while you type
+  (after 3 characters, up to 8 files; both adjustable). The extension keeps no index and caches nothing: each search asks
+  either GNOME's file search (the Files app's search provider, answered from the LocalSearch index GNOME already
+  keeps) or the system's locate database (plocate, mlocate), whichever you choose, or GNOME first and then locate
+  in automatic mode. Hidden files and files outside the home folder are left out unless you allow them. Enter opens a
+  file, Alt+Enter shows its folder, Ctrl+Enter copies its path. The preferences show which backends were found.
+- **Shadow switch** in *Appearance*. The window shadow is **off by default** (the theme still sets how it looks when on).
+
+### Housekeeping
+- Version 0.6.0 (a feature was removed). Tests 129 -> 130.
+
 ## 0.5.3
 
 ### Bug fixes

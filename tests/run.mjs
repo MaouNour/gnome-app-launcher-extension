@@ -13,8 +13,10 @@ import {buildStyles, cssFontFamily} from '../ui/style.js';
 import {compileBlocklist} from '../shortcuts/blocklist.js';
 import {copyName, fileLabels, isCopyName, isSecret, isTempName, isVideoName, linkCandidates, reviveItems, serializeItems, watchedSelections} from '../clipboard/persist.js';
 import {parseExec} from '../commands/exec.js';
+import {toTerms, pickBackend, locateArgs, parseLines, pathFromUri, filterPaths, shortPath, dirName, baseName, describeFile} from '../files/results.js';
+import {IDENTITY, WM_CLASS, SCHEMA_ID, UUID} from '../ui/identity.js';
+import {ACCENTS, activeColor, isColor} from '../ui/accent.js';
 import {QueryHistory, MAX_QUERY_LEN} from '../search/history.js';
-import {DEFAULT_PIPELINES, EFFECTS, GROUPS, cleanParams, newEffect, pickPipeline, resolveBlur, sanitizePipelines} from '../blur/defs.js';
 import {parseRegexQuery, isRiskyPattern, extractRegexKeywords} from '../search/regex.js';
 import {sanitizeProviders, sanitizeProvider, validTemplate, buildUrl, webEntries, explicitWebQuery, offerWeb, DEFAULT_PROVIDERS} from '../search/web.js';
 import {sanitizeAccount, sanitizeAccounts, accountEntries, safeUrl, hostOf, generatePassword, newAccountId, clearDelaySeconds} from '../accounts/accounts.js';
@@ -111,7 +113,7 @@ test('theme sanitizer blocks CSS injection', () => {
     assert.equal(t.radius, 60);
     assert.equal(t.opacity, 0);
 });
-test('theme overrides applied', () => assert.equal(resolveTheme({custom: [], name: 'nord', dark: true, overrides: {blur: 20}}).blur, 20));
+test('theme overrides applied', () => assert.equal(resolveTheme({custom: [], name: 'nord', dark: true, overrides: {radius: 20}}).radius, 20));
 test('unknown theme falls back', () => assert.equal(resolveTheme({custom: [], name: 'nope', dark: true}).name, 'default-dark'));
 test('custom theme resolved', () => assert.equal(resolveTheme({custom: [{name: 'mine', accent: '#ff0000'}], name: 'mine', dark: true}).accent, '#ff0000'));
 test('cssColor alpha', () => assert.equal(cssColor('#000000', 0.5), 'rgba(0,0,0,0.5)'));
@@ -684,7 +686,7 @@ test('process separation: shell code never loads GTK, prefs never load Shell lib
     }
 });
 test('prefs-reachable modules are pure (only relative imports)', () => {
-    for (const f of ['themes/themes.js', 'commands/schema.js', 'commands/builtins.js', 'search/engine.js', 'emoji/emoji.js', 'emoji/data.js', 'clipboard/image.js', 'clipboard/persist.js', 'blur/defs.js', 'search/history.js', 'commands/exec.js', 'accounts/accounts.js', 'search/regex.js', 'search/web.js']) {
+    for (const f of ['themes/themes.js', 'commands/schema.js', 'commands/builtins.js', 'search/engine.js', 'emoji/emoji.js', 'emoji/data.js', 'clipboard/image.js', 'clipboard/persist.js', 'search/history.js', 'ui/identity.js', 'ui/accent.js', 'files/results.js', 'commands/exec.js', 'accounts/accounts.js', 'search/regex.js', 'search/web.js']) {
         const src = readFileSync(join(root, f), 'utf8');
         for (const m of src.matchAll(/^import .* from '([^']+)'/gm))
             assert.ok(m[1].startsWith('.'), `${f} imports ${m[1]}`);
@@ -705,7 +707,7 @@ test('every settings key used in code exists in the schema', () => {
     const re = /(?:\.(?:str|int|num|bool|strv|json)|get_string|get_int|get_double|get_boolean|get_strv|set_string|set_int|set_strv|(?:switch|spin|entry|combo)Row\(settings,|bump\(settings,|onChanged\()\(?\s*'([a-z][a-z-]+)'/g;
     for (const f of jsFiles(root)) {
         for (const m of readFileSync(f, 'utf8').matchAll(re)) {
-            if (!['color-scheme', 'overlay-key', 'show-banners'].includes(m[1])) // keys of GNOME's own schemas
+            if (!['color-scheme', 'accent-color', 'overlay-key', 'show-banners'].includes(m[1])) // keys of GNOME's own schemas
                 assert.ok(keys.has(m[1]), `${f}: unknown settings key "${m[1]}"`);
         }
     }
@@ -809,85 +811,6 @@ test('the history never deletes files it only links', () => {
     const i = src.indexOf('_discard(it) {');
     const body = src.slice(i, src.indexOf('\n    }\n', i));
     assert.ok(body.includes('!it.image.linked') && body.includes('isCopyName'), 'discard must skip linked files and only touch our own copies');
-});
-test('blur: every effect in the editor has a class, a shader (where it needs one) and defaults', () => {
-    const reg = readFileSync(join(root, 'blur/effects/registry.js'), 'utf8');
-    for (const [type, def] of Object.entries(EFFECTS)) {
-        assert.ok(reg.includes(`${type}: {class:`), `${type} missing from registry.js`);
-        assert.ok(existsSync(join(root, `blur/effects/${type}.js`)), `${type}.js missing`);
-        for (const k of Object.keys(def.editable_params))
-            assert.ok(k in def.defaults, `${type}.${k} has no default`);
-    }
-    for (const t of ['gaussian_blur', 'monte_carlo_blur', 'color', 'luminosity', 'noise', 'corner', 'derivative', 'downscale', 'upscale', 'rgb_to_hsl', 'hsl_to_rgb'])
-        assert.ok(existsSync(join(root, `blur/effects/${t}.glsl`)), `${t}.glsl missing`);
-    const grouped = Object.values(GROUPS).flatMap(g => g.contains).sort();
-    assert.deepEqual(grouped, Object.keys(EFFECTS).sort(), 'every effect belongs to exactly one group');
-});
-test('blur: parameters are clamped, unknown keys dropped, missing ones defaulted', () => {
-    assert.deepEqual(cleanParams('corner', {radius: 9999, evil: 1, corners_top: 'yes'}), {radius: 150, corners_top: true, corners_bottom: true});
-    assert.equal(cleanParams('native_static_gaussian_blur', {unscaled_radius: -5, brightness: 7}).unscaled_radius, 0);
-    assert.equal(cleanParams('native_static_gaussian_blur', {brightness: 7}).brightness, 1);
-    assert.equal(cleanParams('native_static_gaussian_blur', {unscaled_radius: NaN}).unscaled_radius, 30);
-    assert.deepEqual(cleanParams('color', {color: [2, -1, 0.5, 0.5], blend_mode: 99}), {color: [1, 0, 0.5, 0.5], blend_mode: 0});
-    assert.deepEqual(cleanParams('rgb_to_hsl', {a: 1}), {});
-    assert.equal(cleanParams('noise', null).noise, 0.4);
-});
-test('blur: stored pipelines are validated and the defaults always exist', () => {
-    const p = sanitizePipelines({
-        mine: {name: 'Mine\u0007', effects: [{type: 'corner', id: 'e1', params: {radius: 20}}, {type: 'nope'}, null, {type: 'noise', id: 'e1'}]},
-        '../bad id': {name: 'x', effects: []},
-        broken: {name: 'b', effects: 'no'},
-    });
-    assert.deepEqual(Object.keys(p).sort(), ['mine', 'pipeline_default', 'pipeline_default_rounded']);
-    assert.equal(p.mine.name, 'Mine');
-    assert.equal(p.mine.effects.length, 2);
-    assert.notEqual(p.mine.effects[0].id, p.mine.effects[1].id, 'duplicate effect ids are renamed');
-    assert.deepEqual(Object.keys(sanitizePipelines('junk')), Object.keys(DEFAULT_PIPELINES));
-    assert.equal(pickPipeline(p, 'gone'), 'pipeline_default');
-    assert.equal(pickPipeline(p, 'mine'), 'mine');
-    const e = newEffect('luminosity');
-    assert.equal(e.type, 'luminosity');
-    assert.equal(e.params.contrast, 1);
-});
-test('blur: the settings decide which kind of blur is built', () => {
-    const base = {themeSigma: 30, themeRadius: 16, sigma: 40, brightness: 0.8, cornerAuto: true, cornerRadius: 5, pipelines: null, pipeline: 'pipeline_default'};
-    assert.deepEqual(resolveBlur({...base, mode: 'off'}), {kind: 'none'});
-    assert.deepEqual(resolveBlur({...base, mode: 'theme', themeSigma: 0}), {kind: 'none'});
-    assert.deepEqual(resolveBlur({...base, mode: 'theme'}), {kind: 'dynamic', sigma: 30, brightness: 1, cornerRadius: 16});
-    assert.deepEqual(resolveBlur({...base, mode: 'dynamic'}), {kind: 'dynamic', sigma: 40, brightness: 0.8, cornerRadius: 16});
-    assert.equal(resolveBlur({...base, mode: 'dynamic', cornerAuto: false}).cornerRadius, 5);
-    assert.equal(resolveBlur({...base, mode: 'dynamic', sigma: 0}).kind, 'none');
-    const st = resolveBlur({...base, mode: 'static', pipeline: 'missing'});
-    assert.equal(st.kind, 'static');
-    assert.equal(st.pipelineId, 'pipeline_default');
-    assert.equal(st.pipeline[0].type, 'native_static_gaussian_blur');
-    assert.equal(resolveBlur({...base, mode: 'weird'}).kind, 'dynamic'); // unknown mode behaves like "theme"
-});
-test('blur: the default pipelines in the schema match the code', () => {
-    const xml = readFileSync(join(root, 'schemas/org.gnome.shell.extensions.gnome-launcher.gschema.xml'), 'utf8');
-    const m = xml.match(/<key name="blur-pipelines" type="s"><default>'(.*)'<\/default>/);
-    assert.ok(m, 'blur-pipelines key');
-    assert.deepEqual(sanitizePipelines(JSON.parse(m[1])), sanitizePipelines(null));
-    assert.deepEqual(Object.keys(JSON.parse(m[1])).sort(), Object.keys(DEFAULT_PIPELINES).sort());
-    for (const [id, p] of Object.entries(DEFAULT_PIPELINES))
-        assert.deepEqual(JSON.parse(m[1])[id].effects.map(e => [e.type, e.id]), p.effects.map(e => [e.type, e.id]));
-});
-test('blur: the shell-side module is only ever loaded on demand, and the launcher window itself carries no effect', () => {
-    for (const f of jsFiles(root)) {
-        if (f.includes('/tests/') || f.includes('/blur/'))
-            continue;
-        const src = readFileSync(f, 'utf8');
-        assert.ok(!/from '\.\.?\/blur\/blur\.js'/.test(src), `${f} imports blur/blur.js statically`);
-        assert.ok(!/blur\/effects\//.test(src.replace(/\/\/.*$/gm, '')) || f.includes('prefs/'), `${f} reaches into blur/effects`);
-    }
-    const ui = readFileSync(join(root, 'ui/launcher.js'), 'utf8');
-    assert.ok(ui.includes("import('../blur/blur.js')"));
-    assert.ok(!/_box\.add_effect|box\.add_effect/.test(ui), 'the window box must not carry a blur effect');
-    assert.ok(!ui.includes('Shell.BlurEffect'), 'blur effects are created in blur/, not in the launcher');
-});
-test('blur: license notice for the code taken from Blur my Shell is shipped', () => {
-    assert.ok(existsSync(join(root, 'blur/LICENSE-blur-my-shell')));
-    assert.match(readFileSync(join(root, 'blur/NOTICE.md'), 'utf8'), /GPL/);
 });
 test('Super key: uses Mutter\'s overlay-key signal, never the stage, and never rewrites overlay-key', () => {
     const src = readFileSync(join(root, 'shortcuts/keybindings.js'), 'utf8');
@@ -1037,14 +960,124 @@ test('favorites: Ctrl+D toggles, only fixed entries qualify, a star marks them',
     assert.match(xml, /favorites-enabled" type="b"><default>true<\/default>/);
     assert.match(xml, /name="favorites" type="s"><default>'\[\]'<\/default>/);
 });
-test('clicks and taps: wired through the click gesture and the button events, counted once, ignored while closing', () => {
+test('clicks and taps: each input path is attempted on its own, so a missing one can never disable the other', () => {
     const ui = readFileSync(join(root, 'ui/launcher.js'), 'utf8');
-    assert.ok(ui.includes('Clutter.ClickGesture') && ui.includes("'button-release-event'"), 'both input paths');
-    assert.ok(ui.includes('function onPrimaryClick') && ui.includes('launcher._clicked(this.index)'));
-    assert.ok(!/actor\.connect\('button-release-event'/.test(ui.replace(/function onPrimaryClick[\s\S]*?\n}\n/, '')), 'rows and cells use onPrimaryClick only');
+    assert.ok(ui.includes('function tryConnect') && ui.includes('Clutter.ClickGesture'), 'both input paths');
+    assert.ok(!/signal_lookup|HAS_RELEASE|HAS_MOTION/.test(ui), 'no up-front guess about which signals exist (it disabled every click once)');
+    assert.ok(ui.includes("tryConnect(actor, 'button-release-event'"), 'rows and cells keep the button-release path');
+    assert.ok(ui.includes("tryConnect(this._overlay, 'button-press-event'"), 'a press outside still closes the window');
+    assert.ok(!ui.includes('recognize_on_press'), 'no gesture on the overlay: it sits above every row');
+    assert.ok(ui.includes('launcher._clicked(this.index)') && ui.includes('launcher._clicked(grid.base + this.col)'));
     assert.ok(ui.includes("this._state !== 'open' && this._state !== 'opening'") && ui.includes('now - this._lastClick < 400000'));
-    assert.ok(ui.includes("'may-recognize'"), 'an outside press closes the window through the gesture too');
     assert.ok(ui.includes('_keyRecent()'), 'rows scrolling under a resting pointer do not steal the selection');
+});
+test('blur is not part of this extension: nothing creates or configures it', () => {
+    const xml = readFileSync(join(root, 'schemas/org.gnome.shell.extensions.gnome-launcher.gschema.xml'), 'utf8');
+    assert.ok(!/name="blur-/.test(xml));
+    assert.ok(!existsSync(join(root, 'blur')) && !existsSync(join(root, 'prefs/blur.js')));
+    for (const f of jsFiles(root)) {
+        if (f.includes('/tests/'))
+            continue;
+        const src = readFileSync(f, 'utf8').replace(/\/\/.*$/gm, '');
+        assert.ok(!/BlurEffect|blur\/|_applyBlur|blur-mode/.test(src), `${f} still mentions blur`);
+    }
+});
+test('the launcher window can be recognised by other tools: name, style class, accessible name, schema id', () => {
+    assert.equal(IDENTITY.window.name, WM_CLASS);
+    assert.ok(IDENTITY.window.styleClass.split(' ').includes(WM_CLASS));
+    assert.ok(IDENTITY.window.styleClass.includes('org-gnome-shell-extensions-gnome-launcher'));
+    assert.equal(SCHEMA_ID, 'org.gnome.shell.extensions.gnome-launcher');
+    assert.equal(UUID, JSON.parse(readFileSync(join(root, 'metadata.json'), 'utf8')).uuid);
+    const xml = readFileSync(join(root, 'schemas/org.gnome.shell.extensions.gnome-launcher.gschema.xml'), 'utf8');
+    assert.ok(xml.includes(`schema id="${SCHEMA_ID}"`));
+    const ui = readFileSync(join(root, 'ui/launcher.js'), 'utf8');
+    assert.ok(ui.includes('name: IDENTITY.window.name') && ui.includes('style_class: IDENTITY.window.styleClass') && ui.includes('accessible_name: IDENTITY.window.accessibleName'));
+});
+test('file search: words, backends, locate command line', () => {
+    assert.deepEqual(toTerms('  my\t report\n2024 '), ['my', 'report', '2024']);
+    assert.deepEqual(toTerms('a'.repeat(100)).map(t => t.length), [64]);
+    assert.equal(toTerms('a b c d e f g h').length, 6);
+    assert.deepEqual(toTerms(null), []);
+    const both = {gnome: true, locate: '/usr/bin/plocate'};
+    assert.equal(pickBackend('auto', both), 'gnome');
+    assert.equal(pickBackend('auto', {gnome: false, locate: '/usr/bin/plocate'}), 'locate');
+    assert.equal(pickBackend('locate', both), 'locate');
+    assert.equal(pickBackend('gnome', {gnome: false, locate: 'x'}), null, 'a chosen backend that is missing is not replaced silently');
+    assert.equal(pickBackend('auto', {gnome: false, locate: null}), null);
+    assert.deepEqual(locateArgs('/usr/bin/plocate', ['my', 'report'], 400),
+        ['/usr/bin/plocate', '-i', '-b', '-A', '-e', '-l', '400', '--', 'my', 'report']);
+    assert.ok(locateArgs('locate', ['-rf'], 5).indexOf('--') < locateArgs('locate', ['-rf'], 5).indexOf('-rf'), 'words that look like options come after --');
+    assert.deepEqual(parseLines('a\n\nb\n'), ['a', 'b']);
+});
+test('file search: URIs and path filtering', () => {
+    assert.equal(pathFromUri('file:///home/me/My%20Doc.txt'), '/home/me/My Doc.txt');
+    assert.equal(pathFromUri('file://host/etc/x'), '/etc/x');
+    assert.equal(pathFromUri('https://example.com/a'), null);
+    assert.equal(pathFromUri('file:///bad%zz'), null);
+    const home = '/home/me';
+    const all = ['/home/me/Docs/a.txt', '/home/me/.cache/b', '/home/me/Docs/.hidden/c', '/usr/share/d', '/proc/1/e', 'relative/f', '/home/me/Docs/a.txt', '/home/me/bad\nname', '/homeother/g'];
+    assert.deepEqual(filterPaths(all, {home, hidden: false, outsideHome: false, max: 10}), ['/home/me/Docs/a.txt']);
+    assert.deepEqual(filterPaths(all, {home, hidden: true, outsideHome: false, max: 10}), ['/home/me/Docs/a.txt', '/home/me/.cache/b', '/home/me/Docs/.hidden/c']);
+    assert.deepEqual(filterPaths(all, {home, hidden: false, outsideHome: true, max: 10}), ['/home/me/Docs/a.txt', '/usr/share/d', '/homeother/g']);
+    assert.equal(filterPaths(all, {home, hidden: true, outsideHome: true, max: 2}).length, 2);
+    assert.equal(shortPath('/home/me/Docs', home), '~/Docs');
+    assert.equal(shortPath('/homeother/x', home), '/homeother/x');
+    assert.deepEqual(describeFile('/home/me/Docs/a.txt', home), {name: 'a.txt', desc: '~/Docs', keywords: '/home/me/Docs/a.txt'});
+    assert.equal(dirName('/a'), '/');
+    assert.equal(baseName('/a/b.c'), 'b.c');
+});
+test('file search: off by default, keeps nothing, asks a backend each time', () => {
+    const xml = readFileSync(join(root, 'schemas/org.gnome.shell.extensions.gnome-launcher.gschema.xml'), 'utf8');
+    assert.match(xml, /files-enabled" type="b"><default>false<\/default>/);
+    assert.match(xml, /files-hidden" type="b"><default>false<\/default>/);
+    assert.match(xml, /files-outside-home" type="b"><default>false<\/default>/);
+    const src = readFileSync(join(root, 'files/search.js'), 'utf8');
+    assert.ok(!/save|replace_contents|JsonStore|writeFile/i.test(src), 'the file search must not write anything');
+    assert.ok(src.includes('org.gnome.Shell.SearchProvider2') && src.includes('GetInitialResultSet'));
+    const ext = readFileSync(join(root, 'extension.js'), 'utf8');
+    assert.ok(ext.includes("c.bool('files-enabled')") && ext.includes("this._filesFor === q"), 'a query is asked once, not on every refresh');
+    const ui = readFileSync(join(root, 'ui/launcher.js'), 'utf8');
+    assert.ok(ui.includes('addAsyncResults(query, entries)') && ui.includes("r.kind === 'web'"), 'late results go before a web fallback');
+});
+test('action menu: off by default, Ctrl+B only when on, Ctrl+H/Ctrl+F only when off, menu has its own back path', () => {
+    const xml = readFileSync(join(root, 'schemas/org.gnome.shell.extensions.gnome-launcher.gschema.xml'), 'utf8');
+    assert.match(xml, /action-menu" type="b"><default>false<\/default>/);
+    const ui = readFileSync(join(root, 'ui/launcher.js'), 'utf8');
+    const i = ui.indexOf('case Clutter.KEY_b:');
+    const keys = ui.slice(i, i + 900);
+    assert.ok(/KEY_b:\s+if \(!this\._menuOn\(\)\)\s+return Clutter\.EVENT_PROPAGATE/.test(keys));
+    assert.ok(/KEY_h:\s+if \(this\._menuOn\(\)\)\s+return Clutter\.EVENT_PROPAGATE/.test(keys));
+    assert.ok(/KEY_f:\s+case Clutter\.KEY_d:\s+if \(this\._menuOn\(\)\)/.test(keys));
+    assert.ok(ui.includes('if (this.leaveMenu())'), 'Escape closes only the menu');
+    const ext = readFileSync(join(root, 'extension.js'), 'utf8');
+    for (const op of ['newWindow', 'newWorkspace', 'appaction', 'showDir', 'editDesktop', 'favorite', 'hide', 'forget', 'prefs', 'quit'])
+        assert.ok(ext.includes(`case '${op}':`), `menu operation ${op}`);
+    assert.ok(ext.includes("if (mode === 'actions')"));
+    assert.ok(ext.includes("entry.kind !== 'menu'"), 'choosing a menu item is not recorded as a search');
+});
+test('shadow is off unless switched on; the running marker follows the settings', () => {
+    const st = buildStyles({...LAYOUT, shadow: false, activeColor: '#3584e4', activeIndicator: 'dot', activePosition: 'before'}, builtinThemes()['default-dark']);
+    assert.ok(!st.box.includes('box-shadow'));
+    const on = buildStyles({...LAYOUT, shadow: true, activeColor: '#3584e4', activeIndicator: 'dash', activePosition: 'after'}, builtinThemes()['default-dark']);
+    assert.ok(on.box.includes('box-shadow'));
+    assert.match(on.active, /background-color: #3584e4/);
+    assert.match(on.active, /width: 14px; height: 3px/);
+    assert.match(st.active, /width: 6px; height: 6px/);
+    assert.ok(st.activeOn && on.activeAfter && !st.activeAfter);
+    assert.ok(!buildStyles({...LAYOUT, activeIndicator: 'none'}, builtinThemes()['default-dark']).activeOn);
+    const xml = readFileSync(join(root, 'schemas/org.gnome.shell.extensions.gnome-launcher.gschema.xml'), 'utf8');
+    assert.match(xml, /shadow-enabled" type="b"><default>false<\/default>/);
+});
+test('running marker colour: system accent, theme accent or custom, always a valid colour', () => {
+    assert.equal(activeColor({mode: 'system', system: 'green', theme: '#111111', custom: '#222222'}), ACCENTS.green);
+    assert.equal(activeColor({mode: 'system', system: null, theme: '#111111', custom: '#222222'}), '#111111', 'no desktop accent: the theme\'s');
+    assert.equal(activeColor({mode: 'theme', system: 'red', theme: '#111111', custom: '#222222'}), '#111111');
+    assert.equal(activeColor({mode: 'custom', system: 'red', theme: '#111111', custom: ' #abc '}), '#abc');
+    assert.equal(activeColor({mode: 'custom', system: 'red', theme: '#111111', custom: 'javascript:alert(1)'}), ACCENTS.red, 'a bad custom colour is ignored');
+    assert.equal(activeColor({mode: 'x', system: 'nope', theme: 'nope', custom: 'nope'}), ACCENTS.blue);
+    assert.ok(isColor('#3584e4') && isColor('#3584e4ff') && !isColor('3584e4') && !isColor('#12'));
+    const ext = readFileSync(join(root, 'extension.js'), 'utf8');
+    assert.ok(ext.includes("has_key('accent-color')"), 'the desktop accent key is only read where it exists');
 });
 test('blocklist: exact, case, .desktop and wildcard matching', () => {
     const b = compileBlocklist(['Steam_App_*', 'org.gnome.Nautilus.desktop', '  ', 'vmw?are*']);

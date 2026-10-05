@@ -3,7 +3,7 @@
 ## Automated (no GNOME needed)
 
 ```sh
-node tests/run.mjs          # 129 tests: search, frecency, themes and presets, emoji, clipboard images, accounts, validation, calculator, built-ins, static lint
+node tests/run.mjs          # 130 tests: search, frecency, themes and presets, emoji, clipboard images, accounts, validation, calculator, built-ins, static lint
 node tools/bench.mjs 20000  # search latency (use `gjs -m tools/bench.mjs` for SpiderMonkey numbers)
 glib-compile-schemas --strict --dry-run schemas
 ```
@@ -27,7 +27,7 @@ Nested session for safe iteration: `dbus-run-session gnome-shell --nested --wayl
 | Prefs changes | Change every Appearance control while the launcher is closed and open | Applied without reload |
 | Missing icons | Entry with a bogus icon name/path | Falls back to a generic icon |
 | Many entries | Import ~2000 generated commands | Typing stays instant; scrolling smooth |
-| Transparency/blur | Opacity 0.5; blur 30 on a busy wallpaper | Translucent; blur applied or one logged warning |
+| Transparency | Opacity 0.5 on a busy wallpaper | Translucent window, no blur (blur is not part of this extension) |
 | Rapid toggling | Hold the shortcut / spam it | No stuck overlay, input always returns to the desktop |
 | Pointer outside | Try each *Pointer outside the window* mode: click outside, move the pointer out, "never" | Closes only as configured; hover mode does not close at open if the pointer starts outside |
 | Window shortcuts | Give a command a window shortcut (e.g. Ctrl+1) and a built-in one; try with the launcher open and closed | Fires only while open; no effect when closed; Ctrl-less shortcuts are ignored with a log line |
@@ -44,7 +44,6 @@ Nested session for safe iteration: `dbus-run-session gnome-shell --nested --wayl
 | Scrollbar | Type until the list exceeds the maximum height; wheel, touchpad and arrows | Scrolls everywhere, no scrollbar drawn; the switch brings it back |
 | Scroll all results | Turn on *Scroll through every result*, open with an empty search and scroll to the bottom | Every entry reachable; no hitch; Up on the first row of a long list stays put |
 | Shadow flicker | Use a theme with a shadow and a small window; type so the result count changes quickly, with a non-maximised window behind | Border and shadow stay steady while typing and during open/close |
-| Blur with apps behind | Blur 30, open over a non-maximised application, repeat 20x | No garbage or flicker around the window; blur appears right after it settles. If something is still wrong set blur to 0 to confirm the cause |
 | Presets | Pick Raycast and Vicinae in *Quick preset*; toggle GNOME dark mode | Light/dark variants switch live |
 | Emoji grid | Set *Emoji list style* to grid, open the picker; arrows, PageDown, hover, click, mouse wheel; resize the window width and the cell size | Cells fill the width; selection and the name line follow arrows and mouse; scrolls to the end of the list; no hitch while scrolling |
 | Shared keyword | Type `app` in the main search; change the keyword in Search; empty it | Lists Emoji Picker, Clipboard History, Passwords & Accounts and the power actions; changes live; empty disables it |

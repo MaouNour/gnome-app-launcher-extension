@@ -1,5 +1,31 @@
 # Technical notes
 
+## 0.6.0: click fix, blur removed, running marker, action menu, file search
+
+### Click regression from 0.5.3
+`ui/launcher.js` computed `HAS_RELEASE`/`HAS_MOTION` with `GObject.signal_lookup(name, Clutter.Actor)`; it returned 0 (the second argument is a GType, not a class), so `onPrimaryClick` connected no `button-release-event` handler and no row reacted. Now `tryConnect(actor, signal, fn)` wraps `actor.connect` in try/catch and every path is attempted on its own: `Clutter.ClickGesture` (when the class exists, in its own try/catch) and `button-release-event`; `_clicked` still ignores a repeat within 400 ms and clicks while the window is closing. The overlay press/motion handlers use `tryConnect` too. The `ClickGesture(recognize_on_press)` on the overlay was removed (it sat above every row and was a risk with no benefit; the press handler already closes on an outside click). If clicks still fail, `dbg('click on result N')` shows whether any arrive.
+
+### Blur removed
+Deleted `blur/` (effects, shaders, manager, pipeline, license and notice), `prefs/blur.js`, the `blur-*` schema keys, the theme `blur` field, `style.js` `blur`/`radius` outputs, `Launcher._applyBlur` and every blur call in `_animate`, `_place`, `destroy`, the blur tests and docs. `_animate` is back to a single `box.ease(...)`. Shadow remains (`shadow-enabled`, default false; `buildStyles` only emits `box-shadow` when `layout.shadow` is true and the theme has opacity).
+
+### Identity (`ui/identity.js`)
+`WM_CLASS = 'gnome-launcher'`, `APP_ID`/`SCHEMA_ID = 'org.gnome.shell.extensions.gnome-launcher'`, `UUID`. The overlay has name `gnome-launcher-overlay`, style class `gnome-launcher-overlay`; the window box has `name: 'gnome-launcher'`, style classes `gnome-launcher gnome-launcher-window gnome-launcher org-gnome-shell-extensions-gnome-launcher` and accessible name "GNOME Launcher". **Limit:** Blur my Shell's Applications component (`components/applications.js`) only handles `Meta.WindowActor`s and matches `meta_window.get_wm_class()`; a Shell actor never appears there and has no window class, so no value set on this actor can make it selectable in Blur my Shell today. A Blur my Shell component that finds an actor in `Main.uiGroup` by name (like its `dash_to_dock.js`) would be needed.
+
+### Running marker
+`ui/accent.js` (pure): `activeColor({mode, custom, system, theme})` with the GNOME accent names mapped to libadwaita colours and fallbacks. `extension._activeColor` reads `org.gnome.desktop.interface accent-color` only if the key exists and restyles on `changed::accent-color`. `style.js` outputs `active`/`activeSel` (dot 6x6 or dash 14x3, scaled), `activeOn`, `activeAfter`. `Row` has a `mark` widget moved before the icon or before the tag; `Row.set(entry, fav, running)`; `Launcher._isRunning` compares `entry.payload.appId` with `Shell.AppSystem.get_running()` ids (callback `running`, read on each `_refresh`).
+
+### Action menu
+Launcher: setting `action-menu` (false). Ctrl+B / right click -> `_openMenu(i)` (main search only) -> `onMenu(entry)` returns `{placeholder}` and the launcher enters mode `actions`; `leaveMenu()` restores the earlier text and selection; Escape and Backspace-on-empty call it. Ctrl+H, Ctrl+F and Ctrl+D return PROPAGATE while the menu is on, Ctrl+B while it is off. Extension: `_menuInfo/_menuItems/_menuSearch/_runMenu`; item kinds `menu` (not recorded as searches). `applications/launch.js` gained `launchApp(id, {newWindow})`, `launchAppAction`, `describeApp` (desktop file, command line, actions, running state), `quitApp`, `editFile`; runner kinds `appaction` and `file`; `Stats.forget(id)`. New workspace: `global.workspace_manager.append_new_workspace(true, time)` then a new window of the app.
+
+### File search
+`files/results.js` (pure): terms, backend choice, `locate` arguments (`-i -b -A -e -l N --`), URI parsing, path filtering (home only, no hidden, no pseudo file systems unless allowed), labels. `files/search.js`: `FileSearch` finds GNOME's provider from `org.gnome.Nautilus.search-provider.ini` (BusName/ObjectPath), calls `org.gnome.Shell.SearchProvider2.GetInitialResultSet` over D-Bus (4 s timeout, cancellable), or runs `plocate/locate/mlocate` with `Gio.Subprocess` (cancellable, output bounded by `-l 400`). Nothing is written to disk. Extension: `_wantFiles(query)` (debounced 250 ms, once per query via `_filesFor`), `_runFiles`, `_fileEntry`, `_openFile`; `Launcher.addAsyncResults(query, entries)` merges the late results before a web fallback and ignores them if the text changed. Keys: `files-enabled` (false), `files-backend` (auto), `files-min-chars` (3), `files-max` (8), `files-hidden` (false), `files-outside-home` (false). Prefs show which backends exist (same lookups).
+
+### Tests (130)
+Click wiring without up-front signal guesses; blur really gone; identity names and schema id; file-result helpers; file search off by default and write-free; action menu key rules and operations; shadow off by default and marker styles; accent colour fallbacks.
+
+### Not verified
+No GNOME Shell was available; Shell/Clutter/D-Bus code is syntax-checked only. Check: clicks and taps on rows and emoji cells; Ctrl+B menu items (new workspace especially); a file search with GNOME and with locate; the dot colour with different accents; the shadow switch.
+
 ## 0.5.3: click/tap fix and favorites
 
 ### Click / tap / touch (`ui/launcher.js`)

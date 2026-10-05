@@ -9,9 +9,8 @@ import {ACTION_FIELDS, COMMAND_FIELDS, newAction, newCommand, sanitizeAction, sa
 import {THEME_FIELDS, THEME_BASE, THEME_FAMILIES, builtinThemes, resolveTheme, sanitizeTheme, themeNames} from '../themes/themes.js';
 import {sanitizeProvider, newProvider} from '../search/web.js';
 import {accountsPage} from './accounts.js';
-import {blurPage} from './blur.js';
 import {compileBlocklist, normalizeBlockEntry} from '../shortcuts/blocklist.js';
-import {ListEditor, Overrides, comboRow, entryRow, fileDialog, group, regexHelpButton, shortcutRow, spinRow, switchRow, toast} from './widgets.js';
+import {ListEditor, Overrides, colorRow, comboRow, entryRow, fileDialog, group, regexHelpButton, shortcutRow, spinRow, switchRow, toast} from './widgets.js';
 
 const page = (title, icon) => new Adw.PreferencesPage({title, icon_name: icon});
 
@@ -327,11 +326,39 @@ const hiddenGroup = (window, settings) => entryListGroup(window, settings, {
 const favoritesGroup = (window, settings) => {
     return entryListGroup(window, settings, {
         key: 'favorites', title: 'Favorites', allLabel: 'Remove all', buttonLabel: 'Remove',
-        description: 'Press Ctrl+D on a result in the launcher to make it a favorite, and again to take it off. Favorites are listed first (marked with a star) when the launcher opens, before the recently used entries.',
-        emptyTitle: 'No favorites yet', emptyHint: 'Press Ctrl+D on an application, command or action in the launcher.',
+        description: 'Press Ctrl+F (or Ctrl+D) on a result in the launcher to make it a favorite, and again to take it off. Favorites are listed first (marked with a star) when the launcher opens, before the recently used entries.',
+        emptyTitle: 'No favorites yet', emptyHint: 'Press Ctrl+F on an application, command or action in the launcher.',
         doneToast: 'All favorites removed',
     });
 };
+
+// What file search can use on this computer, looked up the same way the Shell does.
+function fileBackends() {
+    let gnome = false;
+    for (const d of [GLib.get_user_data_dir(), ...GLib.get_system_data_dirs()]) {
+        if (GLib.file_test(GLib.build_filenamev([d, 'gnome-shell', 'search-providers', 'org.gnome.Nautilus.search-provider.ini']), GLib.FileTest.EXISTS))
+            gnome = true;
+    }
+    const locate = ['plocate', 'locate', 'mlocate'].map(t => GLib.find_program_in_path(t)).find(Boolean) ?? null;
+    return {gnome, locate};
+}
+
+function filesGroup(settings) {
+    const have = fileBackends();
+    const g = group('File search',
+        'Adds files to the results while you type. Off by default. This extension keeps no list of your files: each search asks GNOME\'s file search or the system\'s locate database, and nothing is stored.');
+    g.add(switchRow(settings, 'files-enabled', 'Search for files'));
+    g.add(comboRow(settings, 'files-backend', 'Where to look', [
+        ['auto', 'Automatic (GNOME first, then locate)'],
+        ['gnome', 'GNOME file search'],
+        ['locate', 'The locate database (plocate, mlocate)'],
+    ], `GNOME file search (Files app search provider, the LocalSearch index): ${have.gnome ? 'found' : 'not found'}. locate: ${have.locate ?? 'not found'}. GNOME only finds what it indexes (usually your home folders); locate needs its database to be up to date (updatedb).`));
+    g.add(spinRow(settings, 'files-min-chars', 'Start searching after (characters)', 2, 20, 1, 'Shorter searches match too many files.'));
+    g.add(spinRow(settings, 'files-max', 'Files to show', 1, 100, 1));
+    g.add(switchRow(settings, 'files-hidden', 'Include hidden files and folders', 'Names that start with a dot.'));
+    g.add(switchRow(settings, 'files-outside-home', 'Include files outside the home folder', 'Only the locate database finds these.'));
+    return g;
+}
 
 function appearance(window, settings) {
     const p = page('Appearance', 'applications-graphics-symbolic');
@@ -360,6 +387,22 @@ function appearance(window, settings) {
     size.add(spinRow(settings, 'font-size', 'Font size (pt)', 6, 40, 0.5, '', 1));
     p.add(size);
     p.add(fontsGroup(settings));
+
+    const fx = group('Shadow', 'The window\'s drop shadow. It is off by default; when on, each theme decides how strong and how soft it is (see the Themes page).');
+    fx.add(switchRow(settings, 'shadow-enabled', 'Show a shadow around the window'));
+    p.add(fx);
+
+    const act = group('Running applications',
+        'A small mark on the entries of applications that are open, so you can tell a switch from a launch.');
+    act.add(comboRow(settings, 'active-indicator', 'Mark', [['dot', 'Dot'], ['dash', 'Dash'], ['none', 'None']]));
+    act.add(comboRow(settings, 'active-position', 'Position', [['before', 'Before the icon'], ['after', 'At the end of the row']]));
+    act.add(comboRow(settings, 'active-accent', 'Colour from', [
+        ['system', 'The desktop accent colour (GNOME 47 and newer)'],
+        ['theme', 'The launcher theme\'s accent'],
+        ['custom', 'A colour of my choice'],
+    ]));
+    act.add(colorRow(settings, 'active-color', 'Custom colour', 'Used when the choice above is \"A colour of my choice\". On the highlighted row the mark takes the selection text colour so it stays visible.'));
+    p.add(act);
 
     const field = group('Search field icon', 'The icon at the start of the search field.');
     const iconRow = entryRow(settings, 'search-icon', 'Icon name or file path (empty = no icon)');
@@ -435,7 +478,7 @@ function themes(window, settings) {
                 t.name = 'Imported theme';
             return t;
         },
-        itemSubtitle: t => (t.opacity < 1 || t.blur > 0 ? 'translucent' : ''),
+        itemSubtitle: t => (t.opacity < 1 ? 'translucent' : ''),
     });
 
     const from = new Adw.ActionRow({title: 'Start from a built-in theme'});
@@ -583,6 +626,12 @@ function search(window, settings) {
     ex.add(switchRow(settings, 'exec-shell', 'Run through a shell',
         'On: pipes, &&, $VARIABLES and wildcards work. Off: the command is split like a shell would but started directly, with no shell involved.'));
     p.add(ex);
+    const am = group('Action menu',
+        'Ctrl+B (or a right click) on a result opens a menu of what you can do with it: open in a new window or a new workspace, the application\'s own actions, show or edit its desktop entry, copy its command, add it to the favorites, hide it and more.');
+    am.add(switchRow(settings, 'action-menu', 'Use the action menu',
+        'On: Ctrl+B opens the menu, and Ctrl+H (hide) and Ctrl+F (favorite) stop working because the menu has both. Off: Ctrl+H hides and Ctrl+F favorites directly, and there is no menu. Escape closes the menu only.'));
+    p.add(am);
+    p.add(filesGroup(settings));
     const al = group('Open the only match',
         'When exactly one application, command or action matches, open it without pressing Enter. Web searches, !commands, calculator results, clipboard items, emoji, accounts and power actions are never opened this way.');
     al.add(switchRow(settings, 'auto-launch-single', 'Open the only match automatically',
@@ -612,7 +661,7 @@ function search(window, settings) {
     const st = group('When the launcher opens',
         'What is listed before you type anything. The number of entries is \"Entries shown before typing\" above.');
     st.add(switchRow(settings, 'favorites-enabled', 'Show favorites first',
-        'Your favorites (Ctrl+D on a result) are listed first, marked with a star, and Ctrl+D works. Off keeps the list but hides it. Managed below.'));
+        'Your favorites (Ctrl+F on a result) are listed first, marked with a star, and Ctrl+F works. Off keeps the list but hides it. Managed below.'));
     st.add(switchRow(settings, 'start-recent', 'Show recently used entries first',
         'Lists what you used most recently, newest first, instead of what you use most often. Needs usage statistics, which are collected while this or the ranking option is on.'));
     st.add(switchRow(settings, 'start-fill', 'Fill the rest of the list with other entries',
@@ -707,7 +756,7 @@ export function buildPages(window, settings) {
     }).group);
 
     return [
-        general(settings), appearance(window, settings), themes(window, settings), blurPage(window, settings), shortcuts(window, settings),
+        general(settings), appearance(window, settings), themes(window, settings), shortcuts(window, settings),
         applications(settings), builtinsPage(window, settings), emojiPage(window, settings),
         accountsPage(window, settings, builtinsStore(settings), ownShortcuts), commandsPage, actionsPage, search(window, settings), webPage(window, settings),
         performance(window, settings), advanced(window, settings),

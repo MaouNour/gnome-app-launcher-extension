@@ -3,7 +3,7 @@
 Owner/maintainer: **maou-nournar** (extension UUID `gnome-launcher@maou-nournar`).
 
 A fast, lightweight, highly customizable launcher for GNOME Shell, inspired by Lightbar and Vicinae.
-Fuzzy search over applications, your own commands and actions, with themes, transparency and optional blur.
+Fuzzy search over applications, your own commands and actions, with themes, transparency, an action menu and optional file search.
 
 **Status: 0.1.0, not yet verified inside a live GNOME Shell.** The pure modules (search, themes, validation) are
 unit-tested under node; the Shell/GTK-facing code was only syntax-checked. See `TESTING.md` for the on-device checklist.
@@ -30,9 +30,9 @@ The directory name must equal the UUID (`gnome-launcher@maou-nournar`). Default 
 | GJS | The version shipped with those Shell releases (ES modules, `Gio._promisify`) |
 | Required | Nothing beyond GNOME Shell, GLib/Gio, Clutter, St, libadwaita (prefs) |
 | Optional | `gnome-session-quit`, `systemctl`, `gnome-control-center` for the matching built-in GNOME actions |
-| Mutter/Shell dependent | Blur (`blur/`, native `BlurEffect`), bare-Super activation (`overlay-key`), per-entry shortcuts (`grab_accelerator`) |
+| Mutter/Shell dependent | Bare-Super activation (`overlay-key`), per-entry shortcuts (`grab_accelerator`) |
 
-Version-specific code is isolated: blur in `blur/blur.js`, key handling in `shortcuts/keybindings.js`,
+Version-specific code is isolated: key handling in `shortcuts/keybindings.js`,
 Shell-only APIs in `commands/runner.js` (`GNOME` table).
 
 ## Architecture
@@ -41,7 +41,7 @@ Shell-only APIs in `commands/runner.js` (`GNOME` table).
 extension.js          wiring, lifecycle, config-change dispatch (no heavy work in enable())
 prefs.js, prefs/      Adw preferences (widgets.js: rows, shortcut capture, list editor; pages.js: pages)
 config/config.js      typed GSettings wrapper + parsed-JSON cache
-ui/launcher.js        modal overlay, entry, lazily created pooled rows, animation, blur
+ui/launcher.js        modal overlay, entry, lazily created pooled rows, animation
 ui/style.js           layout + theme -> St CSS strings (computed on change only)
 themes/themes.js      pure: theme schema, sanitizer, built-ins, resolver
 search/engine.js      pure: ranking, fuzzy, narrowing, frecency, regex search
@@ -69,7 +69,7 @@ Key decisions:
 ## Features and where to configure them
 
 Everything is under the extension's preferences: General, Appearance (size, position, search bar placement, typography,
-colours, radius, border, shadow, blur, opacity, animation, overall scale), Themes (light/dark auto-switching, custom
+colours, radius, border, shadow, opacity, animation, overall scale), Themes (light/dark auto-switching, custom
 themes, JSON import/export), Keyboard Shortcuts, Applications (default icons by category), Commands, Custom Actions,
 Search, Performance (cache tools), Advanced.
 
@@ -174,12 +174,11 @@ General > *Pointer outside the window*: close on click (default), close when the
 
 ## Known limitations
 
-- **Blur** is built the way Blur my Shell blurs application windows (see `blur/NOTICE.md`; the code taken from it is GPL-3.0).
-  It is a separate widget right behind the launcher window, not an effect on the window itself, and it follows the
-  window's open/close animation. Modes (Blur page): follow the theme's strength, dynamic (native blur of what is
-  behind the launcher, with strength, brightness and corner radius), static (the wallpaper through a pipeline of
-  effects: native gaussian, gaussian, Monte Carlo, color, luminosity, noise, pixelize, derivative, corner, ...), or off.
-  A theme needs some transparency to show it. If the blur cannot be created the launcher logs once and keeps working.
+- **No blur.** The extension does not blur anything itself. The launcher window carries the names `gnome-launcher`
+  (actor name), the style classes `gnome-launcher gnome-launcher-window org-gnome-shell-extensions-gnome-launcher`, the
+  accessible name "GNOME Launcher" and the schema id `org.gnome.shell.extensions.gnome-launcher` (see `ui/identity.js`),
+  so other tools can find it. It is a Shell actor, not a window, so it has no window class. Blur my Shell's application
+  blur works on windows by their class and cannot select it without a change in Blur my Shell.
 - **Bare Super**: turning the option on runs the equivalent of `gsettings set org.gnome.mutter overlay-key ''` and the launcher detects the Super press itself; turning it off or disabling the extension runs `gsettings reset org.gnome.mutter overlay-key`. If the shell crashes while it is on, run that reset command yourself (a custom overlay-key you had set is not preserved).
 - Shortcut conflict detection in prefs covers GNOME's own keybinding schemas only, not other extensions or apps.
 - The theme drop-downs list themes at the time the preferences window opens.

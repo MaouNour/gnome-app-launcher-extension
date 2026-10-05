@@ -75,17 +75,15 @@
     <key name="clipboard-paste" type="b"><default>true</default></key>
     <key name="calculator" type="b"><default>true</default></key>
 
-    <!-- Blur (blur/ is built on Blur my Shell by aunetx). Mode: theme (the theme's own strength) | dynamic |
-         static (wallpaper through a pipeline of effects) | off -->
-    <key name="blur-mode" type="s"><default>'theme'</default></key>
-    <key name="blur-sigma" type="i"><default>30</default><range min="0" max="100"/></key>
-    <key name="blur-brightness" type="d"><default>1.0</default><range min="0.0" max="1.0"/></key>
-    <key name="blur-corner-auto" type="b"><default>true</default></key>
-    <key name="blur-corner-radius" type="i"><default>16</default><range min="0" max="150"/></key>
-    <!-- The blur repaints whenever it is painted (stops a blur from freezing) -->
-    <key name="blur-repaint" type="b"><default>true</default></key>
-    <key name="blur-pipeline" type="s"><default>'pipeline_default'</default></key>
-    <key name="blur-pipelines" type="s"><default>'{"pipeline_default":{"name":"Default","effects":[{"type":"native_static_gaussian_blur","id":"effect_000000000000","params":{"unscaled_radius":30,"brightness":0.6}}]},"pipeline_default_rounded":{"name":"Default rounded","effects":[{"type":"native_static_gaussian_blur","id":"effect_000000000001","params":{"unscaled_radius":30,"brightness":0.6}},{"type":"corner","id":"effect_000000000002","params":{"radius":24}}]}}'</default></key>
+    <!-- The window's drop shadow. Off by default; the theme still decides how it looks when it is on. -->
+    <key name="shadow-enabled" type="b"><default>false</default></key>
+
+    <!-- A marker on the entries of applications that are running: dot | dash | none. Colour from the
+         desktop accent (system), the launcher theme (theme) or active-color (custom). Position: before | after -->
+    <key name="active-indicator" type="s"><default>'dot'</default></key>
+    <key name="active-accent" type="s"><default>'system'</default></key>
+    <key name="active-color" type="s"><default>'#3584e4'</default></key>
+    <key name="active-position" type="s"><default>'before'</default></key>
 
     <!-- Clipboard history on disk. Source: clipboard | primary | both | own (nothing is watched; only what
          the launcher itself copies or "Save clipboard" adds). Empty folder settings mean the defaults
@@ -104,7 +102,21 @@
     <key name="auto-launch-single" type="b"><default>false</default></key>
     <key name="auto-launch-delay" type="i"><default>350</default><range min="0" max="3000"/></key>
 
-    <!-- Favorites: Ctrl+D on a result. They are listed first when the launcher opens. JSON [{id, name}] -->
+    <!-- Ctrl+B opens a menu of actions for the highlighted entry (open in a new window or workspace, desktop
+         file, favorite, hide, ...). While it is on, Ctrl+H and Ctrl+F (Ctrl+D) are not used: the menu has them. -->
+    <key name="action-menu" type="b"><default>false</default></key>
+
+    <!-- File search. Off by default. Nothing is indexed or cached by this extension: it asks GNOME's file
+         search (Tracker/LocalSearch, through the Files search provider) or the system's locate database.
+         Backend: auto | gnome | locate -->
+    <key name="files-enabled" type="b"><default>false</default></key>
+    <key name="files-backend" type="s"><default>'auto'</default></key>
+    <key name="files-min-chars" type="i"><default>3</default><range min="2" max="20"/></key>
+    <key name="files-max" type="i"><default>8</default><range min="1" max="100"/></key>
+    <key name="files-hidden" type="b"><default>false</default></key>
+    <key name="files-outside-home" type="b"><default>false</default></key>
+
+    <!-- Favorites: Ctrl+F (or Ctrl+D) on a result. They are listed first when the launcher opens. JSON [{id, name}] -->
     <key name="favorites-enabled" type="b"><default>true</default></key>
     <key name="favorites" type="s"><default>'[]'</default></key>
 

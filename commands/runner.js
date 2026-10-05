@@ -3,7 +3,7 @@ import GLib from 'gi://GLib';
 
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 
-import {launchApp} from '../applications/launch.js';
+import {launchApp, launchAppAction} from '../applications/launch.js';
 import {dbg, warn} from '../utils/log.js';
 
 const ENV_RE = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/s;
@@ -115,7 +115,11 @@ export class Runner {
         const p = entry.payload;
         switch (entry.kind) {
         case 'app':
-            return launchApp(p.appId);
+            return launchApp(p.appId, {newWindow: !!p.newWindow});
+        case 'appaction':
+            return launchAppAction(p.appId, p.action);
+        case 'file':
+            return openUri(p.uri);
         case 'command':
             return spawn(parseArgv(`${p.command} ${p.args}`.trim()), parseEnv(p.env));
         case 'action':

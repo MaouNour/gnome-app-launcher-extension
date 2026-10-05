@@ -218,6 +218,23 @@ export function rgbaToHex(c, withAlpha) {
     return `#${h(c.red)}${h(c.green)}${h(c.blue)}${withAlpha && c.alpha < 1 ? h(c.alpha) : ''}`;
 }
 
+// A row with a colour button bound to a string setting that holds #rrggbb.
+export function colorRow(settings, key, title, subtitle = '') {
+    const row = new Adw.ActionRow({title, subtitle});
+    const btn = colorButton(settings.get_string(key) || '#3584e4', hex => {
+        if (hex !== settings.get_string(key))
+            settings.set_string(key, hex.slice(0, 7));
+    });
+    row.add_suffix(btn);
+    row.activatable_widget = btn;
+    settings.connect(`changed::${key}`, () => {
+        const want = settings.get_string(key);
+        if (want && rgbaToHex(btn.rgba, false) !== want.slice(0, 7))
+            btn.rgba = hexToRgba(want);
+    });
+    return row;
+}
+
 function colorButton(initial, onChange) {
     const btn = new Gtk.ColorDialogButton({dialog: new Gtk.ColorDialog({with_alpha: true}), valign: Gtk.Align.CENTER});
     btn.rgba = hexToRgba(initial);

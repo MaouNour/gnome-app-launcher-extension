@@ -792,6 +792,13 @@ export class ClipboardHistory {
         this._host.notify?.(`${name} is no longer there, so it was removed from the clipboard history.`);
     }
 
+    // Deletes one entry (by the number in its id, `clip:<n>`). A copied image file is deleted with it; a linked
+    // file is never touched.
+    remove(id) {
+        if (this._removeWhere(it => it.id === id))
+            this._changed();
+    }
+
     clear() {
         this._removeWhere(() => true);
         this._changed();

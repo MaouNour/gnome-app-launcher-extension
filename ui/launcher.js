@@ -11,7 +11,7 @@ import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import {buildStyles} from './style.js';
 import {Idle} from '../utils/timing.js';
 import {dbg, warn} from '../utils/log.js';
-import {resolveBlur} from '../blur/defs.js';
+import {IDENTITY} from './identity.js';
 
 const TAGS = {
     app: 'App', command: 'Command', action: 'Action', system: 'System',
@@ -19,21 +19,21 @@ const TAGS = {
 };
 
 // --- pointer and touch input ----------------------------------------------------------------------
-// Newer Shells (Mutter 49/50) recognise clicks, taps and touches with gestures (`Clutter.ClickGesture`, what the
-// Shell's own menus and buttons use); older ones deliver plain button events. A click is wired through both,
-// whichever the running Shell supports, and `Launcher._clicked` ignores the second one of a pair, so a tap on a
-// touchpad or a touch on a screen activates an entry exactly once however it arrives.
+// Newer Shells recognise clicks and taps with gestures (`Clutter.ClickGesture`); older ones deliver plain button
+// events. Every click is wired through both, each guarded on its own: connecting to a signal a Shell no longer
+// has throws, and that is caught, so whichever path exists is used and the other is skipped. A click that
+// arrives through both counts once (`Launcher._clicked`). Nothing here decides in advance what exists.
 const HAS_CLICK_GESTURE = typeof Clutter.ClickGesture === 'function';
 
-function hasSignal(name) {
+// Connects a signal if this Shell has it. Returns whether it did.
+function tryConnect(actor, signal, fn) {
     try {
-        return GObject.signal_lookup(name, Clutter.Actor) !== 0;
+        actor.connect(signal, fn);
+        return true;
     } catch (_e) {
         return false;
     }
 }
-const HAS_RELEASE = hasSignal('button-release-event');
-const HAS_MOTION = hasSignal('motion-event');
 
 // fn() runs once per primary-button click, tap or touch on `actor`.
 function onPrimaryClick(actor, fn) {
@@ -41,7 +41,10 @@ function onPrimaryClick(actor, fn) {
         try {
             const g = new Clutter.ClickGesture();
             g.connect('recognize', () => {
-                const b = typeof g.get_button === 'function' ? g.get_button() : Clutter.BUTTON_PRIMARY;
+                let b = Clutter.BUTTON_PRIMARY;
+                try {
+                    b = g.get_button();
+                } catch (_e) { /* no button information: treat it as a primary click */ }
                 if (!b || b === Clutter.BUTTON_PRIMARY)
                     fn();
             });
@@ -50,24 +53,32 @@ function onPrimaryClick(actor, fn) {
             warn(`click gesture unavailable: ${e.message}`);
         }
     }
-    if (HAS_RELEASE) {
-        actor.connect('button-release-event', (_a, ev) => {
-            if (ev.get_button() === Clutter.BUTTON_PRIMARY)
-                fn();
-            return Clutter.EVENT_STOP;
-        });
-    }
+    tryConnect(actor, 'button-release-event', (_a, ev) => {
+        if (ev.get_button() !== Clutter.BUTTON_PRIMARY)
+            return Clutter.EVENT_PROPAGATE; // the right click is handled by onSecondaryClick
+        fn();
+        return Clutter.EVENT_STOP;
+    });
+}
+
+// fn() runs on a right click (opens the action menu when that behaviour is on).
+function onSecondaryClick(actor, fn) {
+    tryConnect(actor, 'button-release-event', (_a, ev) => {
+        if (ev.get_button() !== Clutter.BUTTON_SECONDARY)
+            return Clutter.EVENT_PROPAGATE;
+        fn();
+        return Clutter.EVENT_STOP;
+    });
 }
 
 // fn() runs when the pointer moves over `actor` (not when the rows scroll under a resting pointer).
 function onPointerOver(actor, fn, recentKey) {
-    if (HAS_MOTION) {
-        actor.connect('motion-event', () => {
-            fn();
-            return Clutter.EVENT_PROPAGATE;
-        });
+    const moved = tryConnect(actor, 'motion-event', () => {
+        fn();
+        return Clutter.EVENT_PROPAGATE;
+    });
+    if (moved)
         return;
-    }
     actor.track_hover = true;
     actor.connect('notify::hover', () => {
         if (actor.hover && !recentKey())
@@ -261,16 +272,21 @@ class Row {
         this.title = new St.Label({x_expand: true});
         this.sub = new St.Label({x_expand: true});
         this.tag = new St.Label({y_align: Clutter.ActorAlign.CENTER});
+        // "This application is running": a dot or a dash, before the icon or before the tag.
+        this.mark = new St.Widget({y_align: Clutter.ActorAlign.CENTER, visible: false});
+        this._markAfter = false;
         for (const l of [this.title, this.sub])
             l.clutter_text.ellipsize = Pango.EllipsizeMode.END;
         this.text.add_child(this.title);
         this.text.add_child(this.sub);
+        this.actor.add_child(this.mark);
         this.actor.add_child(this.icon);
         this.actor.add_child(this.glyph);
         this.actor.add_child(this.text);
         this.actor.add_child(this.tag);
 
         onPrimaryClick(this.actor, () => launcher._clicked(this.index));
+        onSecondaryClick(this.actor, () => launcher._rightClicked(this.index));
         onPointerOver(this.actor, () => launcher._hover(this.index), () => launcher._keyRecent());
     }
 
@@ -290,6 +306,12 @@ class Row {
         this.sub.set_style(sel ? st.subSel : st.sub);
         this.tag.set_style(sel ? st.tagSel : st.tag);
         this.glyph.set_style(sel ? st.glyphSel : st.glyph);
+        this.mark.set_style(sel ? st.activeSel : st.active);
+        // Where the marker sits follows the setting; moving it is only done when the setting changed.
+        if (this._markAfter !== st.activeAfter) {
+            this._markAfter = st.activeAfter;
+            this.actor.set_child_below_sibling(this.mark, st.activeAfter ? this.tag : this.icon);
+        }
     }
 
     setSelected(value) {
@@ -300,11 +322,13 @@ class Row {
             this._paint();
     }
 
-    set(entry, fav = false) {
-        if (this.entry === entry && this._fav === fav)
+    set(entry, fav = false, running = false) {
+        if (this.entry === entry && this._fav === fav && this._run === running)
             return;
         this.entry = entry;
         this._fav = fav;
+        this._run = running;
+        this.mark.visible = running && this._st.activeOn;
         this.title.text = fav ? `★ ${entry.name}` : entry.name;
         this.sub.text = entry.desc || '';
         this.sub.visible = this._st.showDesc && !!entry.desc;
@@ -327,7 +351,7 @@ class Row {
 export class Launcher {
     // search(query, mode) -> entries[]; onActivate(entry); getStyle() -> {layout, theme}; onOpen();
     // onClose() runs once the window is fully hidden.
-    constructor({config, search, onActivate, getStyle, onOpen, onClose, onWindowShortcut, onHide, onFavorite, favorites, history}) {
+    constructor({config, search, onActivate, getStyle, onOpen, onClose, onWindowShortcut, onHide, onFavorite, onMenu, favorites, running, history}) {
         this._cfg = config;
         this._search = search;
         this._onActivate = onActivate;
@@ -337,8 +361,14 @@ export class Launcher {
         this._onWindowShortcut = onWindowShortcut;
         this._onHide = onHide;
         this._onFavorite = onFavorite;
+        this._onMenu = onMenu;
+        this._menuReturn = null; // {text, id}: where the action menu was opened from
+        this._extra = [];        // results that arrived later (file search) for the query in _extraFor
+        this._extraFor = '';
         this._favorites = favorites;
         this._favSet = new Set();
+        this._running = running;
+        this._runSet = new Set();
         this._lastClick = 0;
         this._lastKey = 0;
         this._autoTimer = 0;
@@ -354,9 +384,6 @@ export class Launcher {
         this._st = null;
         this._dirty = true;
         this._order = null;
-        this._blur = null; // LauncherBlur (blur/blur.js), loaded the first time blur is needed
-        this._blurSpec = {kind: 'none'};
-        this._blurFailed = false;
         this._suppress = false;
         this._lastListH = -2;
         this._shown = 0;
@@ -424,12 +451,17 @@ export class Launcher {
         this._built = true;
 
         this._overlay = new St.Widget({
-            name: 'gnome-launcher-overlay',
+            name: IDENTITY.overlay.name,
+            style_class: IDENTITY.overlay.styleClass,
+            accessible_name: IDENTITY.overlay.accessibleName,
             reactive: true,
             visible: false,
             layout_manager: new Clutter.BinLayout(),
         });
         this._box = new St.BoxLayout({
+            name: IDENTITY.window.name,
+            style_class: IDENTITY.window.styleClass,
+            accessible_name: IDENTITY.window.accessibleName,
             vertical: true,
             reactive: true,
             x_align: Clutter.ActorAlign.CENTER,
@@ -478,7 +510,7 @@ export class Launcher {
             // Focus can leave the entry after a click; keep Escape and navigation working.
             return this._onKey(ev);
         });
-        this._overlay.connect('button-press-event', (_a, ev) => {
+        tryConnect(this._overlay, 'button-press-event', (_a, ev) => {
             if (this._inside(ev)) {
                 ct.grab_key_focus();
             } else if (this._outside === 'click') {
@@ -486,25 +518,7 @@ export class Launcher {
             }
             return Clutter.EVENT_STOP; // 'hover' and 'none' ignore outside clicks
         });
-        if (HAS_MOTION)
-            this._overlay.connect('motion-event', (_a, ev) => this._onMotion(ev));
-        if (HAS_CLICK_GESTURE) {
-            // Where the press signal is not delivered for taps, a press outside the window still closes it.
-            try {
-                const g = new Clutter.ClickGesture({recognize_on_press: true});
-                g.connect('may-recognize', () => {
-                    if (this._outside !== 'click')
-                        return false;
-                    const target = global.stage.get_event_actor(g.get_point_event(0));
-                    return !!target && !this._box.contains(target);
-                });
-                g.connect('recognize', () => this.close());
-                this._overlay.add_action(g);
-            } catch (e) {
-                warn(`outside-click gesture unavailable: ${e.message}`);
-            }
-        }
-
+        tryConnect(this._overlay, 'motion-event', (_a, ev) => this._onMotion(ev));
         this._applyStyle();
     }
 
@@ -614,7 +628,6 @@ export class Launcher {
                 this._box.add_child(this._hint);
             }
         }
-        this._applyBlur(st, this._monitor());
         this._lastListH = -2;
         if (this._state !== 'hidden')
             this._render();
@@ -636,36 +649,6 @@ export class Launcher {
             icon_size: st.searchIconSize,
             style: st.searchIconStyle,
         }));
-    }
-
-    // Blur, built the way Blur my Shell blurs application windows (see blur/blur.js): an empty widget right
-    // behind the window carries the effect, so the window itself is never wrapped in an effect (that, plus
-    // sampling while it animated, is what glitched). The blur keeps running during the open/close
-    // animation and follows it (opacity, scale, translation).
-    // The module is loaded the first time blur is needed; if that fails the launcher just has no blur.
-    _applyBlur(st, mon) {
-        this._blurSpec = resolveBlur({
-            mode: this._cfg.str('blur-mode'), themeSigma: st.blur, themeRadius: st.radius,
-            sigma: this._cfg.int('blur-sigma'), brightness: this._cfg.num('blur-brightness'),
-            cornerAuto: this._cfg.bool('blur-corner-auto'), cornerRadius: this._cfg.int('blur-corner-radius'),
-            pipelines: this._cfg.json('blur-pipelines', {}), pipeline: this._cfg.str('blur-pipeline'),
-        });
-        this._blurMon = {index: mon.index, width: mon.width, height: mon.height};
-        if (this._blur) {
-            this._blur.apply(this._blurSpec, this._blurMon);
-            return;
-        }
-        if (this._blurSpec.kind === 'none' || this._blurFailed)
-            return;
-        import('../blur/blur.js').then(lib => {
-            if (!this._overlay || this._blur)
-                return;
-            this._blur = new lib.LauncherBlur(this._overlay, this._box, () => (this._cfg.bool('blur-repaint') ? 1 : 0));
-            this._blur.apply(this._blurSpec, this._blurMon);
-        }).catch(e => {
-            this._blurFailed = true;
-            warn(`blur unavailable: ${e.message}`);
-        });
     }
 
     // --- open / close ------------------------------------------------------
@@ -742,13 +725,11 @@ export class Launcher {
             this._box.margin_bottom = 0;
             this._box.margin_top = Math.round(mon.height * pos / 100);
         }
-        this._blur?.place({index: mon.index, width: mon.width, height: mon.height});
     }
 
     _animate(opening) {
         const box = this._box;
         box.remove_all_transitions();
-        this._blur?.removeTransitions();
         if (!opening && this._autoTimer) {
             GLib.source_remove(this._autoTimer);
             this._autoTimer = 0;
@@ -781,26 +762,22 @@ export class Launcher {
             }
         };
 
-        if (opening) {
+        if (opening)
             box.set(duration > 0 ? hidden : shown);
-            this._blur?.set(duration > 0 ? hidden : shown);
-        }
         if (duration <= 0) {
             box.set(opening ? shown : hidden);
-            this._blur?.set(opening ? shown : hidden);
             done();
             return;
         }
-        // Only the window is flattened into one layer while it fades; the blur is a separate widget and
-        // is never part of that off-screen copy.
+        // The window is flattened into one layer while it fades, so its translucent background, border and
+        // shadow fade as one piece.
         redirect(Clutter.OffscreenRedirect.ALWAYS);
-        const props = {
+        box.ease({
             ...(opening ? shown : hidden),
             duration: opening ? duration : Math.round(duration * 0.8),
             mode: opening ? a.open : a.close,
-        };
-        this._blur?.ease(props);
-        box.ease({...props, onComplete: done});
+            onComplete: done,
+        });
     }
 
     // --- search + render ---------------------------------------------------
@@ -875,14 +852,31 @@ export class Launcher {
             this._autoTimer = GLib.timeout_add(GLib.PRIORITY_DEFAULT, delay, fire);
     }
 
+    // Is this entry an application with an open window? (the marker on its row)
+    _isRunning(e) {
+        return e.kind === 'app' && this._runSet.has(e.payload.appId);
+    }
+
     _refresh() {
         this._favSet = new Set(this._favorites ? this._favorites() : []);
+        this._runSet = this._st?.activeOn && this._running ? new Set(this._running()) : new Set();
         let results;
+        const text = this._entry.get_text();
         try {
-            results = this._search(this._entry.get_text(), this._mode);
+            results = this._search(text, this._mode);
         } catch (e) {
             warn('search failed:', e.message);
             results = [];
+        }
+        // Results that arrive later (the file search) belong to the query they were asked for.
+        if (this._extraFor !== text || this._mode !== null)
+            this._extra = [];
+        if (this._extra.length) {
+            const sections = results._sections;
+            const web = results.findIndex(r => r.kind === 'web'); // a web fallback stays last
+            results = web < 0 ? [...results, ...this._extra] : [...results.slice(0, web), ...this._extra, ...results.slice(web)];
+            if (sections)
+                results._sections = sections;
         }
         this._results = results;
         this._sections = results._sections ?? null;
@@ -1049,7 +1043,7 @@ export class Launcher {
         } else {
             for (let i = from; i < target; i++) {
                 const row = this._rows[i] ?? this._makeRow(i);
-                row.set(this._results[i], this._favSet.has(this._results[i].id));
+                row.set(this._results[i], this._favSet.has(this._results[i].id), this._isRunning(this._results[i]));
                 row.actor.show();
             }
         }
@@ -1232,9 +1226,26 @@ export class Launcher {
         this._activateIndex(i);
     }
 
+    _rightClicked(i) {
+        if (!this._menuOn() || (this._state !== 'open' && this._state !== 'opening'))
+            return;
+        this._select(i);
+        this._openMenu(i);
+    }
+
     // True shortly after a key press: rows scrolling under a resting pointer must not steal the selection.
     _keyRecent() {
         return GLib.get_monotonic_time() - this._lastKey < 300000;
+    }
+
+    // Results that took time to find (files). Added after the others, before a web-search fallback; ignored when
+    // the text has changed since they were asked for.
+    addAsyncResults(query, entries) {
+        if (!this._built || (this._state !== 'open' && this._state !== 'opening') || this._mode !== null || this.text !== query)
+            return;
+        this._extraFor = query;
+        this._extra = entries;
+        this.refreshResults();
     }
 
     // The search shows the same query again (favorites or hidden entries changed) and keeps the selection on
@@ -1249,7 +1260,41 @@ export class Launcher {
             this._select(i);
     }
 
-    // Ctrl+D: add the highlighted entry to the favorites, or remove it.
+    _menuOn() {
+        return this._cfg.bool('action-menu');
+    }
+
+    // Ctrl+B or a right click: the actions available for result i, shown as a list of their own. Escape or
+    // Backspace on an empty field goes back to the search exactly as it was.
+    _openMenu(i = this._sel) {
+        const e = this._results[i];
+        if (!e || this._mode !== null || !this._onMenu)
+            return;
+        const info = this._onMenu(e);
+        if (!info)
+            return;
+        this._menuReturn = {text: this.text, id: e.id};
+        this.enterMode('actions', {placeholder: info.placeholder, empty: 'No matching action'});
+    }
+
+    leaveMenu() {
+        if (this._mode !== 'actions')
+            return false;
+        const back = this._menuReturn;
+        this._menuReturn = null;
+        this._resetMode();
+        this._suppress = true;
+        this._entry.set_text(back?.text ?? '');
+        this._suppress = false;
+        this._textLen = this._entry.get_text().length;
+        this._refresh();
+        const i = back ? this._results.findIndex(r => r.id === back.id) : -1;
+        if (i >= 0)
+            this._select(i);
+        return true;
+    }
+
+    // Ctrl+F: add the highlighted entry to the favorites, or remove it.
     _favoriteSelected() {
         const e = this._results[this._sel];
         if (e && this._onFavorite)
@@ -1304,12 +1349,16 @@ export class Launcher {
         switch (sym) {
         case Clutter.KEY_Escape:
             // Closes the launcher from anywhere, including clipboard/emoji/accounts. Backspace on an
-            // empty field still steps back from a sub-view to the main search.
+            // empty field still steps back from a sub-view to the main search. The action menu is the
+            // exception: Escape closes only the menu.
+            if (this.leaveMenu())
+                return Clutter.EVENT_STOP;
             this.close();
             return Clutter.EVENT_STOP;
         case Clutter.KEY_BackSpace:
             if (this._mode && this._entry.get_text() === '') {
-                this.exitMode();
+                if (!this.leaveMenu())
+                    this.exitMode();
                 return Clutter.EVENT_STOP;
             }
             return Clutter.EVENT_PROPAGATE;
@@ -1347,10 +1396,22 @@ export class Launcher {
 
         if (ctrl) {
             switch (sym) {
+            // Ctrl+B opens the action menu when that behaviour is on; then Ctrl+H and Ctrl+F are not used
+            // (everything they did is in the menu). Ctrl+D also marks a favorite.
+            case Clutter.KEY_b:
+                if (!this._menuOn())
+                    return Clutter.EVENT_PROPAGATE;
+                this._openMenu();
+                return Clutter.EVENT_STOP;
             case Clutter.KEY_h:
+                if (this._menuOn())
+                    return Clutter.EVENT_PROPAGATE;
                 this._hideSelected();
                 return Clutter.EVENT_STOP;
+            case Clutter.KEY_f:
             case Clutter.KEY_d:
+                if (this._menuOn())
+                    return Clutter.EVENT_PROPAGATE;
                 this._favoriteSelected();
                 return Clutter.EVENT_STOP;
             case Clutter.KEY_n:
@@ -1383,8 +1444,6 @@ export class Launcher {
             this._autoTimer = 0;
         }
         this._box?.remove_all_transitions();
-        this._blur?.destroy(); // before the overlay: the blur widget is one of its children
-        this._blur = null;
         this._overlay?.destroy();
         this._overlay = this._box = this._entry = this._scroll = this._list = this._empty = this._hint = null;
         this._selItem = null;

@@ -16,6 +16,9 @@ import {parseExec} from './commands/exec.js';
 import {parseEmoji, emojiPlan, emojiOptions, inlineEmojiQuery} from './emoji/emoji.js';
 import {Paster} from './emoji/paste.js';
 import {Runner, openUri} from './commands/runner.js';
+import {describeApp, editFile, quitApp} from './applications/launch.js';
+import {FileSearch} from './files/search.js';
+import {describeFile, dirName, filterPaths, pickBackend, toTerms} from './files/results.js';
 import {buildUserEntries} from './commands/userEntries.js';
 import {Config} from './config/config.js';
 import {calculate} from './search/calc.js';
@@ -23,6 +26,7 @@ import {parseRegexQuery} from './search/regex.js';
 import {DEFAULT_PROVIDERS, explicitWebQuery, offerWeb, sanitizeProviders, webEntries} from './search/web.js';
 import {SearchEngine, prepare} from './search/engine.js';
 import {QueryHistory} from './search/history.js';
+import {activeColor} from './ui/accent.js';
 import {Keybindings} from './shortcuts/keybindings.js';
 import {compileBlocklist} from './shortcuts/blocklist.js';
 import {resolveTheme} from './themes/themes.js';
@@ -35,8 +39,8 @@ const SHORTCUT_KEY = 'gnome-launcher-toggle';
 
 // Keys that only affect appearance: a change just marks the UI style dirty.
 const STYLE_KEYS = new Set([
-    'blur-mode', 'blur-sigma', 'blur-brightness', 'blur-corner-auto', 'blur-corner-radius', 'blur-pipelines',
-    'blur-pipeline', 'blur-repaint',
+    'shadow-enabled', 'active-indicator', 'active-accent', 'active-color',
+    'active-position',
     'width', 'window-height', 'max-height', 'search-height', 'search-position', 'row-height',
     'icon-size', 'font-size', 'scale', 'padding', 'result-spacing', 'search-padding',
     'icon-spacing', 'show-descriptions', 'show-tags', 'placeholder', 'theme-mode',
@@ -80,6 +84,10 @@ export default class GnomeLauncherExtension extends Extension {
         this._buffer = ''; // private emoji buffer: memory only, never on disk or in clipboard history
         this._stats = new Stats(new JsonStore(GLib.build_filenamev([stateDir, 'stats.json']), 1));
         this._engine.stats = this._stats;
+        this._files = new FileSearch();   // asks GNOME's file search or locate; keeps nothing itself
+        this._filesFor = '';              // the query a file search was already started for
+        this._filesWait = new Debounce(250, () => this._runFiles());
+        this._menuTarget = null;          // the entry the action menu is open for
         this._history = new QueryHistory(cfg.int('history-max'));
         this._historyStore = new JsonStore(GLib.build_filenamev([stateDir, 'history.json']), 1, {private: true});
         this._historyDirty = false;
@@ -111,6 +119,8 @@ export default class GnomeLauncherExtension extends Extension {
 
         this._iface = new Gio.Settings({schema_id: 'org.gnome.desktop.interface'});
         this._ifaceId = this._iface.connect('changed::color-scheme', () => this._restyle.call());
+        this._accentId = this._iface.settings_schema.has_key('accent-color')
+            ? this._iface.connect('changed::accent-color', () => this._restyle.call()) : 0;
 
         this._apps = new AppIndex(new JsonStore(GLib.build_filenamev([cacheDir, 'apps.json']), 1),
             () => this._rebuild.schedule());
@@ -122,13 +132,19 @@ export default class GnomeLauncherExtension extends Extension {
             onActivate: (e, how) => this._activate(e, how),
             onWindowShortcut: id => this._activateId(id),
             onClose: () => {
+                this._filesWait.cancel();
+                this._files.cancel();
+                this._filesFor = '';
+                this._menuTarget = null;
                 if (this._emojiEngine)
                     this._emojiFree?.call();
             },
+            onMenu: entry => this._menuInfo(entry),
             getStyle: () => this._styleInputs(),
             // Only does work before the cache has arrived; afterwards it is a no-op.
             history: this._history,
             favorites: () => (this._config.bool('favorites-enabled') ? this._favoriteIds() : []),
+            running: () => Shell.AppSystem.get_default().get_running().map(a => a.get_id()),
             onFavorite: entry => this._toggleFavorite(entry),
             onHide: entry => this._hideEntry(entry),
             onOpen: () => {
@@ -163,6 +179,8 @@ export default class GnomeLauncherExtension extends Extension {
             t?.cancel();
         this._finishPasswordClear(); // a copied password never outlives the extension
         this._unwatchFocus();
+        this._filesWait?.cancel();
+        this._files?.destroy();
         this._historySave?.cancel();
         this._flushHistory(true);
         this._historyStore?.cancel();
@@ -174,6 +192,8 @@ export default class GnomeLauncherExtension extends Extension {
         this._stats?.destroy();
         if (this._ifaceId)
             this._iface.disconnect(this._ifaceId);
+        if (this._accentId)
+            this._iface.disconnect(this._accentId);
         this._config?.destroy();
         this._prebuild = this._restyle = this._rebuild = this._runIdle = this._emojiFree = null;
         this._paster = this._emojiEngine = this._buffer = null;
@@ -235,6 +255,16 @@ export default class GnomeLauncherExtension extends Extension {
             break;
         case 'hidden-entries':
             this._rebuild.schedule();
+            break;
+        case 'files-enabled':
+        case 'files-backend':
+        case 'files-min-chars':
+        case 'files-max':
+        case 'files-hidden':
+        case 'files-outside-home':
+            this._files.cancel();
+            this._filesFor = '';
+            this._launcher?.refreshResults();
             break;
         case 'favorites':
         case 'favorites-enabled':
@@ -424,9 +454,27 @@ export default class GnomeLauncherExtension extends Extension {
         return this._iface.get_string('color-scheme') === 'prefer-dark';
     }
 
+    // Colour of the running-application marker: the desktop accent (GNOME 47+), the launcher theme's accent, or
+    // the colour typed in the preferences.
+    _activeColor(themeAccent) {
+        const c = this._config;
+        let system = null;
+        try {
+            if (this._iface?.settings_schema.has_key('accent-color'))
+                system = this._iface.get_string('accent-color');
+        } catch (_e) { /* an older GNOME has no accent colour */ }
+        return activeColor({mode: c.str('active-accent'), custom: c.str('active-color'), system, theme: themeAccent});
+    }
+
     _styleInputs() {
         const c = this._config;
         const dark = this._isDark();
+        const theme = resolveTheme({
+            custom: c.json('custom-themes', []),
+            name: dark ? c.str('theme-dark') : c.str('theme-light'),
+            dark,
+            overrides: c.json('theme-overrides', {}),
+        });
         return {
             layout: {
                 width: c.int('width'), windowHeight: c.int('window-height'), maxHeight: c.int('max-height'),
@@ -439,18 +487,16 @@ export default class GnomeLauncherExtension extends Extension {
                 searchIcon: c.str('search-icon').trim(), searchIconSize: c.int('search-icon-size'),
                 showScrollbar: c.bool('show-scrollbar'), gridCell: c.int('emoji-grid-size'),
                 emojiFont: c.str('emoji-font'),
+                shadow: c.bool('shadow-enabled'),
+                activeIndicator: c.str('active-indicator'), activePosition: c.str('active-position'),
+                activeColor: this._activeColor(theme.accent),
                 fonts: {
                     search: {family: c.str('font-search'), size: c.num('font-size-search'), weight: c.int('font-weight-search')},
                     main: {family: c.str('font-main'), weight: c.int('font-weight-main')},
                     secondary: {family: c.str('font-secondary'), size: c.num('font-size-secondary'), weight: c.int('font-weight-secondary')},
                 },
             },
-            theme: resolveTheme({
-                custom: c.json('custom-themes', []),
-                name: dark ? c.str('theme-dark') : c.str('theme-light'),
-                dark,
-                overrides: c.json('theme-overrides', {}),
-            }),
+            theme,
         };
     }
 
@@ -463,6 +509,8 @@ export default class GnomeLauncherExtension extends Extension {
                 return this._clip.entries();
             return this._clipEngine.search(query, {limit: c.bool('unlimited-results') ? Infinity : c.int('max-results'), frecency: false});
         }
+        if (mode === 'actions')
+            return this._menuSearch(query);
         if (mode === 'emoji')
             return this._emojiMode(query);
         if (mode === 'accounts') {
@@ -528,6 +576,7 @@ export default class GnomeLauncherExtension extends Extension {
                 }), ...out];
             }
         }
+        this._wantFiles(query);
         if (offerWeb(c.str('web-fallback'), out.length, query))
             out = [...out, ...webEntries(this._providers(), query)];
         dbg(`search "${query}": ${((GLib.get_monotonic_time() - t0) / 1000).toFixed(2)} ms, ${out.length} results of ${this._engine.size}`);
@@ -546,9 +595,15 @@ export default class GnomeLauncherExtension extends Extension {
     }
 
     _activate(entry, how = '') {
-        if (entry.kind !== 'account')
+        if (entry.kind !== 'account' && entry.kind !== 'menu')
             this._recordSearch(entry);
         switch (entry.kind) {
+        case 'menu':
+            this._runMenu(entry);
+            return;
+        case 'file':
+            this._openFile(entry, how);
+            return;
         case 'account':
             this._useAccount(entry, how);
             return;
@@ -677,6 +732,244 @@ export default class GnomeLauncherExtension extends Extension {
         this._clip.mute(2500);
         this._clip.useItem(entry.payload.imageId, open ? how : '',
             !open && this._wantsPaste(how) ? () => this._paster.paste('', {keys: 'auto', borrow: false}, () => this._pasteFailed()) : null);
+    }
+
+    // --- file search ---------------------------------------------------------
+    // Off by default. Each search goes to GNOME's file search (the Files search provider, answered from the
+    // LocalSearch index GNOME already keeps) or to the system's locate database. This extension stores nothing.
+
+    _wantFiles(query) {
+        const c = this._config;
+        const q = query.trim();
+        if (!c.bool('files-enabled') || q.length < c.int('files-min-chars')) {
+            if (this._filesFor) {
+                this._filesWait.cancel();
+                this._files.cancel();
+                this._filesFor = '';
+            }
+            return;
+        }
+        if (this._filesFor === q)
+            return; // already asked (the results arrive through addAsyncResults)
+        this._filesFor = q;
+        this._files.cancel();
+        this._filesWait.call();
+    }
+
+    async _runFiles() {
+        const c = this._config;
+        const query = this._filesFor;
+        if (!query || !this._launcher?.isOpen)
+            return;
+        const backend = pickBackend(c.str('files-backend'), this._files.available());
+        if (!backend) {
+            this._launcher.setEmptyText('File search is on but no backend is available (GNOME search or locate)');
+            return;
+        }
+        let paths;
+        try {
+            paths = await this._files.search(backend, toTerms(query));
+        } catch (e) {
+            warn(`file search (${backend}) failed: ${e.message}`);
+            return;
+        }
+        if (!paths || !this._alive || this._filesFor !== query)
+            return;
+        const home = GLib.get_home_dir();
+        const kept = filterPaths(paths, {home, hidden: c.bool('files-hidden'), outsideHome: c.bool('files-outside-home'), max: c.int('files-max')});
+        const entries = kept.map(path => this._fileEntry(path, home));
+        this._launcher.addAsyncResults(query, entries);
+    }
+
+    _fileEntry(path, home) {
+        const d = describeFile(path, home);
+        const e = prepare({id: `file:${path}`, kind: 'file', name: d.name, desc: d.desc, keywords: d.keywords, category: 'Files', icon: 'text-x-generic', payload: {path, uri: Gio.File.new_for_path(path).get_uri()}});
+        try {
+            e._gi = Gio.content_type_get_icon(Gio.content_type_guess(d.name, null)[0]);
+        } catch (_e) { /* the generic icon stays */ }
+        return e;
+    }
+
+    // Enter opens the file, Alt+Enter shows its folder, Ctrl+Enter copies its path.
+    _openFile(entry, how) {
+        this._launcher.close();
+        const p = entry.payload;
+        if (how === 'alt') {
+            openUri(Gio.File.new_for_path(dirName(p.path)).get_uri());
+        } else if (how === 'ctrl') {
+            copyText(p.path);
+        } else {
+            this._pending = entry;
+            this._runIdle.schedule();
+        }
+    }
+
+    // --- action menu ---------------------------------------------------------
+    // Ctrl+B (or a right click) on a result lists what can be done with it. Only in the main search.
+
+    _menuInfo(entry) {
+        const items = this._menuItems(entry);
+        if (!items.length) {
+            Main.notify(NOTIFY_TITLE, 'There are no actions for this entry.');
+            return null;
+        }
+        this._menuTarget = entry;
+        this._menuList = items;
+        return {placeholder: `Actions for ${entry.name}`};
+    }
+
+    _menuEntry(op, name, desc, icon, extra = {}) {
+        return prepare({
+            id: `menu:${op}:${extra.action ?? ''}`, kind: 'menu', name, desc, icon, category: 'Action',
+            payload: {op, ...extra},
+        });
+    }
+
+    _menuItems(e) {
+        const m = (...a) => this._menuEntry(...a);
+        const items = [];
+        const fav = this._favoriteIds().includes(e.id);
+        const stable = HIDEABLE_KINDS.has(e.kind);
+        const tail = () => {
+            if (stable && this._config.bool('favorites-enabled'))
+                items.push(m('favorite', fav ? 'Remove from favorites' : 'Add to favorites', fav ? 'It is listed first when the launcher opens' : 'List it first when the launcher opens', 'starred-symbolic'));
+            if (stable)
+                items.push(m('hide', 'Hide from search', 'Show it again in the preferences, under Hidden entries', 'view-conceal-symbolic'));
+            if (stable && this._stats.get(e.id))
+                items.push(m('forget', 'Forget usage history', 'Resets how often and when you opened it', 'edit-clear-all-symbolic'));
+        };
+        switch (e.kind) {
+        case 'app': {
+            let info = null;
+            try {
+                info = describeApp(e.payload.appId);
+            } catch (err) {
+                warn(`describeApp: ${err.message}`);
+            }
+            items.push(m('open', info?.running ? 'Switch to it' : 'Open', 'Same as Enter', 'media-playback-start-symbolic'));
+            if (info?.running && info.canNewWindow)
+                items.push(m('newWindow', 'New window', 'Open another window of the running application', 'window-new-symbolic'));
+            items.push(m('newWorkspace', 'Open in a new workspace', 'Switch to an empty workspace and start it there', 'view-grid-symbolic'));
+            for (const a of info?.actions ?? [])
+                items.push(m('appaction', a.name, 'Action of the application', 'emblem-system-symbolic', {action: a.id}));
+            if (info?.running)
+                items.push(m('quit', 'Quit', 'Ask the application to close all its windows', 'application-exit-symbolic'));
+            if (info?.file) {
+                items.push(m('showDir', 'Show the desktop entry in the file manager', info.file, 'folder-open-symbolic', {path: info.file}));
+                items.push(m('editDesktop', 'Open the desktop entry in a text editor', info.file, 'document-edit-symbolic', {path: info.file}));
+                items.push(m('copy', 'Copy the desktop entry path', info.file, 'edit-copy-symbolic', {text: info.file, action: 'path'}));
+            }
+            if (info?.commandline)
+                items.push(m('copy', 'Copy the command', info.commandline, 'edit-copy-symbolic', {text: info.commandline, action: 'cmd'}));
+            items.push(m('copy', 'Copy the name', e.name, 'edit-copy-symbolic', {text: e.name, action: 'name'}));
+            tail();
+            break;
+        }
+        case 'command':
+        case 'action': {
+            items.push(m('open', 'Run', 'Same as Enter', 'media-playback-start-symbolic'));
+            const text = e.kind === 'command' ? `${e.payload.command} ${e.payload.args ?? ''}`.trim() : String(e.payload.target ?? '');
+            if (text)
+                items.push(m('copy', e.kind === 'command' ? 'Copy the command' : 'Copy the target', text, 'edit-copy-symbolic', {text, action: 'cmd'}));
+            items.push(m('prefs', 'Edit in the preferences', 'Opens the extension preferences', 'preferences-system-symbolic'));
+            tail();
+            break;
+        }
+        case 'system':
+        case 'mode':
+            items.push(m('open', 'Run', 'Same as Enter', 'media-playback-start-symbolic'));
+            tail();
+            break;
+        case 'file':
+            items.push(m('open', 'Open', 'Same as Enter', 'document-open-symbolic'));
+            items.push(m('showDir', 'Show in the file manager', dirName(e.payload.path), 'folder-open-symbolic', {path: e.payload.path}));
+            items.push(m('copy', 'Copy the path', e.payload.path, 'edit-copy-symbolic', {text: e.payload.path, action: 'path'}));
+            items.push(m('copy', 'Copy the name', e.name, 'edit-copy-symbolic', {text: e.name, action: 'name'}));
+            break;
+        default:
+        }
+        return items;
+    }
+
+    // The entries of the open menu, narrowed by what is typed.
+    _menuSearch(query) {
+        const items = this._menuList ?? [];
+        const q = query.trim().toLowerCase();
+        return q ? items.filter(i => i.name.toLowerCase().includes(q) || (i.desc ?? '').toLowerCase().includes(q)) : items;
+    }
+
+    _runMenu(entry) {
+        const p = entry.payload;
+        const target = this._menuTarget;
+        if (!target)
+            return;
+        const L = this._launcher;
+        const runLater = (kind, payload) => {
+            L.close();
+            this._pending = {id: target.id, kind, name: target.name, payload};
+            this._runIdle.schedule();
+        };
+        switch (p.op) {
+        case 'open':
+            L.leaveMenu(); // back to the search first, so that a sub-view opens in the right place
+            this._activate(target);
+            break;
+        case 'newWindow':
+            this._remember(target.id);
+            runLater('app', {appId: target.payload.appId, newWindow: true});
+            break;
+        case 'newWorkspace':
+            try {
+                global.workspace_manager.append_new_workspace(true, global.get_current_time());
+            } catch (e) {
+                warn(`could not add a workspace: ${e.message}`);
+            }
+            this._remember(target.id);
+            runLater('app', {appId: target.payload.appId, newWindow: true});
+            break;
+        case 'appaction':
+            this._remember(target.id);
+            runLater('appaction', {appId: target.payload.appId, action: p.action});
+            break;
+        case 'quit':
+            L.close();
+            quitApp(target.payload.appId);
+            break;
+        case 'showDir':
+            L.close();
+            openUri(Gio.File.new_for_path(dirName(p.path)).get_uri());
+            break;
+        case 'editDesktop':
+            L.close();
+            try {
+                editFile(p.path);
+            } catch (e) {
+                Main.notify(NOTIFY_TITLE, `Could not open ${p.path}: ${e.message}`);
+            }
+            break;
+        case 'copy':
+            L.close();
+            copyText(p.text);
+            break;
+        case 'prefs':
+            L.close();
+            this.openPreferences();
+            break;
+        case 'favorite':
+            this._toggleFavorite(target);
+            L.leaveMenu();
+            break;
+        case 'hide':
+            this._hideEntry(target);
+            L.leaveMenu();
+            break;
+        case 'forget':
+            this._stats.forget(target.id);
+            L.leaveMenu();
+            L.refreshResults();
+            break;
+        default:
+        }
     }
 
     // --- favorites -----------------------------------------------------------

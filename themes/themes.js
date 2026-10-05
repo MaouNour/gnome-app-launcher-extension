@@ -19,7 +19,6 @@ export const THEME_FIELDS = [
     color('border', 'Border'),
     color('searchBackground', 'Search field background'),
     num('opacity', 'Background opacity', 0, 1, 0.05, 2),
-    num('blur', 'Blur strength (0 = off)', 0, 100, 1),
     num('radius', 'Window corner radius', 0, 60, 1),
     num('rowRadius', 'Result corner radius', 0, 40, 1),
     num('searchRadius', 'Search field corner radius', 0, 40, 1),
@@ -37,7 +36,7 @@ export const THEME_BASE = {
     background: '#242424', foreground: '#ffffff', secondary: '#ffffff99',
     accent: '#3584e4', selection: '#3584e4', selectionText: '#ffffff',
     border: '#ffffff26', searchBackground: '#ffffff14',
-    opacity: 0.96, blur: 0, radius: 16, rowRadius: 10, searchRadius: 10, borderWidth: 1,
+    opacity: 0.96, radius: 16, rowRadius: 10, searchRadius: 10, borderWidth: 1,
     shadowBlur: 48, shadowOffsetY: 16, shadowOpacity: 0.45,
     fontFamily: '', fontWeight: 400, iconStyle: 'requested',
 };
@@ -49,7 +48,7 @@ const PARTIAL_BUILTINS = {
         border: '#00000026', searchBackground: '#0000000d', shadowOpacity: 0.25,
     },
     'glass-dark': {
-        background: '#101418', opacity: 0.55, blur: 30, border: '#ffffff30',
+        background: '#101418', opacity: 0.55, border: '#ffffff30',
         searchBackground: '#ffffff1f', shadowOpacity: 0.35,
     },
     'nord': {
