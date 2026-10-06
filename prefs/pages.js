@@ -8,6 +8,7 @@ import {BUILTINS, sanitizeBuiltins} from '../commands/builtins.js';
 import {ACTION_FIELDS, COMMAND_FIELDS, newAction, newCommand, sanitizeAction, sanitizeCommand} from '../commands/schema.js';
 import {THEME_FIELDS, THEME_BASE, THEME_FAMILIES, builtinThemes, resolveTheme, sanitizeTheme, themeNames} from '../themes/themes.js';
 import {sanitizeProvider, newProvider} from '../search/web.js';
+import {ANCHORS} from '../ui/placement.js';
 import {accountsPage} from './accounts.js';
 import {compileBlocklist, normalizeBlockEntry} from '../shortcuts/blocklist.js';
 import {ListEditor, Overrides, colorRow, comboRow, entryRow, fileDialog, group, regexHelpButton, shortcutRow, spinRow, switchRow, toast} from './widgets.js';
@@ -375,7 +376,12 @@ function appearance(window, settings) {
     size.add(spinRow(settings, 'width', 'Window width', 300, 2400, 10));
     size.add(spinRow(settings, 'window-height', 'Window minimum height', 0, 2400, 10, '0 = fit the results'));
     size.add(spinRow(settings, 'max-height', 'Maximum height', 100, 2400, 10));
-    size.add(spinRow(settings, 'position', 'Vertical position (% of screen height)', 0, 95, 1));
+    size.add(comboRow(settings, 'window-anchor', 'Window position', ANCHORS,
+        'Where the window opens. The usual places, kept clear of the top bar. "Custom" uses the vertical position below.'));
+    size.add(spinRow(settings, 'position', 'Vertical position (% of screen height)', 0, 95, 1, 'Used when the window position is Custom'));
+    size.add(spinRow(settings, 'window-edge-gap', 'Distance from the screen edge (px)', 0, 500, 1, 'Used by the preset positions'));
+    size.add(spinRow(settings, 'window-offset-x', 'Move the window horizontally (px)', -3000, 3000, 1, 'Positive moves it right. Added to any position above.'));
+    size.add(spinRow(settings, 'window-offset-y', 'Move the window vertically (px)', -3000, 3000, 1, 'Positive moves it down.'));
     size.add(comboRow(settings, 'search-position', 'Search bar position', [['top', 'Above the results'], ['bottom', 'Below the results']]));
     size.add(spinRow(settings, 'search-height', 'Search bar height', 24, 200, 1));
     size.add(spinRow(settings, 'search-padding', 'Search field padding', 0, 60, 1));

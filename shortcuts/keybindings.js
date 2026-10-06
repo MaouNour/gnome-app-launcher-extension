@@ -18,6 +18,7 @@ export class Keybindings {
 
         this._overlaySig = 0;
         this._shellBlocked = 0;
+        this._sessionSig = 0;
         this._superCb = null;
         this._mainArgs = null;   // {settings, key, callback}: kept so the binding can be put back
         this._customArgs = null; // {items, callback}
@@ -118,9 +119,18 @@ export class Keybindings {
             this._shellBlocked = 0;
             warn('could not block the overview\'s Super handler, hiding the overview instead:', e.message);
         }
+        // The Shell only lets `overlay-key` through in the NORMAL and OVERVIEW action modes. The open launcher
+        // holds a POPUP grab, so without this a second tap on Super could never close it. Session changes
+        // (lock screen, login) reset the allowance, so it is put back whenever the session mode updates.
+        this._allowSuper();
+        this._sessionSig = Main.sessionMode.connect('updated', () => this._allowSuper());
         this._overlaySig = global.display.connect('overlay-key', () => {
-            if (this._blocked)
+            if (this._blocked) {
+                // An application that is on the blocklist has focus: the launcher steps aside and the Super key
+                // does what the Shell would do without this extension.
+                Main.overview.toggle();
                 return;
+            }
             // Fallback when the handler could not be blocked: close the overview that just opened.
             if (!this._shellBlocked && (Main.overview.visible || Main.overview.animationInProgress))
                 Main.overview.hide();
@@ -129,7 +139,25 @@ export class Keybindings {
         dbg(`Super key handled by the launcher (overview handlers blocked: ${this._shellBlocked})`);
     }
 
+    _allowSuper() {
+        try {
+            Main.wm.allowKeybinding('overlay-key', MODES);
+        } catch (e) {
+            warn('could not allow the Super key while the launcher is open:', e.message);
+        }
+    }
+
     _stopSuper() {
+        if (this._sessionSig) {
+            Main.sessionMode.disconnect(this._sessionSig);
+            this._sessionSig = 0;
+            try {
+                // What the Shell itself sets (main.js, _sessionUpdated).
+                Main.wm.allowKeybinding('overlay-key', Shell.ActionMode.NORMAL | Shell.ActionMode.OVERVIEW);
+            } catch (e) {
+                warn('could not restore the Super key setting:', e.message);
+            }
+        }
         if (this._overlaySig) {
             global.display.disconnect(this._overlaySig);
             this._overlaySig = 0;

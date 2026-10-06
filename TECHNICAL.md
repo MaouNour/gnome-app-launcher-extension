@@ -1,5 +1,22 @@
 # Technical notes
 
+## 0.6.1: window position fix, Super toggles, your patch merged
+
+### Vertical position ignored
+Mutter's `clutter-bin-layout.c` allocates each child with `clutter_actor_needs_expand(child, axis)`: when it is true the child's `x_align`/`y_align` are used, otherwise the child is centred (`x_align = y_align = 0.5`) whatever its alignment property says. `needs_*_expand` is the actor's own `x_expand`/`y_expand` **or** that of any visible descendant (`clutter_actor_compute_expand`). The launcher's window box had neither; its rows have `x_expand: true`, so the horizontal alignment worked and the vertical one never did. Fix: `x_expand: true, y_expand: true` on `this._box` (not fill: `*_align` stays START/CENTER/END, so the box keeps its natural size). That also makes the result independent of which children are visible, which is the likely cause of the 0.5.1 "window snaps to the top and stays there" report.
+
+### Super cannot close
+`windowManager.js` `_filterKeybinding` blocks a binding unless `_allowedKeybindings[name] & Main.actionMode`; `main.js` `_sessionUpdated` sets `overlay-key` to NORMAL|OVERVIEW. The open launcher uses `Main.pushModal(..., {actionMode: POPUP})`, so `overlay-key` was filtered while it was open. `Keybindings.setSuperKey` now calls `Main.wm.allowKeybinding('overlay-key', NORMAL|OVERVIEW|POPUP)`, repeats it on `Main.sessionMode` `updated`, and `_stopSuper` restores NORMAL|OVERVIEW. When the blocklist is active the handler calls `Main.overview.toggle()` instead of the launcher.
+
+### Merged from `window-position.patch`
+`ui/placement.js` (`ANCHORS`, `computePlacement`), `launcher.js` `_place`, the Appearance rows and the four schema keys (`window-anchor`, `window-edge-gap`, `window-offset-x`, `window-offset-y`). The patch's `launcher.js` hunks were against a reformatted file (double quotes) and did not apply to this tree, so they were ported by hand; the other files applied as they were. The placement maths is correct for typical values (checked numerically and now in tests); margins are clamped to `monitor size - window size` on purpose. Your `_inside` replaces the old one.
+
+### Tests
+135 pass: preset alignments and margins, offset directions and clamping, the "custom" mode, the expand rule on the window box, the Super allowance.
+
+### Not verified
+No GNOME Shell was available. Check: every position preset and both offsets; tap Super to open and again to close; Super with a blocklisted application focused; Super after locking and unlocking the screen.
+
 ## 0.6.0: click fix, blur removed, running marker, action menu, file search
 
 ### Click regression from 0.5.3

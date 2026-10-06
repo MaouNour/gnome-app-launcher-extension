@@ -26,6 +26,13 @@
     <key name="search-height" type="i"><default>52</default><range min="24" max="200"/></key>
     <key name="search-position" type="s"><default>'top'</default></key>
     <key name="position" type="i"><default>18</default><range min="0" max="95"/></key>
+    <!-- Where the window opens: custom (centred, at "position" %) or a preset such as bottom-right -->
+    <key name="window-anchor" type="s"><default>'custom'</default></key>
+    <!-- Distance from the screen edge for the preset positions, in pixels -->
+    <key name="window-edge-gap" type="i"><default>24</default><range min="0" max="500"/></key>
+    <!-- Move the window by this many pixels after placing it (positive = right / down) -->
+    <key name="window-offset-x" type="i"><default>0</default><range min="-3000" max="3000"/></key>
+    <key name="window-offset-y" type="i"><default>0</default><range min="-3000" max="3000"/></key>
     <key name="row-height" type="i"><default>48</default><range min="24" max="160"/></key>
     <key name="icon-size" type="i"><default>32</default><range min="12" max="128"/></key>
     <key name="font-size" type="d"><default>11</default><range min="6" max="40"/></key>

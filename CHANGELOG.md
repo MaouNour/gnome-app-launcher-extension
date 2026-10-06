@@ -2,6 +2,34 @@
 
 All notable changes to GNOME Launcher (`gnome-launcher@maou-nournar`). Newest first.
 
+## 0.6.1
+
+### Bug fixes
+- **Window position: the vertical position and the pixel offsets did nothing.** Left, centre and right worked but
+  top, middle and bottom all opened in the middle of the screen. Cause: the window sits in a layer that places its
+  child with a BinLayout, and a BinLayout only applies a child's alignment on an axis where the child *expands*.
+  The rows inside the window expand sideways, so horizontal alignment worked by accident, but nothing expands
+  vertically, so the window was always centred vertically and its vertical margins had almost no effect. The window
+  now expands on both axes, so every position preset, the vertical position (%), the edge distance and both pixel
+  offsets take effect. (The same rule probably explains the "window jumps to the top while typing" report from
+  0.5.1: which parts of the window were visible decided whether the alignment counted.)
+- **Super could open the launcher but not close it.** While the launcher is open it holds a pop-up grab, and the Shell
+  only lets the Super key through in the normal and overview modes, so a second tap on Super never reached the
+  extension. The extension now allows it for the pop-up mode too (and gives the Shell its original setting back when
+  the option is switched off; the Shell resets it on lock/unlock, so it is re-applied then). With a blocklisted
+  application focused, Super now does what GNOME does without the extension (opens the overview).
+
+### Included
+- **Window position presets** (from your patch, ported into this tree): *Appearance > Window position* with ten
+  places (top/middle/bottom x left/centre/right, kept clear of the top bar, or the old "custom" vertical position in
+  %), distance from the screen edge, and horizontal and vertical pixel offsets. Offsets never push the window off the
+  screen.
+- Your change to `_inside(ev)` (click position against the window's real on-screen rectangle).
+
+### Housekeeping
+- Version 0.6.1. Tests 130 -> 135 (placement presets, offsets, the old custom behaviour, the expand rule, the Super
+  allowance).
+
 ## 0.6.0
 
 ### Bug fixes

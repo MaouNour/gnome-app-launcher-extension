@@ -13,6 +13,7 @@ import {buildStyles, cssFontFamily} from '../ui/style.js';
 import {compileBlocklist} from '../shortcuts/blocklist.js';
 import {copyName, fileLabels, isCopyName, isSecret, isTempName, isVideoName, linkCandidates, reviveItems, serializeItems, watchedSelections} from '../clipboard/persist.js';
 import {parseExec} from '../commands/exec.js';
+import {ANCHORS, computePlacement} from '../ui/placement.js';
 import {toTerms, pickBackend, locateArgs, parseLines, pathFromUri, filterPaths, shortPath, dirName, baseName, describeFile} from '../files/results.js';
 import {IDENTITY, WM_CLASS, SCHEMA_ID, UUID} from '../ui/identity.js';
 import {ACCENTS, activeColor, isColor} from '../ui/accent.js';
@@ -686,7 +687,7 @@ test('process separation: shell code never loads GTK, prefs never load Shell lib
     }
 });
 test('prefs-reachable modules are pure (only relative imports)', () => {
-    for (const f of ['themes/themes.js', 'commands/schema.js', 'commands/builtins.js', 'search/engine.js', 'emoji/emoji.js', 'emoji/data.js', 'clipboard/image.js', 'clipboard/persist.js', 'search/history.js', 'ui/identity.js', 'ui/accent.js', 'files/results.js', 'commands/exec.js', 'accounts/accounts.js', 'search/regex.js', 'search/web.js']) {
+    for (const f of ['themes/themes.js', 'commands/schema.js', 'commands/builtins.js', 'search/engine.js', 'emoji/emoji.js', 'emoji/data.js', 'clipboard/image.js', 'clipboard/persist.js', 'search/history.js', 'ui/identity.js', 'ui/accent.js', 'ui/placement.js', 'files/results.js', 'commands/exec.js', 'accounts/accounts.js', 'search/regex.js', 'search/web.js']) {
         const src = readFileSync(join(root, f), 'utf8');
         for (const m of src.matchAll(/^import .* from '([^']+)'/gm))
             assert.ok(m[1].startsWith('.'), `${f} imports ${m[1]}`);
@@ -1078,6 +1079,59 @@ test('running marker colour: system accent, theme accent or custom, always a val
     assert.ok(isColor('#3584e4') && isColor('#3584e4ff') && !isColor('3584e4') && !isColor('#12'));
     const ext = readFileSync(join(root, 'extension.js'), 'utf8');
     assert.ok(ext.includes("has_key('accent-color')"), 'the desktop accent key is only read where it exists');
+});
+const PLACE = {pos: 18, searchAtBottom: false, gap: 24, offX: 0, offY: 0,
+    mon: {x: 0, y: 0, width: 1920, height: 1080}, work: {x: 0, y: 32, width: 1920, height: 1048}, winW: 700, winH: 560};
+test('window position: every preset gives the right alignment and a margin on the right edge only', () => {
+    const at = (anchor, o = {}) => computePlacement({...PLACE, anchor, ...o});
+    assert.deepEqual(at('top'), {xAlign: 'center', yAlign: 'start', left: 0, right: 0, top: 56, bottom: 0}, 'below the top bar plus the gap');
+    assert.deepEqual(at('bottom'), {xAlign: 'center', yAlign: 'end', left: 0, right: 0, top: 0, bottom: 24});
+    assert.deepEqual(at('top-left'), {xAlign: 'start', yAlign: 'start', left: 24, right: 0, top: 56, bottom: 0});
+    assert.deepEqual(at('bottom-right'), {xAlign: 'end', yAlign: 'end', left: 0, right: 24, top: 0, bottom: 24});
+    assert.equal(at('center').yAlign, 'center');
+    assert.equal(at('left').xAlign, 'start');
+    assert.equal(at('right').xAlign, 'end');
+    assert.deepEqual(ANCHORS.map(a => a[0]).sort(), ['bottom', 'bottom-left', 'bottom-right', 'center', 'custom', 'left', 'right', 'top', 'top-left', 'top-right']);
+});
+test('window position: pixel offsets move the window the right way, and never push it off the screen', () => {
+    const at = (anchor, o) => computePlacement({...PLACE, anchor, ...o});
+    assert.equal(at('top', {offY: 100}).top, 156, 'down from the top edge');
+    assert.equal(at('bottom', {offY: -100}).bottom, 124, 'up from the bottom edge');
+    assert.equal(at('bottom', {offY: 100}).bottom, 0, 'cannot go below the edge');
+    assert.equal(at('top-left', {offX: 40}).left, 64);
+    assert.equal(at('bottom-right', {offX: -40}).right, 64);
+    const c = at('center', {offY: 100});
+    assert.equal(c.yAlign, 'center');
+    assert.equal(c.top, 2 * (16 + 100), 'a centred actor moves by half its margin, so the margin is twice the move');
+    assert.equal(at('center', {offY: -100}).bottom, 2 * (100 - 16), 'up from the middle');
+    assert.equal(at('center', {offY: -900}).bottom, 1080 - 560, 'but never more room than the screen has left');
+    assert.equal(at('top', {winH: 1080}).top, 0, 'a window as tall as the screen has no room to move');
+    assert.deepEqual(at('nonsense'), at('custom'));
+});
+test('window position: "custom" keeps the old behaviour (centred, at the vertical position in %)', () => {
+    const top = computePlacement({...PLACE, anchor: 'custom', pos: 25});
+    assert.deepEqual(top, {xAlign: 'center', yAlign: 'start', left: 0, right: 0, top: 270, bottom: 0});
+    const bottom = computePlacement({...PLACE, anchor: 'custom', pos: 90, searchAtBottom: true});
+    assert.deepEqual(bottom, {xAlign: 'center', yAlign: 'end', left: 0, right: 0, top: 0, bottom: 108}, 'the bottom edge sits at 90% of the height');
+});
+test('window position: the window box expands on both axes, otherwise the vertical position is ignored', () => {
+    const ui = readFileSync(join(root, 'ui/launcher.js'), 'utf8');
+    const i = ui.indexOf('this._box = new St.BoxLayout({');
+    const ctor = ui.slice(i, ui.indexOf('});', i));
+    assert.ok(/x_expand: true,\s+y_expand: true/.test(ctor), 'BinLayout only applies a child\'s alignment on an axis where it expands');
+    assert.ok(ui.includes('computePlacement({') && ui.includes('this._box.y_align = align[p.yAlign]') && ui.includes('this._box.margin_bottom = p.bottom'));
+    const xml = readFileSync(join(root, 'schemas/org.gnome.shell.extensions.gnome-launcher.gschema.xml'), 'utf8');
+    for (const k of ['window-anchor', 'window-edge-gap', 'window-offset-x', 'window-offset-y'])
+        assert.ok(xml.includes(`name="${k}"`), k);
+});
+test('Super key: the shell is told overlay-key is allowed while the launcher holds its grab, and gets its setting back', () => {
+    const src = readFileSync(join(root, 'shortcuts/keybindings.js'), 'utf8');
+    assert.ok(src.includes("Main.wm.allowKeybinding('overlay-key', MODES)"), 'POPUP mode is where the open launcher lives');
+    assert.ok(/MODES = Shell\.ActionMode\.NORMAL \| Shell\.ActionMode\.OVERVIEW \| Shell\.ActionMode\.POPUP/.test(src));
+    assert.ok(src.includes("allowKeybinding('overlay-key', Shell.ActionMode.NORMAL | Shell.ActionMode.OVERVIEW)"), 'restored when switched off');
+    assert.ok(src.includes("Main.sessionMode.connect('updated'"), 'the shell resets the allowance on session changes');
+    const ui = readFileSync(join(root, 'ui/launcher.js'), 'utf8');
+    assert.ok(ui.includes('actionMode: Shell.ActionMode.POPUP'), 'the reason the allowance is needed');
 });
 test('blocklist: exact, case, .desktop and wildcard matching', () => {
     const b = compileBlocklist(['Steam_App_*', 'org.gnome.Nautilus.desktop', '  ', 'vmw?are*']);
