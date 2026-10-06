@@ -12,6 +12,7 @@ import { buildStyles } from "./style.js";
 import { Idle } from "../utils/timing.js";
 import { dbg, warn } from "../utils/log.js";
 import { IDENTITY } from "./identity.js";
+import { computePlacement } from "./placement.js";
 
 const TAGS = {
   app: "App",
@@ -744,16 +745,28 @@ export class Launcher {
     const mon = this._monitor();
     this._overlay.set_position(mon.x, mon.y);
     this._overlay.set_size(mon.width, mon.height);
-    const pos = this._cfg.int("position");
-    if (this._order === "bottom") {
-      this._box.y_align = Clutter.ActorAlign.END;
-      this._box.margin_top = 0;
-      this._box.margin_bottom = Math.round((mon.height * (100 - pos)) / 100);
-    } else {
-      this._box.y_align = Clutter.ActorAlign.START;
-      this._box.margin_bottom = 0;
-      this._box.margin_top = Math.round((mon.height * pos) / 100);
-    }
+    // Alignment and all four margins are set from scratch every time (see ui/placement.js).
+    const wa = Main.layoutManager.getWorkAreaForMonitor(mon.index);
+    const scale = this._cfg.num("scale");
+    const p = computePlacement({
+      anchor: this._cfg.str("window-anchor"),
+      pos: this._cfg.int("position"),
+      searchAtBottom: this._order === "bottom",
+      gap: this._cfg.int("window-edge-gap"),
+      offX: this._cfg.int("window-offset-x"),
+      offY: this._cfg.int("window-offset-y"),
+      mon: { x: mon.x, y: mon.y, width: mon.width, height: mon.height },
+      work: { x: wa.x, y: wa.y, width: wa.width, height: wa.height },
+      winW: Math.round(this._cfg.int("width") * scale),
+      winH: Math.round(this._cfg.int("max-height") * scale),
+    });
+    const align = { start: Clutter.ActorAlign.START, center: Clutter.ActorAlign.CENTER, end: Clutter.ActorAlign.END };
+    this._box.x_align = align[p.xAlign];
+    this._box.y_align = align[p.yAlign];
+    this._box.margin_left = p.left;
+    this._box.margin_right = p.right;
+    this._box.margin_top = p.top;
+    this._box.margin_bottom = p.bottom;
   }
 
   _animate(opening) {
