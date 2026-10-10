@@ -37,6 +37,11 @@ Open the entry's <i>Search keywords</i> field and write the pattern between two 
 <tt>terminal /^(open )?term(inal)?$/</tt>
 The pattern is tested against everything typed in the launcher, and the entry is listed when it matches. Add <tt>^</tt> and <tt>$</tt> to require the whole text. This works whatever the search-box setting below is.
 
+<b>Without slashes</b>
+Switch on <i>Keywords are a regular expression (no slashes needed)</i> in the entry. The whole Search keywords field is then one pattern, written as it is:
+<tt>^(open )?term(inal)?$</tt>
+Ordinary words are not used as keywords in that case; put them in the pattern instead, for example <tt>^(terminal|console|shell)$</tt>.
+
 <b>In the search box  (optional)</b>
 Start with a slash, for example <tt>/chrom|fire</tt>. Turn it on or off under Search, "Use regular expressions".
 
@@ -347,7 +352,7 @@ export class ListEditor {
     _fieldWidget(item, f, set) {
         switch (f.type) {
         case 'switch': {
-            const w = new Adw.SwitchRow({title: f.label, active: item[f.key] !== false});
+            const w = new Adw.SwitchRow({title: f.label, active: f.default === false ? item[f.key] === true : item[f.key] !== false});
             w.connect('notify::active', () => set(f.key, w.active));
             return w;
         }

@@ -2,6 +2,15 @@
 
 All notable changes to GNOME Launcher (`gnome-launcher@maou-nournar`). Newest first.
 
+## 0.6.4 (in progress)
+
+- **Regex keywords without slashes.** Custom commands and actions have a new switch, *Keywords are a regular
+  expression (no slashes needed)*. When it is on, the whole *Search keywords* field is one pattern, written as it is
+  (`^(open )?term(inal)?$`), and the entry is listed when the pattern matches what you typed. The `/regex/` form inside
+  ordinary keywords still works. Off by default; the same safety limits apply (unsafe or invalid patterns are ignored).
+- **Regex setting explained.** Under *Search > Regular expressions > Use regular expressions* a new row explains what
+  each choice does (starts with a slash / always / never), with the selected one in bold.
+
 ## 0.6.3
 
 - **Search text in commands.** `$q` (or `${q}`) in a custom command's arguments, a script action's arguments or a URL

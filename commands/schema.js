@@ -18,6 +18,10 @@ export function substituteQuery(text, q) {
 const URL_RE = /^(https?:\/\/|ftp:\/\/|mailto:)\S+$/i;
 const ENV_RE = /^[A-Za-z_][A-Za-z0-9_]*=/;
 
+// Off by default (a missing value means off, unlike the other switches). When on, the whole keywords field is
+// one regular expression and needs no slashes.
+const REGEX_KEYWORDS_FIELD = {key: 'regexKeywords', label: 'Keywords are a regular expression (no slashes needed)', type: 'switch', default: false};
+
 export const COMMAND_FIELDS = [
     {key: 'name', label: 'Name', type: 'text'},
     {key: 'description', label: 'Description', type: 'text'},
@@ -27,6 +31,7 @@ export const COMMAND_FIELDS = [
     {key: 'icon', label: 'Icon (theme name or file path)', type: 'text'},
     {key: 'category', label: 'Category', type: 'text'},
     {key: 'keywords', label: 'Search keywords (words, or a /regex/ between slashes)', type: 'text', help: 'regex'},
+    REGEX_KEYWORDS_FIELD,
     {key: 'shortcut', label: 'Global shortcut', type: 'shortcut'},
     {key: 'windowShortcut', label: 'Window shortcut (only while the launcher is open)', type: 'shortcut', local: true},
     {key: 'enabled', label: 'Enabled', type: 'switch'},
@@ -40,14 +45,15 @@ export const ACTION_FIELDS = [
     {key: 'args', label: 'Arguments (scripts; $q is the text typed in the search box)', type: 'text'},
     {key: 'icon', label: 'Icon (theme name or file path)', type: 'text'},
     {key: 'keywords', label: 'Search keywords (words, or a /regex/ between slashes)', type: 'text', help: 'regex'},
+    REGEX_KEYWORDS_FIELD,
     {key: 'category', label: 'Category', type: 'text'},
     {key: 'shortcut', label: 'Global shortcut', type: 'shortcut'},
     {key: 'windowShortcut', label: 'Window shortcut (only while the launcher is open)', type: 'shortcut', local: true},
     {key: 'enabled', label: 'Enabled', type: 'switch'},
 ];
 
-export const newCommand = () => ({name: 'New command', description: '', command: '', args: '', env: '', icon: '', category: 'Commands', keywords: '', shortcut: '', windowShortcut: '', enabled: true});
-export const newAction = () => ({name: 'New action', description: '', type: 'shell', target: '', args: '', icon: '', keywords: '', category: 'Actions', shortcut: '', windowShortcut: '', enabled: true});
+export const newCommand = () => ({name: 'New command', description: '', command: '', args: '', env: '', icon: '', category: 'Commands', keywords: '', regexKeywords: false, shortcut: '', windowShortcut: '', enabled: true});
+export const newAction = () => ({name: 'New action', description: '', type: 'shell', target: '', args: '', icon: '', keywords: '', regexKeywords: false, category: 'Actions', shortcut: '', windowShortcut: '', enabled: true});
 
 export function sanitizeCommand(raw, index = 0) {
     if (!raw || typeof raw !== 'object' || Array.isArray(raw))
@@ -56,7 +62,7 @@ export function sanitizeCommand(raw, index = 0) {
         id: clean(raw.id) || `c${index}`,
         name: clean(raw.name), description: clean(raw.description),
         command: clean(raw.command), args: clean(raw.args), env: clean(raw.env),
-        icon: clean(raw.icon), category: clean(raw.category), keywords: clean(raw.keywords),
+        icon: clean(raw.icon), category: clean(raw.category), keywords: clean(raw.keywords), regexKeywords: raw.regexKeywords === true,
         shortcut: clean(raw.shortcut), windowShortcut: clean(raw.windowShortcut), enabled: raw.enabled !== false,
     };
 }
@@ -69,7 +75,7 @@ export function sanitizeAction(raw, index = 0) {
         name: clean(raw.name), description: clean(raw.description),
         type: ACTION_TYPES.includes(raw.type) ? raw.type : 'shell',
         target: clean(raw.target), args: clean(raw.args),
-        icon: clean(raw.icon), keywords: clean(raw.keywords), category: clean(raw.category),
+        icon: clean(raw.icon), keywords: clean(raw.keywords), regexKeywords: raw.regexKeywords === true, category: clean(raw.category),
         shortcut: clean(raw.shortcut), windowShortcut: clean(raw.windowShortcut), enabled: raw.enabled !== false,
     };
 }

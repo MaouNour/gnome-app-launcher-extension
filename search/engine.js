@@ -1,6 +1,6 @@
 // Pure JS (no GI imports): unit-testable and benchmarkable under plain node.
 //
-import {extractRegexKeywords} from './regex.js';
+import {compileKeywordPattern, extractRegexKeywords} from './regex.js';
 //
 // Entries are "prepared" once (lowercased/diacritic-folded copies of their text fields),
 // so a keystroke only does cheap string comparisons against in-memory data. Extending the
@@ -18,10 +18,19 @@ export function fold(s) {
 // Adds search metadata to an entry ({name, desc, keywords, category}). Idempotent.
 export function prepare(e) {
     // Custom commands/actions may carry /regex/ keywords: split them from the plain words.
-    if (e.rxKeywords) {
-        const {plain, patterns} = extractRegexKeywords(e.keywords);
-        e.keywords = plain;
-        e._rx = patterns;
+    // ("rxWhole": the whole keywords field is one pattern, no slashes.) Done once: a second prepare() must not
+    // overwrite the patterns with the already-stripped keywords.
+    if (e.rxKeywords && !e._rxDone) {
+        e._rxDone = true;
+        if (e.rxWhole) {
+            const re = compileKeywordPattern(e.keywords);
+            e.keywords = '';
+            e._rx = re ? [re] : [];
+        } else {
+            const {plain, patterns} = extractRegexKeywords(e.keywords);
+            e.keywords = plain;
+            e._rx = patterns;
+        }
     }
     const n = fold(e.name || '');
     e._n = n;

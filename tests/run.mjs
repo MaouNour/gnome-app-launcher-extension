@@ -6,7 +6,7 @@ import {fileURLToPath} from 'node:url';
 
 import {SearchEngine, prepare, fold, frecency} from '../search/engine.js';
 import {sanitizeTheme, resolveTheme, builtinThemes, cssColor, THEME_FAMILIES} from '../themes/themes.js';
-import {sanitizeCommand, sanitizeAction, validateCommand, validateAction, substituteQuery} from '../commands/schema.js';
+import {sanitizeCommand, sanitizeAction, validateCommand, validateAction, substituteQuery, newCommand} from '../commands/schema.js';
 import {buildUserEntries} from '../commands/userEntries.js';
 import {calculate} from '../search/calc.js';
 import {buildStyles, cssFontFamily} from '../ui/style.js';
@@ -18,7 +18,7 @@ import {toTerms, pickBackend, locateArgs, parseLines, pathFromUri, filterPaths, 
 import {IDENTITY, WM_CLASS, SCHEMA_ID, UUID} from '../ui/identity.js';
 import {ACCENTS, activeColor, isColor, markOnSelection} from '../ui/accent.js';
 import {QueryHistory, MAX_QUERY_LEN} from '../search/history.js';
-import {parseRegexQuery, isRiskyPattern, extractRegexKeywords} from '../search/regex.js';
+import {parseRegexQuery, isRiskyPattern, extractRegexKeywords, compileKeywordPattern} from '../search/regex.js';
 import {sanitizeProviders, sanitizeProvider, validTemplate, buildUrl, webEntries, explicitWebQuery, offerWeb, DEFAULT_PROVIDERS} from '../search/web.js';
 import {sanitizeAccount, sanitizeAccounts, accountEntries, safeUrl, hostOf, generatePassword, newAccountId, clearDelaySeconds} from '../accounts/accounts.js';
 import {ARABIC_TEXT, DEFAULT_MAPS, compileMaps, parseMapText, sanitizeMap, sanitizeMaps, translateQuery} from '../search/layout.js';
@@ -620,6 +620,36 @@ test('regex keywords of commands match the whole query and rank first', () => {
     assert.equal(eng.search('open terminal', {limit: 5})[0].id, 'cmd');
     assert.ok(!eng.search('open terminal now', {limit: 5}).some(e => e.id === 'cmd'), 'anchored pattern must not match');
     assert.ok(eng.search('launch', {limit: 5}).some(e => e.id === 'cmd'), 'plain words still work');
+});
+
+test('keywords marked as a regular expression need no slashes', () => {
+    assert.ok(compileKeywordPattern('^(open )?term(inal)?$').test('open terminal'));
+    assert.equal(compileKeywordPattern('  '), null);
+    assert.equal(compileKeywordPattern('(unclosed'), null, 'invalid pattern is ignored');
+    assert.equal(compileKeywordPattern('(a+)+$'), null, 'risky pattern is ignored');
+    const eng = new SearchEngine();
+    const mk = (id, name, keywords, rxWhole) => prepare({id, kind: 'command', name, keywords, rxKeywords: true, rxWhole});
+    eng.setEntries([
+        prepare({id: 'x', kind: 'app', name: 'Alpha terminal emulator', keywords: ''}),
+        mk('whole', 'Run shell', '^open term(inal)?$', true),
+        mk('slashes', 'Other', '/^launch term$/ extra', false),
+        mk('bad', 'Broken', '(unclosed', true),
+    ]);
+    assert.equal(eng.search('open terminal', {limit: 5})[0].id, 'whole');
+    assert.ok(!eng.search('open terminal now', {limit: 5}).some(e => e.id === 'whole'), 'anchored pattern must not match');
+    assert.equal(eng.search('launch term', {limit: 5})[0].id, 'slashes', 'the /slash/ form still works');
+    assert.ok(!eng.search('unclosed', {limit: 9}).some(e => e.id === 'bad' && e.keywords), 'an invalid pattern is not used as plain words');
+    const again = prepare(mk('whole2', 'Twice', '^once$', true));
+    assert.ok(prepare(again)._rx.length === 1, 'preparing twice keeps the pattern');
+});
+test('regexKeywords is stored on commands and actions and defaults to off', () => {
+    assert.equal(sanitizeCommand({name: 'a', command: 'b'}).regexKeywords, false);
+    assert.equal(sanitizeCommand({name: 'a', command: 'b', regexKeywords: true}).regexKeywords, true);
+    assert.equal(sanitizeAction({name: 'a', target: 'b', regexKeywords: 'yes'}).regexKeywords, false, 'only a real true counts');
+    assert.equal(newCommand().regexKeywords, false);
+    const {entries} = buildUserEntries([{name: 'T', command: 'kgx', keywords: '^t(erm)?$', regexKeywords: true}], [], {});
+    assert.equal(entries[0]._rx.length, 1);
+    assert.equal(entries[0].keywords, '');
 });
 
 // ---- web / AI fallback ----------------------------------------------------------------------

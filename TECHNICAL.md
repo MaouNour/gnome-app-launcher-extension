@@ -309,3 +309,11 @@ single "Quick preset" row.
 Nothing here was run inside GNOME Shell. Check on device: open prefs and the Keyboard Shortcuts page; add a
 blocklist entry for an app, focus it and confirm the shortcut reaches the app; type searches and arrow through
 results to confirm only one row is highlighted; apply Tokyo Night.
+
+### Regex keywords without slashes (0.6.4)
+- `commands/schema.js`: `regexKeywords` boolean on commands and actions (`REGEX_KEYWORDS_FIELD`, a switch whose missing value means off,
+  via `default: false` in the field spec; `prefs/widgets.js` honours it).
+- `commands/userEntries.js` passes it as `rxWhole`; `search/engine.js` `prepare()` then compiles the whole keywords field with
+  `compileKeywordPattern()` (`search/regex.js`) instead of extracting `/regex/` tokens. `prepare()` is guarded by `_rxDone` so a second call
+  does not wipe the patterns.
+- `prefs/pages.js`: `regexModeExplanation()` row under the *Use regular expressions* choice.

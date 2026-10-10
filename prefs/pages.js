@@ -669,16 +669,40 @@ function layoutGroups(window, settings) {
     return [g, editor.group];
 }
 
+// What each "Use regular expressions" choice does; shown under the choice list, the current one in bold.
+const REGEX_MODE_HELP = [
+    ['prefix', 'When the search starts with a slash',
+        'Only text that begins with \"/\" is a pattern, e.g. /chrom|fire (the closing slash is optional). Everything else is a normal search.'],
+    ['always', 'Always when the text looks like a pattern',
+        'Any text with regex characters ( . * + ? ^ $ ( ) [ ] | ) is tried as a pattern first. If it is not valid or could be slow, the normal search runs instead, so \"c++\" still finds apps.'],
+    ['off', 'Never',
+        'The search box always does a normal search; slashes and symbols are just text. Patterns in your commands\' keywords still work.'],
+];
+
+function regexModeExplanation(settings) {
+    const row = new Adw.ActionRow({title: 'What each choice does', activatable: false, selectable: false});
+    const esc = s => GLib.markup_escape_text(s, -1);
+    const sync = () => {
+        const cur = settings.get_string('regex-mode');
+        row.subtitle = REGEX_MODE_HELP.map(([v, name, text]) =>
+            (v === cur ? `<b>${esc(name)}</b> (selected)` : esc(name)) + `\n${esc(text)}`).join('\n\n');
+    };
+    sync();
+    settings.connect('changed::regex-mode', sync);
+    return row;
+}
+
 function search(window, settings) {
     const p = page('Search', 'system-search-symbolic');
     const rx = group('Regular expressions',
-        'Match names, keywords and descriptions with a pattern, for example /^(chrom|fire)/ or /term.*emu/. Matching ignores case. To use a pattern as a keyword of one of your own commands, write it between slashes in that command\'s Search keywords field (see the i button).');
+        'Match names, keywords and descriptions with a pattern, for example /^(chrom|fire)/ or /term.*emu/. Matching ignores case. To use a pattern as a keyword of one of your own commands, write it between slashes in that command\'s Search keywords field, or switch on "Keywords are a regular expression" there and write it with no slashes (see the i button).');
     rx.set_header_suffix(regexHelpButton());
     rx.add(comboRow(settings, 'regex-mode', 'Use regular expressions', [
         ['prefix', 'When the search starts with a slash'],
         ['always', 'Always when the text looks like a pattern (falls back to normal search if it is not valid)'],
         ['off', 'Never'],
     ]));
+    rx.add(regexModeExplanation(settings));
     rx.add(new Adw.ActionRow({
         title: 'Safety limits',
         subtitle: 'Patterns that can freeze the shell are refused: more than two open-ended repeats (*, +), repeated groups that contain repeats or alternatives, back-references and look-behind. Custom commands can also use /regex/ in their keywords.',

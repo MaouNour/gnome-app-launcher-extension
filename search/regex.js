@@ -60,6 +60,20 @@ export function parseRegexQuery(query, mode) {
     }
 }
 
+// Search keywords of an entry marked "keywords are a regular expression": the whole field is ONE pattern,
+// written without slashes ("^(open )?term(inal)?$"). Returns the compiled pattern, or null when the field is
+// empty, not valid yet or unsafe (the entry then simply has no pattern, like an ignored /regex/ token).
+export function compileKeywordPattern(text) {
+    const src = String(text ?? '').trim();
+    if (!src || isRiskyPattern(src))
+        return null;
+    try {
+        return new RegExp(src, 'i');
+    } catch (_e) {
+        return null;
+    }
+}
+
 // Search keywords of custom commands/actions may contain /patterns/ next to ordinary words:
 //   "terminal /^(open )?term(inal)?$/"
 // Returns the ordinary words and the compiled patterns (unsafe or invalid ones are ignored).
