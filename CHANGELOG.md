@@ -2,6 +2,16 @@
 
 All notable changes to GNOME Launcher (`gnome-launcher@maou-nournar`). Newest first.
 
+## 0.6.3 (in progress)
+
+- **Search text in commands.** `$q` (or `${q}`) in a custom command's arguments, a script action's arguments or a URL
+  action's address is replaced by what is typed in the search box when you press Enter (in URLs it is
+  percent-encoded). It is substituted after the command line is split, so the text can never add arguments. Commands,
+  scripts and shell snippets also get it in the environment as `q` and `LAUNCHER_QUERY`; in a shell snippet write
+  `"$q"` (quoted) and the shell expands it. The text is empty when the entry is run from its own global shortcut.
+- File search: results were dropped when the box held trailing spaces or when a keyboard-layout map had converted the
+  text; both fixed. `Automatic` now falls back to `locate` when GNOME's search errors or finds nothing.
+
 ## 0.6.2
 
 ### Added

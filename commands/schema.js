@@ -8,6 +8,13 @@ const clean = v => (typeof v === 'string' ? v.replace(/[\u0000-\u001f\u007f]/g, 
 export const ACTION_TYPES = ['app', 'shell', 'url', 'file', 'dir', 'script', 'gnome'];
 export const GNOME_ACTIONS = ['overview', 'app-grid', 'screenshot', 'lock-screen', 'settings', 'logout', 'reboot', 'suspend', 'power-off', 'toggle-dark-mode', 'toggle-dnd'];
 
+// The search text for custom commands. "$q" and "${q}" are replaced inside each argument AFTER the command line
+// has been split, so the text can never add or change arguments; scripts and shell snippets also get it in the
+// environment as q and LAUNCHER_QUERY (a shell snippet uses "$q" itself, quoted, as it would any variable).
+export function substituteQuery(text, q) {
+    return String(text).replace(/\$\{q\}|\$q(?![A-Za-z0-9_])/g, () => q);
+}
+
 const URL_RE = /^(https?:\/\/|ftp:\/\/|mailto:)\S+$/i;
 const ENV_RE = /^[A-Za-z_][A-Za-z0-9_]*=/;
 
@@ -15,7 +22,7 @@ export const COMMAND_FIELDS = [
     {key: 'name', label: 'Name', type: 'text'},
     {key: 'description', label: 'Description', type: 'text'},
     {key: 'command', label: 'Command (executable, no shell)', type: 'text'},
-    {key: 'args', label: 'Arguments (shell-style quoting)', type: 'text'},
+    {key: 'args', label: 'Arguments (shell-style quoting; $q is the text typed in the search box)', type: 'text'},
     {key: 'env', label: 'Environment (KEY=value pairs, space separated)', type: 'text'},
     {key: 'icon', label: 'Icon (theme name or file path)', type: 'text'},
     {key: 'category', label: 'Category', type: 'text'},
@@ -29,8 +36,8 @@ export const ACTION_FIELDS = [
     {key: 'name', label: 'Name', type: 'text'},
     {key: 'description', label: 'Description', type: 'text'},
     {key: 'type', label: 'Type', type: 'combo', options: ACTION_TYPES},
-    {key: 'target', label: 'Target (desktop id, command line, URL, path or GNOME action)', type: 'text'},
-    {key: 'args', label: 'Arguments (scripts)', type: 'text'},
+    {key: 'target', label: 'Target (desktop id, command line, URL, path or GNOME action; $q is the search text, in a shell command use "$q")', type: 'text'},
+    {key: 'args', label: 'Arguments (scripts; $q is the text typed in the search box)', type: 'text'},
     {key: 'icon', label: 'Icon (theme name or file path)', type: 'text'},
     {key: 'keywords', label: 'Search keywords (words, or a /regex/ between slashes)', type: 'text', help: 'regex'},
     {key: 'category', label: 'Category', type: 'text'},

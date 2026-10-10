@@ -619,6 +619,7 @@ export default class GnomeLauncherExtension extends Extension {
     }
 
     _activate(entry, how = '') {
+        this._runQuery = this._launcher.isOpen ? this._launcher.text : '';
         if (entry.kind !== 'account' && entry.kind !== 'menu')
             this._recordSearch(entry);
         switch (entry.kind) {
@@ -1248,7 +1249,7 @@ export default class GnomeLauncherExtension extends Extension {
         if (!entry || !this._runner)
             return;
         try {
-            this._runner.run(entry);
+            this._runner.run(entry, {query: this._runQuery ?? ''});
         } catch (e) {
             warn(`failed to run ${entry.id}: ${e.message}`);
             Main.notify(NOTIFY_TITLE, `Could not run "${entry.name}": ${e.message}`);

@@ -5,6 +5,7 @@ import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 
 import {launchApp, launchAppAction} from '../applications/launch.js';
 import {dbg, warn} from '../utils/log.js';
+import {substituteQuery} from './schema.js';
 
 const ENV_RE = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/s;
 
@@ -14,6 +15,10 @@ function expandHome(p) {
     if (p.startsWith('~/'))
         return GLib.build_filenamev([GLib.get_home_dir(), p.slice(2)]);
     return p;
+}
+
+function queryEnv(q) {
+    return [['q', q], ['LAUNCHER_QUERY', q]];
 }
 
 // Shell-style tokenising (quotes respected) WITHOUT invoking a shell.
@@ -111,8 +116,10 @@ export class Runner {
         this._hooks = hooks;
     }
 
-    run(entry) {
+    // ctx: {query} the text in the search box when the entry was chosen.
+    run(entry, ctx = {}) {
         const p = entry.payload;
+        const q = String(ctx.query ?? '');
         switch (entry.kind) {
         case 'app':
             return launchApp(p.appId, {newWindow: !!p.newWindow});
@@ -121,9 +128,10 @@ export class Runner {
         case 'file':
             return openUri(p.uri);
         case 'command':
-            return spawn(parseArgv(`${p.command} ${p.args}`.trim()), parseEnv(p.env));
+            return spawn(parseArgv(`${p.command} ${p.args}`.trim()).map(t => substituteQuery(t, q)),
+                [...parseEnv(p.env).map(([k, v]) => [k, substituteQuery(v, q)]), ...queryEnv(q)]);
         case 'action':
-            return this._action(p);
+            return this._action(p, q);
         case 'system':
             return this._gnome(p.target);
         case 'exec':
@@ -149,15 +157,16 @@ export class Runner {
         });
     }
 
-    _action(a) {
+    _action(a, q = '') {
         switch (a.type) {
         case 'app':
             return launchApp(a.target.endsWith('.desktop') ? a.target : `${a.target}.desktop`);
         case 'shell':
             // Explicit, user-authored shell snippet (the only place a shell is involved).
-            return spawn(['/bin/sh', '-c', `${a.target} ${a.args}`.trim()]);
+            return spawn(['/bin/sh', '-c', `${a.target} ${a.args}`.trim()], queryEnv(q));
         case 'url':
-            return openUri(a.target);
+            // In an address the text is percent-encoded.
+            return openUri(substituteQuery(a.target, encodeURIComponent(q.trim())));
         case 'file':
         case 'dir': {
             const path = expandHome(a.target);
@@ -170,7 +179,7 @@ export class Runner {
         }
         case 'script': {
             const path = expandHome(a.target);
-            return spawn([path, ...(a.args ? parseArgv(a.args) : [])]);
+            return spawn([path, ...(a.args ? parseArgv(a.args).map(t => substituteQuery(t, q)) : [])], queryEnv(q));
         }
         case 'gnome':
             return this._gnome(a.target);

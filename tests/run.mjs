@@ -6,7 +6,7 @@ import {fileURLToPath} from 'node:url';
 
 import {SearchEngine, prepare, fold, frecency} from '../search/engine.js';
 import {sanitizeTheme, resolveTheme, builtinThemes, cssColor, THEME_FAMILIES} from '../themes/themes.js';
-import {sanitizeCommand, sanitizeAction, validateCommand, validateAction} from '../commands/schema.js';
+import {sanitizeCommand, sanitizeAction, validateCommand, validateAction, substituteQuery} from '../commands/schema.js';
 import {buildUserEntries} from '../commands/userEntries.js';
 import {calculate} from '../search/calc.js';
 import {buildStyles, cssFontFamily} from '../ui/style.js';
@@ -1243,6 +1243,16 @@ test('layout map: wired into the main search only, web text is kept as typed', (
     assert.ok(schema.includes('name="layout-maps"'));
 });
 
+test('$q in commands: replaced per argument, whole word only', () => {
+    assert.equal(substituteQuery('--name=$q', 'a b'), '--name=a b');
+    assert.equal(substituteQuery('${q}x $q', 'z'), 'zx z');
+    assert.equal(substituteQuery('$quit $q1 $Q', 'z'), '$quit $q1 $Q');
+    assert.equal(substituteQuery('$q', '$q'), '$q');
+    assert.equal(substituteQuery('$q', "$&'"), "$&'");
+    const runner = readFileSync(join(root, 'commands/runner.js'), 'utf8');
+    assert.ok(runner.includes('.map(t => substituteQuery(t, q))') && runner.includes("queryEnv(q)"));
+    assert.ok(!/shell[\s\S]{0,200}substituteQuery\(`\$\{a\.target\}/.test(runner), 'shell snippets get the text only through the environment');
+});
 test('every animation style offered in prefs exists in the launcher', () => {
     const pages = readFileSync(join(root, 'prefs/pages.js'), 'utf8');
     const ui = readFileSync(join(root, 'ui/launcher.js'), 'utf8');
