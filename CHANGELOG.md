@@ -4,6 +4,12 @@ All notable changes to GNOME Launcher (`gnome-launcher@maou-nournar`). Newest fi
 
 ## 0.6.4 (in progress)
 
+- **New defaults for a fresh install** (existing settings are not touched; only keys you never changed follow the
+  new default): emoji picker as a grid; window centred on the screen (*Middle*); Catppuccin themes (Latte in light
+  mode, Mocha in dark mode, still following GNOME); the running marker keeps its own colour on the highlighted row;
+  `steam_app_*` in the shortcut blocklist (Steam games); emoji are pasted in place and the launcher closes; action
+  menu on; file search on; scroll through every result on; the empty list is no longer filled with other entries
+  (*Fill the rest with other entries* off).
 - **Release clean-up.** Removed the leftover `blur/` folder and `prefs/blur.js` (nothing imported them; two tests were
   failing because of them). The unused artwork in `icons/` (about 6.7 MB) stays in the source tree but is never
   packaged. New `pack.sh` builds the zip for extensions.gnome.org (about 180 KB, schema checked, no compiled schema, 5 MB guard);

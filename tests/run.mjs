@@ -1031,6 +1031,27 @@ test('clicks and taps: each input path is attempted on its own, so a missing one
     assert.ok(ui.includes("this._state !== 'open' && this._state !== 'opening'") && ui.includes('now - this._lastClick < 400000'));
     assert.ok(ui.includes('_keyRecent()'), 'rows scrolling under a resting pointer do not steal the selection');
 });
+test('shipped defaults: emoji grid, centred window, Catppuccin, own colour on the highlighted row, Steam blocked, and the opt-in features on', () => {
+    const xml = readFileSync(join(root, 'schemas/org.gnome.shell.extensions.gnome-launcher.gschema.xml'), 'utf8');
+    const def = k => {
+        const m = xml.match(new RegExp('<key name="' + k + '" type="[a-z]+"><default>(.*?)</default>'));
+        assert.ok(m, `schema key ${k} not found`);
+        return m[1];
+    };
+    assert.equal(def('emoji-layout'), "'grid'");
+    assert.equal(def('window-anchor'), "'center'");
+    assert.equal(def('theme-light'), "'catppuccin-latte'");
+    assert.equal(def('theme-dark'), "'catppuccin-mocha'");
+    assert.equal(def('active-color-selected'), "'same'");
+    assert.equal(def('blocklist'), "['steam_app_*']");
+    assert.equal(def('emoji-paste'), 'true');
+    assert.equal(def('action-menu'), 'true');
+    assert.equal(def('files-enabled'), 'true');
+    assert.equal(def('unlimited-results'), 'true');
+    assert.equal(def('start-fill'), 'false');
+    assert.ok(Object.keys(builtinThemes()).includes('catppuccin-latte') && Object.keys(builtinThemes()).includes('catppuccin-mocha'), 'the default themes exist');
+    assert.ok(compileBlocklist(['steam_app_*']).test(['steam_app_1245620']), 'the default pattern matches a Steam game window class');
+});
 test('blur is not part of this extension: nothing creates or configures it', () => {
     const xml = readFileSync(join(root, 'schemas/org.gnome.shell.extensions.gnome-launcher.gschema.xml'), 'utf8');
     assert.ok(!/name="blur-/.test(xml));
@@ -1086,9 +1107,9 @@ test('file search: URIs and path filtering', () => {
     assert.equal(dirName('/a'), '/');
     assert.equal(baseName('/a/b.c'), 'b.c');
 });
-test('file search: off by default, keeps nothing, asks a backend each time', () => {
+test('file search: on by default, keeps nothing, asks a backend each time', () => {
     const xml = readFileSync(join(root, 'schemas/org.gnome.shell.extensions.gnome-launcher.gschema.xml'), 'utf8');
-    assert.match(xml, /files-enabled" type="b"><default>false<\/default>/);
+    assert.match(xml, /files-enabled" type="b"><default>true<\/default>/);
     assert.match(xml, /files-hidden" type="b"><default>false<\/default>/);
     assert.match(xml, /files-outside-home" type="b"><default>false<\/default>/);
     const src = readFileSync(join(root, 'files/search.js'), 'utf8');
@@ -1099,9 +1120,9 @@ test('file search: off by default, keeps nothing, asks a backend each time', () 
     const ui = readFileSync(join(root, 'ui/launcher.js'), 'utf8');
     assert.ok(ui.includes('addAsyncResults(query, entries)') && ui.includes("r.kind === 'web'"), 'late results go before a web fallback');
 });
-test('action menu: off by default, Ctrl+B only when on, Ctrl+H/Ctrl+F only when off, menu has its own back path', () => {
+test('action menu: on by default, Ctrl+B only when on, Ctrl+H/Ctrl+F only when off, menu has its own back path', () => {
     const xml = readFileSync(join(root, 'schemas/org.gnome.shell.extensions.gnome-launcher.gschema.xml'), 'utf8');
-    assert.match(xml, /action-menu" type="b"><default>false<\/default>/);
+    assert.match(xml, /action-menu" type="b"><default>true<\/default>/);
     const ui = readFileSync(join(root, 'ui/launcher.js'), 'utf8');
     const i = ui.indexOf('case Clutter.KEY_b:');
     const keys = ui.slice(i, i + 900);

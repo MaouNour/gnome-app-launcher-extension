@@ -161,7 +161,7 @@ Row height is a separate setting, so a very large font can be clipped until the 
 
 ### Emoji grid
 
-*Preferences > Emoji > Emoji list style* switches the picker from a list to a grid of square cells. The number of columns follows the
+*Preferences > Emoji > Emoji list style* switches the picker between a grid of square cells (the default) and a list. The number of columns follows the
 window width and the cell size is configurable. Arrow keys move in two dimensions (Left/Right therefore move the selection, not the
 text cursor, while the grid is open), PageUp/PageDown jump four lines, and the name of the highlighted emoji is shown under the grid.
 Like the list, the grid creates its cells in batches while you scroll.

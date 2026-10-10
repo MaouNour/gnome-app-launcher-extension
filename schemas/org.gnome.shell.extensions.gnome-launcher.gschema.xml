@@ -3,7 +3,7 @@
   <schema id="org.gnome.shell.extensions.gnome-launcher" path="/org/gnome/shell/extensions/gnome-launcher/">
     <!-- Applications in which every launcher shortcut is released (games, VMs...): window class,
          application id or desktop id, "*" and "?" wildcards allowed -->
-    <key name="blocklist" type="as"><default>[]</default></key>
+    <key name="blocklist" type="as"><default>['steam_app_*']</default></key>
     <!-- Also release the shortcuts while the focused window is fullscreen -->
     <key name="block-fullscreen" type="b"><default>false</default></key>
 
@@ -27,7 +27,7 @@
     <key name="search-position" type="s"><default>'top'</default></key>
     <key name="position" type="i"><default>18</default><range min="0" max="95"/></key>
     <!-- Where the window opens: custom (centred, at "position" %) or a preset such as bottom-right -->
-    <key name="window-anchor" type="s"><default>'custom'</default></key>
+    <key name="window-anchor" type="s"><default>'center'</default></key>
     <!-- Distance from the screen edge for the preset positions, in pixels -->
     <key name="window-edge-gap" type="i"><default>24</default><range min="0" max="500"/></key>
     <!-- Move the window by this many pixels after placing it (positive = right / down) -->
@@ -63,8 +63,8 @@
 
     <!-- Themes -->
     <key name="theme-mode" type="s"><default>'auto'</default></key>
-    <key name="theme-light" type="s"><default>'default-light'</default></key>
-    <key name="theme-dark" type="s"><default>'default-dark'</default></key>
+    <key name="theme-light" type="s"><default>'catppuccin-latte'</default></key>
+    <key name="theme-dark" type="s"><default>'catppuccin-mocha'</default></key>
     <key name="custom-themes" type="s"><default>'[]'</default></key>
     <key name="theme-overrides" type="s"><default>'{}'</default></key>
 
@@ -94,7 +94,7 @@
     <!-- Running marker: shape dot | dash | ring | square | pill | bar | none (active-indicator), size in percent,
          colour on the highlighted row: auto | same | custom (active-color-selected-custom) -->
     <key name="active-size" type="i"><default>100</default><range min="50" max="300"/></key>
-    <key name="active-color-selected" type="s"><default>'auto'</default></key>
+    <key name="active-color-selected" type="s"><default>'same'</default></key>
     <key name="active-color-selected-custom" type="s"><default>'#ffffff'</default></key>
     <key name="search-ring" type="s"><default>'system'</default></key>
     <key name="search-ring-color" type="s"><default>'#3584e4'</default></key>
@@ -120,12 +120,12 @@
 
     <!-- Ctrl+B opens a menu of actions for the highlighted entry (open in a new window or workspace, desktop
          file, favorite, hide, ...). While it is on, Ctrl+H and Ctrl+F (Ctrl+D) are not used: the menu has them. -->
-    <key name="action-menu" type="b"><default>false</default></key>
+    <key name="action-menu" type="b"><default>true</default></key>
 
-    <!-- File search. Off by default. Nothing is indexed or cached by this extension: it asks GNOME's file
+    <!-- File search. On by default. Nothing is indexed or cached by this extension: it asks GNOME's file
          search (Tracker/LocalSearch, through the Files search provider) or the system's locate database.
          Backend: auto | gnome | locate -->
-    <key name="files-enabled" type="b"><default>false</default></key>
+    <key name="files-enabled" type="b"><default>true</default></key>
     <key name="files-backend" type="s"><default>'auto'</default></key>
     <key name="files-min-chars" type="i"><default>3</default><range min="2" max="20"/></key>
     <key name="files-max" type="i"><default>8</default><range min="1" max="100"/></key>
@@ -163,7 +163,7 @@
     <!-- Where a chosen emoji is copied: clipboard | buffer | both | none -->
     <key name="emoji-store" type="s"><default>'clipboard'</default></key>
     <!-- Also type the emoji into the previously focused window and close the launcher -->
-    <key name="emoji-paste" type="b"><default>false</default></key>
+    <key name="emoji-paste" type="b"><default>true</default></key>
     <!-- Keys sent to paste: auto | ctrl-v | ctrl-shift-v | shift-insert -->
     <key name="emoji-paste-keys" type="s"><default>'auto'</default></key>
     <!-- Font used to draw emoji. Naming it explicitly means the shell does not have to search the system's
@@ -173,7 +173,7 @@
     <key name="emoji-recent-count" type="i"><default>16</default><range min="1" max="100"/></key>
     <key name="emoji-font" type="s"><default>'Noto Color Emoji'</default></key>
     <!-- How the emoji picker lists emoji: list | grid -->
-    <key name="emoji-layout" type="s"><default>'list'</default></key>
+    <key name="emoji-layout" type="s"><default>'grid'</default></key>
     <!-- Size of one grid cell in pixels (before the overall scale) -->
     <key name="emoji-grid-size" type="i"><default>44</default><range min="28" max="96"/></key>
     <!-- Show recently/frequently used emoji first -->
@@ -197,7 +197,7 @@
     <key name="layout-maps" type="s"><default>'[{"id":"arabic","name":"Arabic (standard)","enabled":true,"text":"ض q\\nص w\\nث e\\nق r\\nف t\\nغ y\\nع u\\nه i\\nخ o\\nح p\\nج [\\nد ]\\nش a\\nس s\\nي d\\nب f\\nل g\\nا h\\nت j\\nن k\\nم l\\nك ;\\nط \'\\nئ z\\nء x\\nؤ c\\nر v\\nلا b\\nى n\\nة m\\nو ,\\nز .\\nظ /\\nذ `\\nلأ G\\nلإ T\\nلآ B\\nأ H\\nإ Y\\nآ N\\n١ 1\\n٢ 2\\n٣ 3\\n٤ 4\\n٥ 5\\n٦ 6\\n٧ 7\\n٨ 8\\n٩ 9\\n٠ 0"}]'</default></key>
     <!-- When true both result limits below are ignored and the list can be scrolled through
          every match (rows are created lazily while scrolling, so this stays cheap) -->
-    <key name="unlimited-results" type="b"><default>false</default></key>
+    <key name="unlimited-results" type="b"><default>true</default></key>
     <key name="max-results" type="i"><default>30</default><range min="5" max="200"/></key>
     <key name="initial-results" type="i"><default>8</default><range min="0" max="50"/></key>
     <key name="fuzzy" type="b"><default>true</default></key>
@@ -206,7 +206,7 @@
     <!-- What is listed before typing: the entries used most recently first (by last use). With start-fill
          the rest of the list is filled with other entries; without it only used entries are shown. -->
     <key name="start-recent" type="b"><default>true</default></key>
-    <key name="start-fill" type="b"><default>true</default></key>
+    <key name="start-fill" type="b"><default>false</default></key>
 
     <!-- Search history: Up/Down in the search box walk through earlier searches. 0 = no limit.
          Stored in the state folder (private to you) when history-persist is on. -->
