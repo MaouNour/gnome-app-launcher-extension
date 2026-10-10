@@ -12,6 +12,10 @@ All notable changes to GNOME Launcher (`gnome-launcher@maou-nournar`). Newest fi
 - **Search field ring.** The accent-coloured outline around the search field came from the active GNOME Shell theme's
   focus style, so it vanished with any Shell theme other than the default. The launcher now draws it itself
   (*Appearance > Search field ring*: desktop accent, theme accent, custom colour or off, plus thickness).
+- **Running marker went almost black on the highlighted row.** The marker was forced to the selection *text* colour
+  there, which is dark on pale or translucent highlights (Solarized light, the light Raycast-style themes). It now
+  keeps its own colour when that is readable on the highlight (contrast 3:1, with a translucent highlight blended over
+  the window first) and falls back to the text colour, then black or white, only when it would vanish.
 - File search: results were dropped when the box held trailing spaces or when a keyboard-layout map had converted the
   text; both fixed. `Automatic` now falls back to `locate` when GNOME's search errors or finds nothing.
 

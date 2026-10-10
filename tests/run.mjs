@@ -16,7 +16,7 @@ import {parseExec} from '../commands/exec.js';
 import {ANCHORS, computePlacement} from '../ui/placement.js';
 import {toTerms, pickBackend, locateArgs, parseLines, pathFromUri, filterPaths, shortPath, dirName, baseName, describeFile} from '../files/results.js';
 import {IDENTITY, WM_CLASS, SCHEMA_ID, UUID} from '../ui/identity.js';
-import {ACCENTS, activeColor, isColor} from '../ui/accent.js';
+import {ACCENTS, activeColor, isColor, markOnSelection} from '../ui/accent.js';
 import {QueryHistory, MAX_QUERY_LEN} from '../search/history.js';
 import {parseRegexQuery, isRiskyPattern, extractRegexKeywords} from '../search/regex.js';
 import {sanitizeProviders, sanitizeProvider, validTemplate, buildUrl, webEntries, explicitWebQuery, offerWeb, DEFAULT_PROVIDERS} from '../search/web.js';
@@ -1258,6 +1258,17 @@ test('search field ring is drawn by the launcher, not by the Shell theme', () =>
     const t = resolveTheme({}, 'default-dark');
     assert.ok(buildStyles({...base, ringColor: '#e62d42', ringWidth: 3}, t).entry.includes('box-shadow: inset 0 0 0 3px #e62d42'));
     assert.ok(buildStyles({...base, ringColor: null}, t).entry.includes('box-shadow: none'));
+});
+test('marker on the highlighted row keeps its colour unless it would vanish', () => {
+    // pale highlight (Solarized light): the accent stays, it no longer turns into the dark text colour
+    assert.equal(markOnSelection({mark: '#268bd2', selection: '#eee8d5', background: '#fdf6e3', selectionText: '#073642'}), '#268bd2');
+    // translucent highlight on a light window
+    assert.equal(markOnSelection({mark: '#e62d42', selection: '#0000000f', background: '#ffffff', selectionText: '#1d1d1f'}), '#e62d42');
+    // the accent is the highlight itself: falls back to the text colour
+    assert.equal(markOnSelection({mark: '#3584e4', selection: '#3584e4', background: '#242424', selectionText: '#ffffff'}), '#ffffff');
+    // nothing readable: black or white
+    assert.equal(markOnSelection({mark: '#777777', selection: '#777777', background: '#777777', selectionText: '#7a7a7a'}), '#000000');
+    assert.equal(markOnSelection({mark: 'bad', selection: '#fff', selectionText: '#123456'}), '#123456');
 });
 test('every animation style offered in prefs exists in the launcher', () => {
     const pages = readFileSync(join(root, 'prefs/pages.js'), 'utf8');

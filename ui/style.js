@@ -1,4 +1,5 @@
 import {cssColor} from '../themes/themes.js';
+import {markOnSelection} from './accent.js';
 
 const GENERIC_FAMILIES = new Set(['serif', 'sans-serif', 'monospace', 'cursive', 'fantasy', 'system-ui']);
 
@@ -81,10 +82,10 @@ export function buildStyles(l, t) {
         tag: `color: ${sec}; font-size: ${pt(tagSize)}; ${detailFont}`,
         tagSel: `color: ${cssColor(t.selectionText, 0.75)}; font-size: ${pt(tagSize)}; ${detailFont}`,
         icon: `-st-icon-style: ${t.iconStyle};`,
-        // The marker of a running application (a dot or a dash). On the selected row it takes the selection
-        // text colour, because the accent colour is often the selection background itself.
+        // The marker of a running application. On the highlighted row it keeps its colour when that is readable on
+        // the highlight (the accent is often the highlight itself, then it switches to a contrasting colour).
         active: `background-color: ${l.activeColor}; ${markShape(l.activeIndicator, s)}`,
-        activeSel: `background-color: ${sel}; ${markShape(l.activeIndicator, s)}`,
+        activeSel: `background-color: ${markOnSelection({mark: l.activeColor, selection: t.selection, background: t.background, selectionText: t.selectionText})}; ${markShape(l.activeIndicator, s)}`,
         activeOn: (l.activeIndicator === 'dot' || l.activeIndicator === 'dash'),
         activeAfter: l.activePosition === 'after',
         // Emoji rows draw the glyph as text instead of an icon, sized to fill the icon slot.
