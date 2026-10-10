@@ -181,6 +181,11 @@
     <key name="web-fallback" type="s"><default>'empty'</default></key>
     <!-- JSON list of {id, name, url (with {query}), icon, ai, enabled} -->
     <key name="web-providers" type="s"><default>'[{"id":"google","name":"Google","url":"https://www.google.com/search?q={query}","icon":"system-search-symbolic","ai":false,"enabled":true},{"id":"duckduckgo","name":"DuckDuckGo","url":"https://duckduckgo.com/?q={query}","icon":"system-search-symbolic","ai":false,"enabled":false},{"id":"claude","name":"Claude","url":"https://claude.ai/new?q={query}","icon":"dialog-question-symbolic","ai":true,"enabled":true},{"id":"chatgpt","name":"ChatGPT","url":"https://chatgpt.com/?q={query}","icon":"dialog-question-symbolic","ai":true,"enabled":true},{"id":"perplexity","name":"Perplexity","url":"https://www.perplexity.ai/search?q={query}","icon":"dialog-question-symbolic","ai":true,"enabled":false}]'</default></key>
+    <!-- Search typed with another keyboard layout: the text is converted key by key through the maps below.
+         Off by default. -->
+    <key name="layout-map-enabled" type="b"><default>false</default></key>
+    <!-- JSON list of {id, name, enabled, text}; text is one "typed result" pair per line (see search/layout.js) -->
+    <key name="layout-maps" type="s"><default>'[{"id":"arabic","name":"Arabic (standard)","enabled":true,"text":"ض q\\nص w\\nث e\\nق r\\nف t\\nغ y\\nع u\\nه i\\nخ o\\nح p\\nج [\\nد ]\\nش a\\nس s\\nي d\\nب f\\nل g\\nا h\\nت j\\nن k\\nم l\\nك ;\\nط \'\\nئ z\\nء x\\nؤ c\\nر v\\nلا b\\nى n\\nة m\\nو ,\\nز .\\nظ /\\nذ `\\nلأ G\\nلإ T\\nلآ B\\nأ H\\nإ Y\\nآ N\\n١ 1\\n٢ 2\\n٣ 3\\n٤ 4\\n٥ 5\\n٦ 6\\n٧ 7\\n٨ 8\\n٩ 9\\n٠ 0"}]'</default></key>
     <!-- When true both result limits below are ignored and the list can be scrolled through
          every match (rows are created lazily while scrolling, so this stays cheap) -->
     <key name="unlimited-results" type="b"><default>false</default></key>

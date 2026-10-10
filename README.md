@@ -3,7 +3,7 @@
 Owner/maintainer: **maou-nournar** (extension UUID `gnome-launcher@maou-nournar`).
 
 A fast, lightweight, highly customizable launcher for GNOME Shell, inspired by Lightbar and Vicinae.
-Fuzzy search over applications, your own commands and actions, with themes, transparency, an action menu and optional file search.
+Fuzzy search over applications, your own commands and actions, with themes, transparency, an action menu and optional file search, and search with another keyboard layout (editable key maps, e.g. Arabic).
 
 **Status: 0.1.0, not yet verified inside a live GNOME Shell.** The pure modules (search, themes, validation) are
 unit-tested under node; the Shell/GTK-facing code was only syntax-checked. See `TESTING.md` for the on-device checklist.

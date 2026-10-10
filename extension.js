@@ -26,6 +26,7 @@ import {parseRegexQuery} from './search/regex.js';
 import {DEFAULT_PROVIDERS, explicitWebQuery, offerWeb, sanitizeProviders, webEntries} from './search/web.js';
 import {SearchEngine, prepare} from './search/engine.js';
 import {QueryHistory} from './search/history.js';
+import {DEFAULT_MAPS, compileMaps, translateQuery} from './search/layout.js';
 import {activeColor} from './ui/accent.js';
 import {Keybindings} from './shortcuts/keybindings.js';
 import {compileBlocklist} from './shortcuts/blocklist.js';
@@ -230,6 +231,13 @@ export default class GnomeLauncherExtension extends Extension {
             break;
         case 'web-providers':
             this._webProviders = null;
+            break;
+        case 'layout-maps':
+            this._layoutMaps = null;
+            this._launcher?.refreshResults();
+            break;
+        case 'layout-map-enabled':
+            this._launcher?.refreshResults();
             break;
         case 'emoji-enabled':
         case 'accounts-enabled':
@@ -518,6 +526,12 @@ export default class GnomeLauncherExtension extends Extension {
                 fuzzy: c.bool('fuzzy'), descriptions: true, frecency: false, limit: Infinity, initial: Infinity,
             });
         }
+        // Text typed with another keyboard layout is converted to the layout the entries are named in.
+        // "? ..." (explicit web search) and the web fallback keep what was really typed.
+        const typed = query;
+        if (c.bool('layout-map-enabled') && explicitWebQuery(query) === null)
+            query = this._fromLayout(query);
+
         // "!ls -la": offers to run what follows the prefix (a symbol of your choice; empty = off).
         const ex = parseExec(query, c.str('exec-prefix'));
         if (ex) {
@@ -578,9 +592,19 @@ export default class GnomeLauncherExtension extends Extension {
         }
         this._wantFiles(query);
         if (offerWeb(c.str('web-fallback'), out.length, query))
-            out = [...out, ...webEntries(this._providers(), query)];
+            out = [...out, ...webEntries(this._providers(), typed)];
         dbg(`search "${query}": ${((GLib.get_monotonic_time() - t0) / 1000).toFixed(2)} ms, ${out.length} results of ${this._engine.size}`);
         return out;
+    }
+
+    // Compiled once per change of the 'layout-maps' setting; nothing runs while the feature is off.
+    _fromLayout(query) {
+        this._layoutMaps ??= compileMaps(this._config.json('layout-maps', DEFAULT_MAPS));
+        const r = translateQuery(query, this._layoutMaps);
+        if (!r)
+            return query;
+        dbg(`layout map "${r.name}": "${query}" -> "${r.text}"`);
+        return r.text;
     }
 
     _providers() {

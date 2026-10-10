@@ -21,6 +21,7 @@ import {QueryHistory, MAX_QUERY_LEN} from '../search/history.js';
 import {parseRegexQuery, isRiskyPattern, extractRegexKeywords} from '../search/regex.js';
 import {sanitizeProviders, sanitizeProvider, validTemplate, buildUrl, webEntries, explicitWebQuery, offerWeb, DEFAULT_PROVIDERS} from '../search/web.js';
 import {sanitizeAccount, sanitizeAccounts, accountEntries, safeUrl, hostOf, generatePassword, newAccountId, clearDelaySeconds} from '../accounts/accounts.js';
+import {ARABIC_TEXT, DEFAULT_MAPS, compileMaps, parseMapText, sanitizeMap, sanitizeMaps, translateQuery} from '../search/layout.js';
 import {randomBytes} from 'node:crypto';
 import {clipboardKind, imageInfo, imageLabels, formatBytes, imagesToDrop} from '../clipboard/image.js';
 import {BUILTINS, buildBuiltinEntries, sanitizeBuiltins} from '../commands/builtins.js';
@@ -1185,6 +1186,61 @@ test('prefs page builders are called with the arguments they declare', () => {
             assert.equal(argc(args), want, `${name}(${args}) passes ${argc(args)} argument(s), expected ${want} (${params})`);
         }
     }
+});
+
+// ---- keyboard layout maps -------------------------------------------------------------------
+test('layout map: the Arabic keys give the Latin letters', () => {
+    const maps = compileMaps(DEFAULT_MAPS);
+    assert.equal(translateQuery('لىخةث-مشعىؤاثق', maps).text, 'gnome-launcher');
+    assert.equal(translateQuery('لىةث-مشعىؤاثق', maps).text, 'gnme-launcher');
+    assert.equal(translateQuery('ضصث', maps).text, 'qwe');
+});
+test('layout map: unmapped characters stay, nothing matched gives null', () => {
+    const maps = compileMaps(DEFAULT_MAPS);
+    assert.equal(translateQuery('firefox ش', maps).text, 'firefox a');
+    assert.equal(translateQuery('firefox', maps), null);
+    assert.equal(translateQuery('', maps), null);
+    assert.equal(translateQuery('ش', []), null);
+});
+test('layout map: longest typed sequence wins, digits work', () => {
+    const maps = compileMaps(DEFAULT_MAPS);
+    assert.equal(translateQuery('لا', maps).text, 'b');
+    assert.equal(translateQuery('٧ضهح', maps).text, '7qip');
+});
+test('layout map text parsing skips comments, blanks and broken lines', () => {
+    const {pairs, maxLen} = parseMapText('# c\n\nض q\r\nص\nكلمة z\n ث   e  extra\nض x');
+    assert.equal(pairs.get('ض'), 'q');
+    assert.equal(pairs.get('ث'), 'e');
+    assert.equal(pairs.get('كلمة'), 'z');
+    assert.equal(pairs.has('ص'), false);
+    assert.equal(maxLen, 4);
+    assert.equal(parseMapText(null).pairs.size, 0);
+    assert.equal(parseMapText(ARABIC_TEXT).pairs.size, ARABIC_TEXT.split('\n').length);
+});
+test('layout maps: several maps, the one that recognises most characters wins', () => {
+    const ru = {id: 'ru', name: 'Russian', enabled: true, text: 'й q\nц w\nу e\nк r'};
+    const maps = compileMaps([...DEFAULT_MAPS, ru]);
+    assert.equal(translateQuery('цуйк', maps).id, 'ru');
+    assert.equal(translateQuery('ضصث', maps).id, 'arabic');
+    assert.equal(translateQuery('ضصث', compileMaps([{...ru, id: 'a'}, {...ru, id: 'b'}])), null);
+});
+test('layout maps: disabled and empty maps are ignored, bad data never throws', () => {
+    assert.equal(compileMaps([{...DEFAULT_MAPS[0], enabled: false}]).length, 0);
+    assert.equal(compileMaps([{id: 'x', name: 'Empty', text: ''}]).length, 0);
+    assert.deepEqual(compileMaps('nope'), []);
+    assert.deepEqual(sanitizeMaps([null, 5, {name: 'A', text: 'ض q', id: 'a b!'}, {name: 'B', id: 'ab'}, {name: 'C'}]).map(m => m.id), ['ab', 'm4']);
+    assert.equal(sanitizeMap({text: 'x'.repeat(50000)}).text.length, 20000);
+    assert.equal(sanitizeMap({}).name, 'Layout');
+});
+test('layout map: wired into the main search only, web text is kept as typed', () => {
+    const ext = readFileSync(join(root, 'extension.js'), 'utf8');
+    assert.ok(ext.includes("c.bool('layout-map-enabled') && explicitWebQuery(query) === null"));
+    assert.ok(ext.includes('webEntries(this._providers(), typed)'));
+    const body = ext.slice(ext.indexOf('_search(query, mode) {'));
+    assert.ok(body.indexOf("mode === 'emoji'") < body.indexOf('this._fromLayout(query)'), 'conversion must come after the sub-view modes');
+    const schema = readFileSync(join(root, 'schemas/org.gnome.shell.extensions.gnome-launcher.gschema.xml'), 'utf8');
+    assert.ok(schema.includes('name="layout-map-enabled" type="b"><default>false<'), 'off by default');
+    assert.ok(schema.includes('name="layout-maps"'));
 });
 
 test('every animation style offered in prefs exists in the launcher', () => {

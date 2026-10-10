@@ -372,6 +372,19 @@ export class ListEditor {
             w.add_suffix(colorButton(item[f.key] || '#000000', hex => set(f.key, hex)));
             return w;
         }
+        case 'multiline': {
+            const row = new Adw.PreferencesRow({activatable: false});
+            const box = new Gtk.Box({orientation: Gtk.Orientation.VERTICAL, spacing: 6, margin_top: 8, margin_bottom: 8, margin_start: 12, margin_end: 12});
+            box.append(new Gtk.Label({label: f.label, xalign: 0, wrap: true, css_classes: ['dim-label']}));
+            const view = new Gtk.TextView({monospace: true, wrap_mode: Gtk.WrapMode.NONE, top_margin: 6, bottom_margin: 6, left_margin: 8, right_margin: 8});
+            view.buffer.text = item[f.key] ?? '';
+            view.buffer.connect('changed', () => set(f.key, view.buffer.text));
+            box.append(new Gtk.ScrolledWindow({
+                child: view, height_request: f.height ?? 200, hscrollbar_policy: Gtk.PolicyType.AUTOMATIC, css_classes: ['card'],
+            }));
+            row.set_child(box);
+            return row;
+        }
         case 'shortcut':
             return shortcutRow(this._o.window, f.label, () => item[f.key] ?? '', v => set(f.key, v),
                 accel => this._ownConflicts(item, accel, f), !!f.local);

@@ -1,5 +1,20 @@
 # Technical notes
 
+## 0.6.2: keyboard layout maps
+
+`search/layout.js` (pure): `parseMapText` (one `typed result` pair per line, `#` comments, whitespace-separated, max 400
+pairs), `compileMaps` (enabled maps only, parsed once), `translateQuery(query, maps)` (longest typed sequence first;
+each map is applied to the whole query and the map with the most recognised characters wins, first on a tie; returns
+`null` when nothing matched), `sanitizeMap(s)` (max 16 maps, ids unique, text capped at 20 000 characters).
+Schema: `layout-map-enabled` (false), `layout-maps` (JSON `[{id, name, enabled, text}]`, default = standard Arabic).
+`extension.js` `_search`: after the clipboard/actions/emoji/accounts modes and before `!command`, emoji-inline, regex and
+matching, `query = this._fromLayout(query)` when the setting is on and the query is not an explicit `? ` web search; the
+web fallback uses `typed`. `_fromLayout` compiles lazily and the cache is dropped on `changed::layout-maps`; both keys
+call `refreshResults()`. Cost when off: one boolean read. When on: one pass over the query per enabled map.
+Prefs: `layoutGroups` (Search page), `ListEditor` field type `multiline` (a monospace `Gtk.TextView`).
+Not verified: no GNOME Shell here; check the multi-line field, the *Try it* row, the preset button and typing Arabic
+into the launcher with the layout switched.
+
 ## 0.6.1: window position fix, Super toggles, your patch merged
 
 ### Vertical position ignored

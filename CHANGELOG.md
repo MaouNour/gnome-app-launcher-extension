@@ -2,6 +2,24 @@
 
 All notable changes to GNOME Launcher (`gnome-launcher@maou-nournar`). Newest first.
 
+## 0.6.2
+
+### Added
+- **Search with another keyboard layout** (*Search > Other keyboard layouts*, off by default). What you type is
+  converted key by key through an editable map before searching: with the standard Arabic map, `لىخةث-مشعىؤاثق`
+  finds `gnome-launcher`. A map is plain text, one `typed result` pair per line (`ض q`, `ص w`, ...); the typed side
+  may be several characters (`لا b`). You can keep several maps (another language, a variant, your own pairs), switch
+  each on or off, add the standard Arabic map with one button, and import/export them as JSON. With several maps on,
+  the one that recognises most of the typed characters is used. The search box keeps what you typed; characters not in
+  the map pass through unchanged.
+- It only affects the main search (not clipboard, emoji or accounts), and what you typed is kept for a search that
+  starts with `? ` and for the web/AI fallback entries, so searching the web in Arabic still works.
+- A *Try it* field in preferences shows the conversion live.
+
+### Housekeeping
+- Version 0.6.2. Tests 133 -> 140. (`every settings key...` and `blur is not part of this extension` already failed on
+  the 0.6.1 archive because `blur/` and `prefs/blur.js` were still in it; unchanged here.)
+
 ## 0.6.1
 
 ### Bug fixes

@@ -8,6 +8,7 @@ import {BUILTINS, sanitizeBuiltins} from '../commands/builtins.js';
 import {ACTION_FIELDS, COMMAND_FIELDS, newAction, newCommand, sanitizeAction, sanitizeCommand} from '../commands/schema.js';
 import {THEME_FIELDS, THEME_BASE, THEME_FAMILIES, builtinThemes, resolveTheme, sanitizeTheme, themeNames} from '../themes/themes.js';
 import {sanitizeProvider, newProvider} from '../search/web.js';
+import {arabicMap, compileMaps, newMap, sanitizeMap, translateQuery} from '../search/layout.js';
 import {ANCHORS} from '../ui/placement.js';
 import {accountsPage} from './accounts.js';
 import {compileBlocklist, normalizeBlockEntry} from '../shortcuts/blocklist.js';
@@ -611,6 +612,45 @@ function webPage(window, settings) {
     return p;
 }
 
+const LAYOUT_FIELDS = [
+    {key: 'name', label: 'Name', type: 'text'},
+    {key: 'enabled', label: 'Enabled', type: 'switch'},
+    {key: 'text', label: 'One pair per line: the key you type, a space, then what it stands for (for example: ض q). Lines starting with # are ignored.', type: 'multiline', height: 220},
+];
+
+function layoutGroups(window, settings) {
+    const g = group('Other keyboard layouts',
+        'Search with the wrong keyboard layout active. What you type is converted key by key before searching, so with the Arabic map below the text لىخةث-مشعىؤاثق finds gnome-launcher. The text in the search box is not changed. Characters that are not in the map stay as typed, and a search that starts with "? " (web search) is never converted.');
+    g.add(switchRow(settings, 'layout-map-enabled', 'Convert text typed with another layout',
+        'Applies to the main search only, not to clipboard, emoji or accounts. If several maps are enabled, the one that recognises the most typed characters is used.'));
+    const tryRow = new Adw.EntryRow({title: 'Try it: type here with the other layout'});
+    const result = new Adw.ActionRow({title: 'Converted to', subtitle: '—'});
+    result.add_css_class('property');
+    tryRow.connect('changed', () => {
+        let maps = [];
+        try {
+            maps = compileMaps(JSON.parse(settings.get_string('layout-maps')));
+        } catch (_e) { /* invalid JSON: nothing to convert with */ }
+        const r = translateQuery(tryRow.text, maps);
+        result.subtitle = r ? `${r.text}   (${r.name})` : (tryRow.text ? 'No map applies to this text' : '—');
+    });
+    g.add(tryRow);
+    g.add(result);
+
+    let editor = null;
+    const preset = new Gtk.Button({icon_name: 'insert-text-symbolic', tooltip_text: 'Add the standard Arabic map', css_classes: ['flat']});
+    preset.connect('clicked', () => editor?.addItem(arabicMap()));
+    editor = new ListEditor({
+        window, settings, key: 'layout-maps', title: 'Maps',
+        description: 'Add as many as you need: another language, a variant, your own pairs. The map button adds the standard Arabic layout; import and export use JSON files.',
+        fields: LAYOUT_FIELDS, newItem: newMap, sanitize: sanitizeMap, exportName: 'launcher-layout-maps',
+        itemSubtitle: m => `${m.enabled === false ? 'Off · ' : ''}${(m.text ?? '').split(/\r?\n/).filter(l => l.trim() && !l.trim().startsWith('#')).length} pairs`,
+        extraHeaderButtons: [preset],
+    });
+    settings.bind('layout-map-enabled', editor.group, 'sensitive', Gio.SettingsBindFlags.GET);
+    return [g, editor.group];
+}
+
 function search(window, settings) {
     const p = page('Search', 'system-search-symbolic');
     const rx = group('Regular expressions',
@@ -626,6 +666,8 @@ function search(window, settings) {
         subtitle: 'Patterns that can freeze the shell are refused: more than two open-ended repeats (*, +), repeated groups that contain repeats or alternatives, back-references and look-behind. Custom commands can also use /regex/ in their keywords.',
     }));
     p.add(rx);
+    for (const lg of layoutGroups(window, settings))
+        p.add(lg);
     const ex = group('Run commands',
         'Start the search with the symbol, then a command: "!ls -la ~" or "!notify-send hi". Enter runs it from your home folder. A command that fails shows a notification; its output is not shown. If the symbol is also used by another feature (for example / for regular expressions) running commands takes priority.');
     ex.add(entryRow(settings, 'exec-prefix', 'Symbol that starts a command (empty: off)'));

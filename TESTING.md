@@ -3,7 +3,7 @@
 ## Automated (no GNOME needed)
 
 ```sh
-node tests/run.mjs          # 135 tests: search, frecency, themes and presets, emoji, clipboard images, accounts, validation, calculator, built-ins, static lint
+node tests/run.mjs          # 140 tests: search, frecency, themes and presets, emoji, clipboard images, accounts, validation, calculator, built-ins, static lint
 node tools/bench.mjs 20000  # search latency (use `gjs -m tools/bench.mjs` for SpiderMonkey numbers)
 glib-compile-schemas --strict --dry-run schemas
 ```
@@ -22,6 +22,7 @@ Nested session for safe iteration: `dbus-run-session gnome-shell --nested --wayl
 | Custom commands | Add valid, missing-binary, bad-quote, disabled entries | Valid runs; broken show a notification; disabled hidden; nothing crashes |
 | Actions | One of each type incl. `gnome` actions | Each behaves; bad URL scheme rejected |
 | Search | Prefix, initials (`vsc`), fuzzy (`ffx`), accents, two tokens, keyword | Ranked sensibly |
+| Other layouts | Search > Other keyboard layouts: switch on, switch the keyboard to Arabic, type `مشعىؤاثق`; edit the map; add a second map; switch a map off; type `? ` + Arabic text | Finds `launcher`; edits apply live; the map that fits best is used; web search keeps the Arabic text |
 | Cache rebuild | Delete `~/.cache/gnome-launcher/apps.json`; write garbage into it; install/remove an app | Rebuilds silently; list updates within ~1 s |
 | Themes | Switch built-ins; create/export/import custom; toggle GNOME dark mode with *Follow GNOME* | Applies live; dark/light switches live |
 | Prefs changes | Change every Appearance control while the launcher is closed and open | Applied without reload |
