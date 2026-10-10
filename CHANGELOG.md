@@ -15,6 +15,18 @@ All notable changes to GNOME Launcher (`gnome-launcher@maou-nournar`). Newest fi
   set to *Never*). In *Search keywords* the tags can sit next to ordinary words, like `/regex/` tokens do:
   `terminal <regex>^/usr/bin/.*term$</regex>`. The plain `/regex/` form is unchanged. The info popover and the
   explanation under the regex setting cover the new forms.
+- **Edit the typed text in arguments.** `$q` can now be filtered before it is used, in a command's or script's
+  arguments, environment values and URLs. The syntax follows bash where bash has an equivalent: `${q:1}` (without the
+  first character), `${q:2:3}`, `${q: -3}`, `${q:-fallback}`, `${#q}`, `${q^^}`, `${q,,}`, `${q^}`, `${q#prefix}`,
+  `${q%suffix}`. Launcher additions use regular expressions: `${q/regex/new}` and `${q//regex/new}` (groups as `$1`),
+  `${q~regex}` (keep the first match), and words: `${q[0]}`, `${q[-1]}`, `${q[@]:1}`. Nothing runs a shell: the edit is
+  done by the launcher, the result is still one argument, URLs are percent-encoded after the edit, regexes have the
+  usual slow-pattern limits, and an edit that is not understood is left as written.
+- **Help for it** (*i* button on both Arguments fields): a cheat sheet, a list of ready-made edits (first word,
+  everything after the first word, uppercase, replace spaces with `+`, only the digits...), and a box to try an edit
+  on a sample text with the result shown live; *Add to the field* inserts it, quoted when needed. The help also shows
+  how to do the same in a Shell action with `${q:1}`, `cut`, `sed` and `awk`, and warns not to put `$q` inside
+  `sh -c '...'` in a command's arguments.
 - **Regex setting explained.** Under *Search > Regular expressions > Use regular expressions* a new row explains what
   each choice does (starts with a slash / always / never), with the selected one in bold.
 

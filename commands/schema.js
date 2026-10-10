@@ -11,9 +11,8 @@ export const GNOME_ACTIONS = ['overview', 'app-grid', 'screenshot', 'lock-screen
 // The search text for custom commands. "$q" and "${q}" are replaced inside each argument AFTER the command line
 // has been split, so the text can never add or change arguments; scripts and shell snippets also get it in the
 // environment as q and LAUNCHER_QUERY (a shell snippet uses "$q" itself, quoted, as it would any variable).
-export function substituteQuery(text, q) {
-    return String(text).replace(/\$\{q\}|\$q(?![A-Za-z0-9_])/g, () => q);
-}
+// "${q:1}", "${q/regex/new}" and friends edit the text first: see queryfilter.js.
+export {substituteQuery} from './queryfilter.js';
 
 const URL_RE = /^(https?:\/\/|ftp:\/\/|mailto:)\S+$/i;
 const ENV_RE = /^[A-Za-z_][A-Za-z0-9_]*=/;
@@ -26,7 +25,7 @@ export const COMMAND_FIELDS = [
     {key: 'name', label: 'Name', type: 'text'},
     {key: 'description', label: 'Description', type: 'text'},
     {key: 'command', label: 'Command (executable, no shell)', type: 'text'},
-    {key: 'args', label: 'Arguments (shell-style quoting; $q is the text typed in the search box)', type: 'text'},
+    {key: 'args', label: 'Arguments (shell-style quoting; $q is the text typed in the search box, ${q:1} etc. edit it: see the i button)', type: 'text', help: 'query'},
     {key: 'env', label: 'Environment (KEY=value pairs, space separated)', type: 'text'},
     {key: 'icon', label: 'Icon (theme name or file path)', type: 'text'},
     {key: 'category', label: 'Category', type: 'text'},
@@ -42,7 +41,7 @@ export const ACTION_FIELDS = [
     {key: 'description', label: 'Description', type: 'text'},
     {key: 'type', label: 'Type', type: 'combo', options: ACTION_TYPES},
     {key: 'target', label: 'Target (desktop id, command line, URL, path or GNOME action; $q is the search text, in a shell command use "$q")', type: 'text'},
-    {key: 'args', label: 'Arguments (scripts; $q is the text typed in the search box)', type: 'text'},
+    {key: 'args', label: 'Arguments (scripts; $q is the text typed in the search box, ${q:1} etc. edit it: see the i button)', type: 'text', help: 'query'},
     {key: 'icon', label: 'Icon (theme name or file path)', type: 'text'},
     {key: 'keywords', label: 'Search keywords (words, or a /regex/ between slashes)', type: 'text', help: 'regex'},
     REGEX_KEYWORDS_FIELD,

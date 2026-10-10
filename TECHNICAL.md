@@ -323,3 +323,13 @@ results to confirm only one row is highlighted; apply Tokyo Night.
   mode is not `off`); `extractRegexKeywords()` extracts `<regex>..</regex>` / `<re>..</re>` first, then `/slash/` tokens, sharing one 8-pattern cap;
   `compileKeywordPattern()` accepts a field wrapped in tags. The same safety checks (`isRiskyPattern`) apply to every form.
 - `prefs/widgets.js` `REGEX_HELP` and `prefs/pages.js` `REGEX_MODE_HELP` describe the forms (angle brackets escaped for Pango markup).
+
+### Editing the typed text (0.6.4)
+- `commands/queryfilter.js` (pure): `substituteQuery(text, q, encode?)` scans for `$q` and `${q...}` (brace nesting, `\` escapes), `parse()` turns the body
+  into `{run}` / `{error}` / `null` (not ours: `${HOME}`, `${qux}`), and an expression that is not ours or not valid is left literally. Regex edits go
+  through `isRiskyPattern()` and refuse text over 1000 characters; prefix/suffix patterns are globs (`*`, `?`, at most two `*`). `commands/schema.js`
+  re-exports `substituteQuery`. `commands/runner.js` passes `encodeURIComponent` as `encode` for URL actions so the edit happens before encoding.
+- `previewQueryTemplate()`, `QUERY_RECIPES` and `quoteArgument()` serve the prefs help. `prefs/widgets.js` `queryHelpButton(insert)` is attached by the
+  field builder to fields with `help: 'query'` (both `args` fields in `commands/schema.js`). `QUERY_HELP` is Pango markup in a template literal:
+  every `${` is escaped as `\${`.
+- Shell actions are unchanged: no substitution, the text is the variable `q`.

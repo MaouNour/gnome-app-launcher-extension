@@ -4,6 +4,8 @@ import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 import Gtk from 'gi://Gtk';
 
+import {QUERY_RECIPES, previewQueryTemplate, quoteArgument} from '../commands/queryfilter.js';
+
 // --- simple GSettings-bound rows -------------------------------------------
 
 export function switchRow(settings, key, title, subtitle = '') {
@@ -76,6 +78,84 @@ export function regexHelpButton() {
     return new Gtk.MenuButton({
         icon_name: 'dialog-information-symbolic', css_classes: ['flat'], valign: Gtk.Align.CENTER,
         tooltip_text: 'How to write regular expressions', popover: new Gtk.Popover({child: scroll}),
+    });
+}
+
+// "i" button for the Arguments fields of commands and actions: explains the ${q...} edits of the typed text,
+// offers ready-made edits and a box to try them on a sample. insert(text) puts an edit into the field.
+const QUERY_HELP = `<b>Edit the typed text before it is used</b>
+<tt>$q</tt> is the text typed in the launcher. Write <tt>\${q...}</tt> instead to change it first. The result is always ONE argument: an edit can never add arguments.
+
+<b>Pieces of the text</b>
+<tt>\${q:1}</tt>  without the first character  (hello: ello)
+<tt>\${q:2:3}</tt>  3 characters starting at the 3rd
+<tt>\${q: -3}</tt>  the last 3 characters (keep the space)
+<tt>\${q:0:-1}</tt>  without the last character
+<tt>\${q[0]}</tt>  first word    <tt>\${q[-1]}</tt>  last word
+<tt>\${q[@]:1}</tt>  everything after the first word
+
+<b>Change it</b>
+<tt>\${q^^}</tt> UPPER    <tt>\${q,,}</tt> lower    <tt>\${q^}</tt> Capital first letter
+<tt>\${q#g }</tt>  remove "g " from the start    <tt>\${q%.txt}</tt>  remove from the end (<tt>*</tt> and <tt>?</tt> work; <tt>##</tt> and <tt>%%</tt> take the longest)
+<tt>\${q/a/b}</tt>  replace the first match of a regular expression, <tt>\${q//a/b}</tt>  all of them. Groups are <tt>$1</tt>, <tt>$2</tt>: <tt>\${q/(\\w+) (\\w+)/$2 $1}</tt>
+<tt>\${q~[0-9]+}</tt>  keep only the first match (or its first group)
+<tt>\${q:-hello}</tt>  use "hello" when nothing was typed    <tt>\${#q}</tt>  number of characters
+
+<b>Good to know</b>
+An edit that contains a space, # or | must be in single quotes in the field: <tt>'\${q// /+}'</tt>. The "Add to the field" button does this for you.
+Regular expressions here care about upper and lower case, and have the same safety limits as the search box.
+An edit the launcher does not understand is left as written; the box below tells you what is wrong.
+
+<b>Shell snippets, and cut / sed / awk</b>
+An action of type Shell gets the text in the variable <tt>q</tt> and the shell does the editing, so the usual tools work:
+<tt>echo "\${q:1}"</tt>   (needs bash; where sh is dash use one of these)
+<tt>echo "$q" | cut -c2-</tt>
+<tt>echo "$q" | sed 's/^.//'</tt>
+<tt>echo "$q" | awk '{print substr($0, 2)}'</tt>
+Do not write <tt>$q</tt> inside <tt>sh -c '...'</tt> in a command's Arguments: the launcher would paste the text into the script. Use a Shell action for that.`;
+
+export function queryHelpButton(insert) {
+    const box = new Gtk.Box({orientation: Gtk.Orientation.VERTICAL, spacing: 8, margin_top: 12, margin_bottom: 12, margin_start: 14, margin_end: 14});
+    box.append(new Gtk.Label({use_markup: true, label: QUERY_HELP, wrap: true, xalign: 0, max_width_chars: 62}));
+    box.append(new Gtk.Separator());
+    box.append(new Gtk.Label({use_markup: true, label: '<b>Try it, or pick a ready-made edit</b>', xalign: 0}));
+
+    const picker = new Gtk.DropDown({model: Gtk.StringList.new(['Choose a ready-made edit…', ...QUERY_RECIPES.map(r => r.label)])});
+    const expr = new Gtk.Entry({placeholder_text: 'An edit, for example ${q:1}', hexpand: true});
+    const sample = new Gtk.Entry({text: 'hello world 42', placeholder_text: 'Sample text, as typed in the launcher'});
+    const result = new Gtk.Label({xalign: 0, wrap: true, selectable: true, max_width_chars: 62});
+    const add = new Gtk.Button({label: 'Add to the field', css_classes: ['suggested-action'], halign: Gtk.Align.END, sensitive: false});
+
+    const refresh = () => {
+        const text = expr.text.trim();
+        add.sensitive = text !== '';
+        if (!text) {
+            result.label = '';
+            return;
+        }
+        const {result: out, problems} = previewQueryTemplate(text, sample.text);
+        result.use_markup = true;
+        result.label = problems.length
+            ? problems.map(p => `<span foreground="#e62d42">${GLib.markup_escape_text(`${p.expr}: ${p.problem}`, -1)}</span>`).join('\n')
+            : `Result: <tt>${GLib.markup_escape_text(out, -1)}</tt>`;
+    };
+    picker.connect('notify::selected', () => {
+        const r = QUERY_RECIPES[picker.selected - 1];
+        if (r)
+            expr.text = r.expr;
+    });
+    expr.connect('changed', refresh);
+    sample.connect('changed', refresh);
+    add.connect('clicked', () => insert(quoteArgument(expr.text.trim())));
+    for (const w of [picker, expr, sample, result, add])
+        box.append(w);
+
+    const scroll = new Gtk.ScrolledWindow({
+        child: box, hscrollbar_policy: Gtk.PolicyType.NEVER, propagate_natural_height: true, max_content_height: 560, min_content_width: 460,
+    });
+    return new Gtk.MenuButton({
+        icon_name: 'dialog-information-symbolic', css_classes: ['flat'], valign: Gtk.Align.CENTER,
+        tooltip_text: 'Edit the typed text: filters, regular expressions and ready-made edits', popover: new Gtk.Popover({child: scroll}),
     });
 }
 
@@ -404,6 +484,8 @@ export class ListEditor {
             w.connect('changed', () => set(f.key, w.text));
             if (f.help === 'regex')
                 w.add_suffix(regexHelpButton());
+            if (f.help === 'query')
+                w.add_suffix(queryHelpButton(expr => { w.text = `${w.text} ${expr}`.trim(); }));
             return w;
         }
         }

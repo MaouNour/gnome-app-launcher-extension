@@ -6,8 +6,9 @@ import {fileURLToPath} from 'node:url';
 
 import {SearchEngine, prepare, fold, frecency} from '../search/engine.js';
 import {sanitizeTheme, resolveTheme, builtinThemes, cssColor, THEME_FAMILIES} from '../themes/themes.js';
-import {sanitizeCommand, sanitizeAction, validateCommand, validateAction, substituteQuery, newCommand} from '../commands/schema.js';
+import {sanitizeCommand, sanitizeAction, validateCommand, validateAction, substituteQuery, newCommand, COMMAND_FIELDS, ACTION_FIELDS} from '../commands/schema.js';
 import {buildUserEntries} from '../commands/userEntries.js';
+import {previewQueryTemplate, quoteArgument, QUERY_RECIPES} from '../commands/queryfilter.js';
 import {calculate} from '../search/calc.js';
 import {buildStyles, cssFontFamily} from '../ui/style.js';
 import {compileBlocklist} from '../shortcuts/blocklist.js';
@@ -744,7 +745,7 @@ test('process separation: shell code never loads GTK, prefs never load Shell lib
     }
 });
 test('prefs-reachable modules are pure (only relative imports)', () => {
-    for (const f of ['themes/themes.js', 'commands/schema.js', 'commands/builtins.js', 'search/engine.js', 'emoji/emoji.js', 'emoji/data.js', 'clipboard/image.js', 'clipboard/persist.js', 'search/history.js', 'ui/identity.js', 'ui/accent.js', 'ui/placement.js', 'files/results.js', 'commands/exec.js', 'accounts/accounts.js', 'search/regex.js', 'search/web.js']) {
+    for (const f of ['themes/themes.js', 'commands/schema.js', 'commands/builtins.js', 'search/engine.js', 'emoji/emoji.js', 'emoji/data.js', 'clipboard/image.js', 'clipboard/persist.js', 'search/history.js', 'ui/identity.js', 'ui/accent.js', 'ui/placement.js', 'files/results.js', 'commands/exec.js', 'accounts/accounts.js', 'search/regex.js', 'search/web.js', 'commands/queryfilter.js']) {
         const src = readFileSync(join(root, f), 'utf8');
         for (const m of src.matchAll(/^import .* from '([^']+)'/gm))
             assert.ok(m[1].startsWith('.'), `${f} imports ${m[1]}`);
@@ -1308,6 +1309,76 @@ test('$q in commands: replaced per argument, whole word only', () => {
     const runner = readFileSync(join(root, 'commands/runner.js'), 'utf8');
     assert.ok(runner.includes('.map(t => substituteQuery(t, q))') && runner.includes("queryEnv(q)"));
     assert.ok(!/shell[\s\S]{0,200}substituteQuery\(`\$\{a\.target\}/.test(runner), 'shell snippets get the text only through the environment');
+});
+test('${q...} edits the typed text like bash parameter expansion', () => {
+    const s = (t, q = 'hello world 42') => substituteQuery(t, q);
+    assert.equal(s('${q:1}', 'hello'), 'ello');
+    assert.equal(s('${q:2:3}'), 'llo');
+    assert.equal(s('${q: -3}'), ' 42');
+    assert.equal(s('${q:0:-1}'), 'hello world 4');
+    assert.equal(s('${q:1}', ''), '', 'out of range is empty');
+    assert.equal(s('${q:-fallback}', '  '), 'fallback', ':- is used when nothing was typed');
+    assert.equal(s('${q:-fallback}'), 'hello world 42');
+    assert.equal(s('${#q}'), '14');
+    assert.equal(s('${q^^} ${q,,} ${q^}', 'aB c'), 'AB C ab c AB c', '^ changes only the first letter');
+    assert.equal(s('${q#hel}'), 'lo world 42');
+    assert.equal(s('${q#*o}'), ' world 42', '# removes the shortest match');
+    assert.equal(s('${q##*o}'), 'rld 42', '## the longest');
+    assert.equal(s('${q%42}'), 'hello world ');
+    assert.equal(s('${q% *}'), 'hello world');
+    assert.equal(s('${q%% *}'), 'hello');
+    assert.equal(s('${q:1}', '\u{1F600}ab'), 'ab', 'counts characters, not bytes');
+});
+test('${q...} words and regular expressions', () => {
+    const s = (t, q = 'hello world 42') => substituteQuery(t, q);
+    assert.equal(s('${q[0]}|${q[-1]}|${q[5]}'), 'hello|42|');
+    assert.equal(s('${q[@]:1}'), 'world 42');
+    assert.equal(s('${q[@]:0:2}'), 'hello world');
+    assert.equal(s('${q// /+}'), 'hello+world+42');
+    assert.equal(s('${q/o/0}'), 'hell0 world 42', 'a single slash replaces the first match only');
+    assert.equal(s('${q//o/0}'), 'hell0 w0rld 42');
+    assert.equal(s('${q/(\\w+) (\\w+)/$2 $1}'), 'world hello 42', 'groups are $1, $2');
+    assert.equal(s('${q//[^0-9]/}'), '42');
+    assert.equal(s('${q/o/}'), 'hell world 42', 'no replacement removes the match');
+    assert.equal(s('${q/a\\/b/x}', 'a/b c'), 'x c', '\\/ is a literal slash');
+    assert.equal(s('${q~[0-9]+}'), '42');
+    assert.equal(s('${q~(\\w+) (\\w+)}'), 'hello', 'the first group when there is one');
+    assert.equal(s('${q~zzz}'), '', 'no match is empty');
+    assert.equal(s('${q/a{2}/x}', 'baab'), 'bxb', 'braces inside a pattern nest');
+    assert.equal(s('${q/o/$&$&}'), 'helloo world 42', 'JavaScript replacement tokens work ($& is the match)');
+});
+test('${q...}: things that are not understood are left as written, never thrown', () => {
+    const s = (t, q = 'hello') => substituteQuery(t, q);
+    for (const t of ['${HOME}', '${qux}', '${q1}', '${q', '${q(a+)+}', '${q/(a+)+$/x}', '${q/(unclosed/x}', '${q//}', '${q#*a*b*c}', '$quit $Q'])
+        assert.equal(s(t), t, t);
+    assert.equal(s('${q/a/b}', 'x'.repeat(1001)), '${q/a/b}', 'regex edits refuse very long text');
+    const p = previewQueryTemplate('${q/(a+)+$/x} ${q:1}', 'hello');
+    assert.equal(p.result, '${q/(a+)+$/x} ello');
+    assert.equal(p.problems.length, 1);
+    assert.ok(p.problems[0].problem.includes('slow'));
+    assert.deepEqual(previewQueryTemplate('${q:1}', 'abc').problems, []);
+});
+test('${q...} text stays inside one argument and is encoded in URLs', () => {
+    assert.equal(substituteQuery('x=${q:1}', 'a b c', encodeURIComponent), 'x=%20b%20c');
+    assert.equal(substituteQuery('https://x/?q=$q', 'a&b', encodeURIComponent), 'https://x/?q=a%26b');
+    assert.equal(substituteQuery('${q// /;}', 'a b'), 'a;b', 'the result is plain text, nothing is re-expanded');
+    assert.equal(substituteQuery('${q/a/$q}', 'a'), '$q', 'an inserted $q is not expanded again');
+    const runner = readFileSync(join(root, 'commands/runner.js'), 'utf8');
+    assert.ok(runner.includes('substituteQuery(a.target, q.trim(), encodeURIComponent)'));
+});
+test('ready-made edits all work and are quoted for the arguments field', () => {
+    for (const r of QUERY_RECIPES) {
+        const p = previewQueryTemplate(r.expr, 'hello world 42');
+        assert.deepEqual(p.problems, [], r.label);
+        assert.ok(p.result !== r.expr, `${r.label} is expanded`);
+    }
+    assert.equal(quoteArgument('${q:1}'), '${q:1}');
+    assert.equal(quoteArgument('${q// /+}'), "'${q// /+}'");
+    assert.equal(quoteArgument("${q/'/x}"), "'${q/'\\''/x}'");
+    assert.equal(quoteArgument('${q#g }'), "'${q#g }'");
+    const fields = [...COMMAND_FIELDS, ...ACTION_FIELDS].filter(f => f.key === 'args');
+    assert.equal(fields.length, 2);
+    assert.ok(fields.every(f => f.help === 'query'), 'both Arguments fields get the help button');
 });
 test('search field ring is drawn by the launcher, not by the Shell theme', () => {
     const base = {scale: 1, width: 600, padding: 12, rowHeight: 48, searchHeight: 48, searchPadding: 12, iconSpacing: 8, resultSpacing: 2, fontSize: 12, iconSize: 32, maxHeight: 600, fonts: {}};

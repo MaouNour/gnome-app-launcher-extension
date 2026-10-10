@@ -165,8 +165,8 @@ export class Runner {
             // Explicit, user-authored shell snippet (the only place a shell is involved).
             return spawn(['/bin/sh', '-c', `${a.target} ${a.args}`.trim()], queryEnv(q));
         case 'url':
-            // In an address the text is percent-encoded.
-            return openUri(substituteQuery(a.target, encodeURIComponent(q.trim())));
+            // In an address the text is percent-encoded (after any ${q...} edit has been applied to it).
+            return openUri(substituteQuery(a.target, q.trim(), encodeURIComponent));
         case 'file':
         case 'dir': {
             const path = expandHome(a.target);

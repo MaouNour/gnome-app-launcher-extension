@@ -116,6 +116,16 @@ matched against the whole query and puts the command first, for example `termina
 (a path) is written in tags instead, `<regex>/home/*</regex>` or `<re>...</re>` (in the search box also `regex:/home/*`), and is taken exactly as
 written; tags work in keywords too. A command can also be marked *Keywords are a regular expression*, and then its whole keywords field is the pattern.
 
+### Editing the typed text in arguments
+
+`$q` in a command's or script's arguments, an environment value or a URL is the text typed in the launcher. `${q...}` edits it first, with
+bash-style syntax: `${q:1}` drops the first character, `${q:2:3}` / `${q: -3}` take pieces, `${q^^}` / `${q,,}` change case, `${q#g }` / `${q%.txt}`
+remove a prefix / suffix, `${q:-text}` is a fallback and `${#q}` the length. With regular expressions: `${q/regex/new}`, `${q//regex/new}` (groups are
+`$1`, `$2`) and `${q~regex}` (the first match); with words: `${q[0]}`, `${q[-1]}`, `${q[@]:1}`. Wrap an edit that contains spaces, `#` or `|` in single
+quotes in the field. The launcher does the editing itself (no shell), so the result is always one argument. In a Shell action the text is the
+variable `q` and the shell's own `${q:1}`, `cut`, `sed` and `awk` do the work. The *i* button next to the Arguments fields has a cheat sheet, ready-made
+edits and a box to try them.
+
 ### Web and AI fallback
 
 When nothing matches (or always, or never; *Preferences > Web & AI*) the list ends with entries that open your browser: "Search Google for ..." and
