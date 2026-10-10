@@ -9,6 +9,7 @@ import {sanitizeTheme, resolveTheme, builtinThemes, cssColor, THEME_FAMILIES} fr
 import {sanitizeCommand, sanitizeAction, validateCommand, validateAction, substituteQuery, newCommand, COMMAND_FIELDS, ACTION_FIELDS} from '../commands/schema.js';
 import {buildUserEntries} from '../commands/userEntries.js';
 import {previewQueryTemplate, quoteArgument, QUERY_RECIPES} from '../commands/queryfilter.js';
+import {splitKeywords, parseKeywordList, describeKeywords, sanitizeSeparator} from '../search/keywords.js';
 import {calculate} from '../search/calc.js';
 import {buildStyles, cssFontFamily} from '../ui/style.js';
 import {compileBlocklist} from '../shortcuts/blocklist.js';
@@ -745,7 +746,7 @@ test('process separation: shell code never loads GTK, prefs never load Shell lib
     }
 });
 test('prefs-reachable modules are pure (only relative imports)', () => {
-    for (const f of ['themes/themes.js', 'commands/schema.js', 'commands/builtins.js', 'search/engine.js', 'emoji/emoji.js', 'emoji/data.js', 'clipboard/image.js', 'clipboard/persist.js', 'search/history.js', 'ui/identity.js', 'ui/accent.js', 'ui/placement.js', 'files/results.js', 'commands/exec.js', 'accounts/accounts.js', 'search/regex.js', 'search/web.js', 'commands/queryfilter.js']) {
+    for (const f of ['themes/themes.js', 'commands/schema.js', 'commands/builtins.js', 'search/engine.js', 'emoji/emoji.js', 'emoji/data.js', 'clipboard/image.js', 'clipboard/persist.js', 'search/history.js', 'ui/identity.js', 'ui/accent.js', 'ui/placement.js', 'files/results.js', 'commands/exec.js', 'accounts/accounts.js', 'search/regex.js', 'search/web.js', 'commands/queryfilter.js', 'search/keywords.js']) {
         const src = readFileSync(join(root, f), 'utf8');
         for (const m of src.matchAll(/^import .* from '([^']+)'/gm))
             assert.ok(m[1].startsWith('.'), `${f} imports ${m[1]}`);
@@ -1379,6 +1380,68 @@ test('ready-made edits all work and are quoted for the arguments field', () => {
     const fields = [...COMMAND_FIELDS, ...ACTION_FIELDS].filter(f => f.key === 'args');
     assert.equal(fields.length, 2);
     assert.ok(fields.every(f => f.help === 'query'), 'both Arguments fields get the help button');
+});
+test('keyword lists: split by a separator, spaces and symbols kept, backslash escapes the separator', () => {
+    assert.deepEqual(splitKeywords('new tab; c++ ;wi-fi;; ;', ';'), ['new tab', 'c++', 'wi-fi'], 'trimmed, empty pieces dropped');
+    assert.deepEqual(splitKeywords('a\\;b; c', ';'), ['a;b', 'c'], 'escaped separator stays inside the keyword');
+    assert.deepEqual(splitKeywords('a||b|c', '||'), ['a', 'b|c'], 'a separator can be several characters');
+    assert.deepEqual(splitKeywords('x\\\\;y', ';'), ['x\\\\', 'y'], 'an escaped backslash does not escape the separator');
+    assert.deepEqual(splitKeywords('\\d+; a\\.b', ';'), ['\\d+', 'a\\.b'], 'other backslashes are left alone');
+    assert.deepEqual(splitKeywords('', ';'), []);
+    assert.equal(sanitizeSeparator(' ;\\; '), ';;', 'backslashes are removed, the rest trimmed');
+    assert.equal(sanitizeSeparator('abcdefghijkl'), 'abcdefgh');
+    assert.equal(sanitizeSeparator(5), '');
+    assert.equal(sanitizeCommand({name: 'a', command: 'b'}).keywordSeparator, '');
+    assert.equal(sanitizeAction({name: 'a', target: 'b', keywordSeparator: ' | '}).keywordSeparator, '|');
+    assert.equal(newCommand().keywordSeparator, '');
+});
+test('keyword lists: phrases, patterns in slashes or tags, and every keyword as a pattern', () => {
+    const r = parseKeywordList('new tab; /^launch/; <re>a/b</re>; (a+)+$; c++', ';', false);
+    assert.deepEqual(r.phrases, ['new tab', '(a+)+$', 'c++'], 'unwrapped text is a phrase, even if it looks like a pattern');
+    assert.equal(r.patterns.length, 2);
+    assert.ok(r.patterns[1].test('a/b'));
+    const all = parseKeywordList('^open term$; ^x{1\\;3}$; (bad; (a+)+$', ';', true);
+    assert.equal(all.phrases.length, 0);
+    assert.equal(all.patterns.length, 2, 'invalid and risky patterns are refused');
+    assert.ok(all.patterns[1].test('x;;') === false && all.patterns[1].source === '^x{1;3}$', 'escaped separator inside a pattern');
+    assert.deepEqual(all.items.map(i => i.type), ['regex', 'regex', 'bad', 'bad']);
+    assert.ok(all.items[3].problem.includes('slow'));
+    assert.deepEqual(describeKeywords('^a$', '', true).map(i => i.type), ['regex'], 'no separator: the whole field is one pattern');
+    assert.deepEqual(describeKeywords('(bad', '', true).map(i => i.type), ['bad']);
+    assert.deepEqual(describeKeywords('term /^x$/ /(bad/', '', false).map(i => i.type), ['phrase', 'regex', 'bad'], 'no separator: words and /patterns/');
+    assert.deepEqual(describeKeywords('', ';', false), []);
+});
+test('keyword lists: whole keywords match as phrases and keep matching while typing', () => {
+    const mk = (id, name, keywords, extra = {}) => prepare({id, kind: 'command', name, keywords, rxKeywords: true, kwSep: ';', ...extra});
+    const eng = new SearchEngine();
+    eng.setEntries([
+        mk('one', 'Zzz One', 'new tab; c++; c; wi-fi settings; q-x'),
+        mk('re', 'Zzz Two', '^open (term|shell)$; ^go\\d$', {rxWhole: true}),
+        prepare({id: 'plain', kind: 'command', name: 'Zzz Three', keywords: 'alpha beta', rxKeywords: true}),
+    ]);
+    const ids = (q, o = {}) => eng.search(q, {limit: 5, frecency: false, fuzzy: false, descriptions: false, ...o}).map(e => e.id);
+    assert.ok(ids('c').includes('one'), 'a one-letter keyword matches when typed exactly');
+    assert.ok(ids('c+').includes('one') && ids('c++').includes('one'), 'symbols are kept');
+    assert.ok(ids('new tab').includes('one') && ids('new ').includes('one'));
+    assert.ok(ids('tab').includes('one'), 'single words of a keyword still match');
+    assert.ok(ids('wi-fi set').includes('one'), 'start of a keyword with a space and a symbol');
+    assert.ok(!ids('wifi').includes('one'));
+    assert.ok(!ids('x').includes('one'), 'one letter that is not a whole keyword does not match');
+    assert.ok(ids('open term').includes('re') && ids('open shell').includes('re') && ids('go7').includes('re'));
+    assert.ok(!ids('open shell now').includes('re'), 'every keyword is an anchored pattern here');
+    assert.ok(ids('alpha').includes('plain'), 'entries without a separator work as before');
+    // typing one character at a time must find a phrase that the shorter text did not match
+    const fresh = new SearchEngine();
+    fresh.setEntries(eng._entries);
+    eng.search('q');
+    assert.ok(ids('q-').includes('one'), 'incremental narrowing does not lose phrase entries');
+    assert.deepEqual(ids('q-x'), fresh.search('q-x', {limit: 5, frecency: false, fuzzy: false, descriptions: false}).map(e => e.id));
+    // preparing twice keeps the list
+    const again = mk('twice', 'Twice', 'one; two');
+    assert.deepEqual(prepare(again)._kp, ['one', 'two']);
+    const built = buildUserEntries([{name: 'T', command: 'kgx', keywords: 'new tab; c++', keywordSeparator: ';'}], [], {}).entries[0];
+    assert.deepEqual(built._kp, ['new tab', 'c++']);
+    assert.equal(built.keywords, 'new tab c++');
 });
 test('search field ring is drawn by the launcher, not by the Shell theme', () => {
     const base = {scale: 1, width: 600, padding: 12, rowHeight: 48, searchHeight: 48, searchPadding: 12, iconSpacing: 8, resultSpacing: 2, fontSize: 12, iconSize: 32, maxHeight: 600, fonts: {}};

@@ -333,3 +333,15 @@ results to confirm only one row is highlighted; apply Tokyo Night.
   field builder to fields with `help: 'query'` (both `args` fields in `commands/schema.js`). `QUERY_HELP` is Pango markup in a template literal:
   every `${` is escaped as `\${`.
 - Shell actions are unchanged: no substitution, the text is the variable `q`.
+
+### Keyword lists (0.6.4)
+- `search/keywords.js` (pure): `splitKeywords(text, sep)` (backslash escapes the separator, `\\` pairs are kept so regexes survive), `parseKeywordList()`
+  (phrases, compiled patterns, per-piece `items` for the prefs), `describeKeywords()` (the same for all three field modes), `sanitizeSeparator()`.
+  `search/regex.js` gained `checkPattern()` (returns the reason a pattern is refused) and the optional `bad` array of `extractRegexKeywords()`.
+- `commands/schema.js`: `keywordSeparator` on commands and actions (`KEYWORD_SEPARATOR_FIELD`); `commands/userEntries.js` passes it as `kwSep`.
+  `search/engine.js` `prepare()`: with `kwSep` the entry gets `_rx` (patterns) and `_kp` (folded phrases) and `keywords` becomes the phrases joined by spaces,
+  so the word-level scoring keeps working. `phraseScore()` (exact 900, start 520, part 300) is compared with the token score per entry.
+- `_phraseIdx`: indexes of entries that have `_kp`. The incremental narrowing of `_search` adds them back to its candidates, because a phrase can match
+  a longer text that its shorter prefixes did not.
+- `prefs/widgets.js` `keywordsHelpButton(getValues)` (fields with `help: 'keywords'`): `KEYWORDS_HELP`, a tester built on `describeKeywords()` and a real
+  `SearchEngine`, then `REGEX_HELP`. The popover refills itself from the entry each time it opens.

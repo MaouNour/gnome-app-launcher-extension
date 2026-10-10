@@ -15,6 +15,19 @@ All notable changes to GNOME Launcher (`gnome-launcher@maou-nournar`). Newest fi
   set to *Never*). In *Search keywords* the tags can sit next to ordinary words, like `/regex/` tokens do:
   `terminal <regex>^/usr/bin/.*term$</regex>`. The plain `/regex/` form is unchanged. The info popover and the
   explanation under the regex setting cover the new forms.
+- **Several keywords, with spaces and symbols.** Commands and actions have a new field, *Keyword separator*. Leave it
+  empty and nothing changes (words separated by spaces). Fill it (`;`, `|`, `;;`...) and the *Search keywords* become a
+  list: `new tab; c++; wi-fi`. Every keyword is trimmed and kept exactly as written, so it can hold spaces and any
+  symbol; write a backslash before the separator (`a\;b`) to use the separator itself inside a keyword. A keyword
+  matches as a phrase: when what you type equals it (even one letter), starts it (from 2 characters) or is part of it
+  (from 3); its single words still match as before. An entry that has phrases is re-checked on every keystroke, so a
+  phrase is never lost while you type.
+- **Regular expressions for all keywords.** The switch is now *Keywords are regular expressions*: with a separator
+  every keyword is a pattern and needs no slashes (`^open term$; ^launch (a|b)$`); without one the whole field is one
+  pattern, as before. Without the switch a keyword in a list is a pattern when it is wrapped in slashes or
+  `<regex>` tags. The *i* button of the keywords field explains all of this and has a box where you type keywords,
+  a separator and a sample text: it lists how each keyword is understood (patterns that are refused are shown in red
+  with the reason) and whether the entry would be listed.
 - **Edit the typed text in arguments.** `$q` can now be filtered before it is used, in a command's or script's
   arguments, environment values and URLs. The syntax follows bash where bash has an equivalent: `${q:1}` (without the
   first character), `${q:2:3}`, `${q: -3}`, `${q:-fallback}`, `${#q}`, `${q^^}`, `${q,,}`, `${q^}`, `${q#prefix}`,

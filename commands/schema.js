@@ -2,6 +2,8 @@
 // Field specs drive the prefs editor; sanitize*/validate* protect the runtime from
 // hand-edited or corrupted settings. Nothing here executes anything.
 
+import {sanitizeSeparator} from '../search/keywords.js';
+
 const MAX = 512;
 const clean = v => (typeof v === 'string' ? v.replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, MAX) : '');
 
@@ -17,9 +19,12 @@ export {substituteQuery} from './queryfilter.js';
 const URL_RE = /^(https?:\/\/|ftp:\/\/|mailto:)\S+$/i;
 const ENV_RE = /^[A-Za-z_][A-Za-z0-9_]*=/;
 
-// Off by default (a missing value means off, unlike the other switches). When on, the whole keywords field is
-// one regular expression and needs no slashes.
-const REGEX_KEYWORDS_FIELD = {key: 'regexKeywords', label: 'Keywords are a regular expression (no slashes needed)', type: 'switch', default: false};
+// Off by default (a missing value means off, unlike the other switches). When on, the keywords are regular
+// expressions and need no slashes: the whole field is one pattern, or with a separator each keyword is one.
+const REGEX_KEYWORDS_FIELD = {key: 'regexKeywords', label: 'Keywords are regular expressions (no slashes needed; with a separator, each keyword is one)', type: 'switch', default: false};
+// Empty: the keywords are words separated by spaces. Filled: they are separated by it, and each keyword may
+// contain spaces and symbols.
+const KEYWORD_SEPARATOR_FIELD = {key: 'keywordSeparator', label: 'Keyword separator (empty: words separated by spaces; fill it to allow spaces and symbols in each keyword, e.g. ;)', type: 'text'};
 
 export const COMMAND_FIELDS = [
     {key: 'name', label: 'Name', type: 'text'},
@@ -29,7 +34,8 @@ export const COMMAND_FIELDS = [
     {key: 'env', label: 'Environment (KEY=value pairs, space separated)', type: 'text'},
     {key: 'icon', label: 'Icon (theme name or file path)', type: 'text'},
     {key: 'category', label: 'Category', type: 'text'},
-    {key: 'keywords', label: 'Search keywords (words, or a /regex/ between slashes)', type: 'text', help: 'regex'},
+    {key: 'keywords', label: 'Search keywords (words, a /regex/ between slashes, or a list: see the i button)', type: 'text', help: 'keywords'},
+    KEYWORD_SEPARATOR_FIELD,
     REGEX_KEYWORDS_FIELD,
     {key: 'shortcut', label: 'Global shortcut', type: 'shortcut'},
     {key: 'windowShortcut', label: 'Window shortcut (only while the launcher is open)', type: 'shortcut', local: true},
@@ -43,7 +49,8 @@ export const ACTION_FIELDS = [
     {key: 'target', label: 'Target (desktop id, command line, URL, path or GNOME action; $q is the search text, in a shell command use "$q")', type: 'text'},
     {key: 'args', label: 'Arguments (scripts; $q is the text typed in the search box, ${q:1} etc. edit it: see the i button)', type: 'text', help: 'query'},
     {key: 'icon', label: 'Icon (theme name or file path)', type: 'text'},
-    {key: 'keywords', label: 'Search keywords (words, or a /regex/ between slashes)', type: 'text', help: 'regex'},
+    {key: 'keywords', label: 'Search keywords (words, a /regex/ between slashes, or a list: see the i button)', type: 'text', help: 'keywords'},
+    KEYWORD_SEPARATOR_FIELD,
     REGEX_KEYWORDS_FIELD,
     {key: 'category', label: 'Category', type: 'text'},
     {key: 'shortcut', label: 'Global shortcut', type: 'shortcut'},
@@ -51,8 +58,8 @@ export const ACTION_FIELDS = [
     {key: 'enabled', label: 'Enabled', type: 'switch'},
 ];
 
-export const newCommand = () => ({name: 'New command', description: '', command: '', args: '', env: '', icon: '', category: 'Commands', keywords: '', regexKeywords: false, shortcut: '', windowShortcut: '', enabled: true});
-export const newAction = () => ({name: 'New action', description: '', type: 'shell', target: '', args: '', icon: '', keywords: '', regexKeywords: false, category: 'Actions', shortcut: '', windowShortcut: '', enabled: true});
+export const newCommand = () => ({name: 'New command', description: '', command: '', args: '', env: '', icon: '', category: 'Commands', keywords: '', keywordSeparator: '', regexKeywords: false, shortcut: '', windowShortcut: '', enabled: true});
+export const newAction = () => ({name: 'New action', description: '', type: 'shell', target: '', args: '', icon: '', keywords: '', keywordSeparator: '', regexKeywords: false, category: 'Actions', shortcut: '', windowShortcut: '', enabled: true});
 
 export function sanitizeCommand(raw, index = 0) {
     if (!raw || typeof raw !== 'object' || Array.isArray(raw))
@@ -61,7 +68,7 @@ export function sanitizeCommand(raw, index = 0) {
         id: clean(raw.id) || `c${index}`,
         name: clean(raw.name), description: clean(raw.description),
         command: clean(raw.command), args: clean(raw.args), env: clean(raw.env),
-        icon: clean(raw.icon), category: clean(raw.category), keywords: clean(raw.keywords), regexKeywords: raw.regexKeywords === true,
+        icon: clean(raw.icon), category: clean(raw.category), keywords: clean(raw.keywords), keywordSeparator: sanitizeSeparator(raw.keywordSeparator), regexKeywords: raw.regexKeywords === true,
         shortcut: clean(raw.shortcut), windowShortcut: clean(raw.windowShortcut), enabled: raw.enabled !== false,
     };
 }
@@ -74,7 +81,7 @@ export function sanitizeAction(raw, index = 0) {
         name: clean(raw.name), description: clean(raw.description),
         type: ACTION_TYPES.includes(raw.type) ? raw.type : 'shell',
         target: clean(raw.target), args: clean(raw.args),
-        icon: clean(raw.icon), keywords: clean(raw.keywords), regexKeywords: raw.regexKeywords === true, category: clean(raw.category),
+        icon: clean(raw.icon), keywords: clean(raw.keywords), keywordSeparator: sanitizeSeparator(raw.keywordSeparator), regexKeywords: raw.regexKeywords === true, category: clean(raw.category),
         shortcut: clean(raw.shortcut), windowShortcut: clean(raw.windowShortcut), enabled: raw.enabled !== false,
     };
 }

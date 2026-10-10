@@ -5,6 +5,8 @@ import GLib from 'gi://GLib';
 import Gtk from 'gi://Gtk';
 
 import {QUERY_RECIPES, previewQueryTemplate, quoteArgument} from '../commands/queryfilter.js';
+import {SearchEngine, prepare} from '../search/engine.js';
+import {MAX_SEPARATOR, describeKeywords, sanitizeSeparator} from '../search/keywords.js';
 
 // --- simple GSettings-bound rows -------------------------------------------
 
@@ -78,6 +80,79 @@ export function regexHelpButton() {
     return new Gtk.MenuButton({
         icon_name: 'dialog-information-symbolic', css_classes: ['flat'], valign: Gtk.Align.CENTER,
         tooltip_text: 'How to write regular expressions', popover: new Gtk.Popover({child: scroll}),
+    });
+}
+
+// "i" button of the Search keywords field: explains keyword lists with a separator and regular expressions for
+// all keywords, and lets you try them. getValues() returns the entry's current {text, sep, all}.
+const KEYWORDS_HELP = `<b>Several keywords, with spaces and symbols</b>
+By default the Search keywords are plain words separated by spaces. To use keywords that contain spaces or symbols, such as <tt>new tab</tt>, <tt>c++</tt> or <tt>wi-fi</tt>, type a <i>Keyword separator</i> in the field under this one and separate the keywords with it:
+separator <tt>;</tt>   keywords <tt>new tab; c++; wi-fi</tt>
+Each keyword is trimmed and kept exactly as written. The entry is listed when what you type is a keyword, starts one (from 2 characters), or is part of one (from 3 characters). A one-letter keyword such as <tt>c</tt> works when you type exactly it. Individual words of a keyword still match too, so <tt>tab</tt> finds <tt>new tab</tt>.
+Pick a separator that is not in your keywords: <tt>;</tt> or <tt>|</tt> or something longer like <tt>;;</tt>. To put the separator inside a keyword, write a backslash before it: <tt>a\\;b</tt> is the keyword <tt>a;b</tt>.
+
+<b>Regular expressions for all of them</b>
+Switch on <i>Keywords are regular expressions</i> and every keyword is a pattern, with no slashes needed:
+separator <tt>;</tt>   keywords <tt>^open term$; ^launch (a|b)$</tt>
+Without the switch a keyword is a pattern only when it is wrapped in slashes or tags: <tt>/^term/; new tab</tt>. A pattern is tested against everything you type, case is ignored, and the box below shows any that are refused.
+If a pattern needs the separator itself (for example <tt>{1,3}</tt> with the separator <tt>,</tt>), write <tt>\\,</tt> or pick another separator.`;
+
+export function keywordsHelpButton(getValues) {
+    const box = new Gtk.Box({orientation: Gtk.Orientation.VERTICAL, spacing: 8, margin_top: 12, margin_bottom: 12, margin_start: 14, margin_end: 14});
+    box.append(new Gtk.Label({use_markup: true, label: KEYWORDS_HELP, wrap: true, xalign: 0, max_width_chars: 62}));
+    box.append(new Gtk.Separator());
+    box.append(new Gtk.Label({use_markup: true, label: '<b>Try your keywords</b>', xalign: 0}));
+
+    const kw = new Gtk.Entry({placeholder_text: 'Search keywords', hexpand: true});
+    const sepEntry = new Gtk.Entry({placeholder_text: 'Keyword separator (empty: words separated by spaces)', max_length: MAX_SEPARATOR});
+    const all = new Gtk.CheckButton({label: 'Every keyword is a regular expression'});
+    const typed = new Gtk.Entry({placeholder_text: 'Text typed in the launcher'});
+    const out = new Gtk.Label({use_markup: true, xalign: 0, wrap: true, selectable: true, max_width_chars: 62});
+
+    const refresh = () => {
+        const esc = s => GLib.markup_escape_text(s, -1);
+        const sep = sanitizeSeparator(sepEntry.text);
+        const items = describeKeywords(kw.text, sep, all.active);
+        const lines = items.map(i => {
+            if (i.type === 'bad')
+                return `<span foreground="#e62d42">• ignored: <tt>${esc(i.text)}</tt> (${esc(i.problem)})</span>`;
+            return `• ${i.type === 'regex' ? 'pattern' : 'keyword'}: <tt>${esc(i.text)}</tt>`;
+        });
+        if (!lines.length)
+            lines.push('No keywords');
+        if (typed.text.trim()) {
+            const entry = prepare({id: 'try', kind: 'command', name: '', keywords: kw.text, rxKeywords: true, rxWhole: all.active, kwSep: sep});
+            const engine = new SearchEngine();
+            engine.setEntries([entry]);
+            const hit = engine.search(typed.text, {limit: 1, frecency: false, fuzzy: false, descriptions: false}).length > 0;
+            lines.push('', hit ? `✓ The entry is listed for <tt>${esc(typed.text)}</tt>` : `✗ Not listed for <tt>${esc(typed.text)}</tt>`);
+        }
+        out.label = lines.join('\n');
+    };
+    for (const w of [kw, sepEntry, typed])
+        w.connect('changed', refresh);
+    all.connect('notify::active', refresh);
+    for (const w of [kw, sepEntry, all, typed, out])
+        box.append(w);
+
+    box.append(new Gtk.Separator());
+    box.append(new Gtk.Label({use_markup: true, label: REGEX_HELP, wrap: true, xalign: 0, max_width_chars: 62}));
+
+    const scroll = new Gtk.ScrolledWindow({
+        child: box, hscrollbar_policy: Gtk.PolicyType.NEVER, propagate_natural_height: true, max_content_height: 560, min_content_width: 460,
+    });
+    const popover = new Gtk.Popover({child: scroll});
+    // Start from what the entry has now, every time the popover opens.
+    popover.connect('map', () => {
+        const v = getValues();
+        kw.text = v.text ?? '';
+        sepEntry.text = v.sep ?? '';
+        all.active = !!v.all;
+        refresh();
+    });
+    return new Gtk.MenuButton({
+        icon_name: 'dialog-information-symbolic', css_classes: ['flat'], valign: Gtk.Align.CENTER,
+        tooltip_text: 'Several keywords, spaces and symbols in keywords, regular expressions', popover,
     });
 }
 
@@ -484,6 +559,8 @@ export class ListEditor {
             w.connect('changed', () => set(f.key, w.text));
             if (f.help === 'regex')
                 w.add_suffix(regexHelpButton());
+            if (f.help === 'keywords')
+                w.add_suffix(keywordsHelpButton(() => ({text: item.keywords ?? '', sep: item.keywordSeparator ?? '', all: item.regexKeywords === true})));
             if (f.help === 'query')
                 w.add_suffix(queryHelpButton(expr => { w.text = `${w.text} ${expr}`.trim(); }));
             return w;

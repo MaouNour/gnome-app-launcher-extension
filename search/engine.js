@@ -1,6 +1,7 @@
 // Pure JS (no GI imports): unit-testable and benchmarkable under plain node.
 //
 import {compileKeywordPattern, extractRegexKeywords} from './regex.js';
+import {parseKeywordList} from './keywords.js';
 //
 // Entries are "prepared" once (lowercased/diacritic-folded copies of their text fields),
 // so a keystroke only does cheap string comparisons against in-memory data. Extending the
@@ -18,11 +19,17 @@ export function fold(s) {
 // Adds search metadata to an entry ({name, desc, keywords, category}). Idempotent.
 export function prepare(e) {
     // Custom commands/actions may carry /regex/ keywords: split them from the plain words.
-    // ("rxWhole": the whole keywords field is one pattern, no slashes.) Done once: a second prepare() must not
-    // overwrite the patterns with the already-stripped keywords.
+    // ("rxWhole": the whole keywords field is one pattern, no slashes. "kwSep": the field is a list of keywords
+    // split by that separator; each keyword is matched as a phrase, or as a pattern when rxWhole is set too.)
+    // Done once: a second prepare() must not overwrite the patterns with the already-stripped keywords.
     if (e.rxKeywords && !e._rxDone) {
         e._rxDone = true;
-        if (e.rxWhole) {
+        if (e.kwSep) {
+            const {phrases, patterns} = parseKeywordList(e.keywords, e.kwSep, !!e.rxWhole);
+            e.keywords = phrases.join(' ');
+            e._rx = patterns;
+            e._kp = phrases.map(p => fold(p).replace(/\s+/g, ' ').trim()).filter(Boolean);
+        } else if (e.rxWhole) {
             const re = compileKeywordPattern(e.keywords);
             e.keywords = '';
             e._rx = re ? [re] : [];
@@ -110,12 +117,31 @@ function scoreToken(t, e, fuzzy, descs) {
     return best;
 }
 
+// A whole typed text against the keyword phrases of an entry (keywords that may hold spaces and symbols).
+// Equal to a keyword is a strong match, even for one letter; starting it needs 2 characters, being part of it 3.
+function phraseScore(q, phrases) {
+    let best = 0;
+    for (const p of phrases) {
+        let s = 0;
+        if (p === q)
+            s = 900;
+        else if (q.length >= 2 && p.startsWith(q))
+            s = 520 - Math.min(p.length - q.length, 40) * 0.5;
+        else if (q.length >= 3 && p.includes(q))
+            s = 300;
+        if (s > best)
+            best = s;
+    }
+    return best;
+}
+
 export class SearchEngine {
     constructor() {
         this._entries = [];
         this._byId = new Map();
         this._alpha = null;
         this._rxEntries = [];
+        this._phraseIdx = [];
         this._prevQ = '';
         this._prevIdx = null;
         this._prevKey = '';
@@ -126,6 +152,11 @@ export class SearchEngine {
         this._entries = list;
         this._byId = new Map(list.map(e => [e.id, e]));
         this._rxEntries = list.filter(e => e._rx?.length);
+        this._phraseIdx = [];
+        list.forEach((e, i) => {
+            if (e._kp?.length)
+                this._phraseIdx.push(i);
+        });
         this._alpha = null;
         this._prevIdx = null;
         this._prevQ = '';
@@ -203,7 +234,16 @@ export class SearchEngine {
 
         // Appending characters can only remove matches, so re-scan the previous matches only.
         const narrow = this._prevIdx && this._prevKey === key && q.startsWith(this._prevQ);
-        const candidates = narrow ? this._prevIdx : null;
+        let candidates = narrow ? this._prevIdx : null;
+        // A phrase keyword can match a longer text that its shorter prefixes did not ("new tab" for "n"), so
+        // entries that have phrases are always looked at again.
+        if (candidates && this._phraseIdx.length) {
+            const seen = new Set(candidates);
+            const extra = this._phraseIdx.filter(i => !seen.has(i));
+            if (extra.length)
+                candidates = candidates.concat(extra);
+        }
+        const phraseQ = q.trimEnd();
         const count = candidates ? candidates.length : list.length;
 
         const idx = [];
@@ -220,6 +260,13 @@ export class SearchEngine {
                     break;
                 }
                 total += s;
+            }
+            if (e._kp) {
+                const ps = phraseScore(phraseQ, e._kp);
+                if (ps > 0 && (!ok || ps > total)) {
+                    total = ps;
+                    ok = true;
+                }
             }
             if (!ok)
                 continue;

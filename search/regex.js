@@ -76,6 +76,19 @@ export function parseRegexQuery(query, mode) {
     }
 }
 
+// {re} when the pattern can be used as a keyword, otherwise {error} with the reason (shown by the preferences).
+export function checkPattern(src) {
+    if (!src)
+        return {error: 'the pattern is empty'};
+    if (isRiskyPattern(src))
+        return {error: 'too complex or could be very slow'};
+    try {
+        return {re: new RegExp(src, 'i')};
+    } catch (_e) {
+        return {error: 'not a valid regular expression'};
+    }
+}
+
 // Search keywords of an entry marked "keywords are a regular expression": the whole field is ONE pattern,
 // written without slashes ("^(open )?term(inal)?$"). Returns the compiled pattern, or null when the field is
 // empty, not valid yet or unsafe (the entry then simply has no pattern, like an ignored /regex/ token).
@@ -84,13 +97,7 @@ export function compileKeywordPattern(text) {
     const wrapped = /^<(regex|re)>([\s\S]*)<\/\1>$/i.exec(src); // a pasted <regex>...</regex> is fine too
     if (wrapped)
         src = wrapped[2].trim();
-    if (!src || isRiskyPattern(src))
-        return null;
-    try {
-        return new RegExp(src, 'i');
-    } catch (_e) {
-        return null;
-    }
+    return checkPattern(src).re ?? null;
 }
 
 // Search keywords of custom commands/actions may contain /patterns/ next to ordinary words:
@@ -98,14 +105,15 @@ export function compileKeywordPattern(text) {
 // Returns the ordinary words and the compiled patterns (unsafe or invalid ones are ignored).
 // A pattern is tested against the whole query.
 //   "terminal <regex>^/usr/bin/.*term$</regex>"   (tags: the pattern may hold slashes and spaces freely)
-export function extractRegexKeywords(text) {
+// `bad` (optional array) collects {text, problem} for the patterns that were ignored.
+export function extractRegexKeywords(text, bad = null) {
     const patterns = [];
     const add = src => {
-        if (patterns.length < 8 && !isRiskyPattern(src)) {
-            try {
-                patterns.push(new RegExp(src, 'i'));
-            } catch (_e) { /* ignored */ }
-        }
+        const c = checkPattern(src);
+        if (c.re && patterns.length < 8)
+            patterns.push(c.re);
+        else
+            bad?.push({text: src, problem: c.error ?? 'more than 8 patterns'});
     };
     const untagged = String(text ?? '').replace(/<(regex|re)>([\s\S]*?)<\/\1>/gi, (_m, _t, src) => {
         add(src);

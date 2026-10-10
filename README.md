@@ -116,6 +116,14 @@ matched against the whole query and puts the command first, for example `termina
 (a path) is written in tags instead, `<regex>/home/*</regex>` or `<re>...</re>` (in the search box also `regex:/home/*`), and is taken exactly as
 written; tags work in keywords too. A command can also be marked *Keywords are a regular expression*, and then its whole keywords field is the pattern.
 
+### Keyword lists
+
+A command's or action's **Search keywords** are words separated by spaces. Fill in **Keyword separator** (for example `;`) to turn them into a list whose
+keywords may contain spaces and symbols: `new tab; c++; wi-fi`. A backslash before the separator keeps it inside a keyword (`a\;b`). A keyword matches
+when what you type equals it, starts it (2+ characters) or is part of it (3+); a one-letter keyword works when typed exactly. Switch on *Keywords are
+regular expressions* and every keyword is a pattern with no slashes (`^open term$; ^go\d$`); otherwise a keyword is a pattern only when written as
+`/regex/` or in `<regex>` tags. The *i* button of the field has a box to try the keywords and shows any pattern that is refused.
+
 ### Editing the typed text in arguments
 
 `$q` in a command's or script's arguments, an environment value or a URL is the text typed in the launcher. `${q...}` edits it first, with
