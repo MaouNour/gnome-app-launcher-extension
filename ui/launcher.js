@@ -896,7 +896,7 @@ export class Launcher {
             results = [];
         }
         // Results that arrive later (the file search) belong to the query they were asked for.
-        if (this._extraFor !== text || this._mode !== null)
+        if (this._extraFor !== text.trim() || this._mode !== null)
             this._extra = [];
         if (this._extra.length) {
             const sections = results._sections;
@@ -1268,7 +1268,7 @@ export class Launcher {
     // Results that took time to find (files). Added after the others, before a web-search fallback; ignored when
     // the text has changed since they were asked for.
     addAsyncResults(query, entries) {
-        if (!this._built || (this._state !== 'open' && this._state !== 'opening') || this._mode !== null || this.text !== query)
+        if (!this._built || (this._state !== 'open' && this._state !== 'opening') || this._mode !== null || this.text.trim() !== query)
             return;
         this._extraFor = query;
         this._extra = entries;

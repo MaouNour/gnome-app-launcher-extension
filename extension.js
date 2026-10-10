@@ -590,7 +590,7 @@ export default class GnomeLauncherExtension extends Extension {
                 }), ...out];
             }
         }
-        this._wantFiles(query);
+        this._wantFiles(typed, query);
         if (offerWeb(c.str('web-fallback'), out.length, query))
             out = [...out, ...webEntries(this._providers(), typed)];
         dbg(`search "${query}": ${((GLib.get_monotonic_time() - t0) / 1000).toFixed(2)} ms, ${out.length} results of ${this._engine.size}`);
@@ -762,9 +762,10 @@ export default class GnomeLauncherExtension extends Extension {
     // Off by default. Each search goes to GNOME's file search (the Files search provider, answered from the
     // LocalSearch index GNOME already keeps) or to the system's locate database. This extension stores nothing.
 
-    _wantFiles(query) {
+    // typed: what is in the search box (results are matched to it); query: the text to search for (after layout conversion).
+    _wantFiles(typed, query) {
         const c = this._config;
-        const q = query.trim();
+        const q = typed.trim();
         if (!c.bool('files-enabled') || q.length < c.int('files-min-chars')) {
             if (this._filesFor) {
                 this._filesWait.cancel();
@@ -776,6 +777,7 @@ export default class GnomeLauncherExtension extends Extension {
         if (this._filesFor === q)
             return; // already asked (the results arrive through addAsyncResults)
         this._filesFor = q;
+        this._filesText = query.trim();
         this._files.cancel();
         this._filesWait.call();
     }
@@ -785,20 +787,29 @@ export default class GnomeLauncherExtension extends Extension {
         const query = this._filesFor;
         if (!query || !this._launcher?.isOpen)
             return;
-        const backend = pickBackend(c.str('files-backend'), this._files.available());
+        const avail = this._files.available();
+        const backend = pickBackend(c.str('files-backend'), avail);
         if (!backend) {
             this._launcher.setEmptyText('File search is on but no backend is available (GNOME search or locate)');
             return;
         }
-        let paths;
-        try {
-            paths = await this._files.search(backend, toTerms(query));
-        } catch (e) {
-            warn(`file search (${backend}) failed: ${e.message}`);
-            return;
+        const terms = toTerms(this._filesText || query);
+        // "auto": GNOME's search first; locate takes over when it fails or finds nothing (index not ready, provider off).
+        const order = c.str('files-backend') === 'auto' && backend === 'gnome' && avail.locate ? ['gnome', 'locate'] : [backend];
+        let paths = null;
+        for (const b of order) {
+            try {
+                paths = await this._files.search(b, terms);
+            } catch (e) {
+                warn(`file search (${b}) failed: ${e.message}`);
+                paths = [];
+            }
+            dbg(`file search (${b}) "${terms.join(' ')}": ${paths ? paths.length : 'replaced'} paths`);
+            if (!paths || !this._alive || this._filesFor !== query)
+                return;
+            if (paths.length)
+                break;
         }
-        if (!paths || !this._alive || this._filesFor !== query)
-            return;
         const home = GLib.get_home_dir();
         const kept = filterPaths(paths, {home, hidden: c.bool('files-hidden'), outsideHome: c.bool('files-outside-home'), max: c.int('files-max')});
         const entries = kept.map(path => this._fileEntry(path, home));
