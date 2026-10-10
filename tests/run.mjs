@@ -622,6 +622,32 @@ test('regex keywords of commands match the whole query and rank first', () => {
     assert.ok(eng.search('launch', {limit: 5}).some(e => e.id === 'cmd'), 'plain words still work');
 });
 
+test('tag delimiters keep slashes inside a pattern from being mixed up', () => {
+    const src = (q, mode = 'prefix') => parseRegexQuery(q, mode)?.source;
+    assert.equal(src('<regex>/home/*</regex>'), '/home/*');
+    assert.equal(src('<regex>/home/*'), '/home/*', 'closing tag is optional while typing');
+    assert.equal(src('  <RE>^a/b$</re>'), '^a/b$', 'tags are case-insensitive, <re> is short for <regex>');
+    assert.equal(src('regex:/home/*'), '/home/*');
+    assert.equal(src('<regex>a b</regex>'), 'a b', 'spaces inside are kept');
+    assert.equal(src('/home/*'), 'home/*', 'the plain slash form is unchanged');
+    assert.equal(src('<regex>x</regex>', 'always'), 'x');
+    assert.equal(parseRegexQuery('<regex>x</regex>', 'off'), null, 'off means off');
+    assert.equal(parseRegexQuery('<regex>x</regex>x', 'prefix').source, 'x</regex>x', 'only a trailing closing tag is removed');
+    assert.ok(parseRegexQuery('<regex>', 'prefix').error);
+    assert.ok(parseRegexQuery('<regex>(a+)+$</regex>', 'prefix').error, 'safety limits still apply');
+    assert.ok(parseRegexQuery('<re>(unclosed</re>', 'prefix').error);
+    assert.equal(parseRegexQuery('regexes are fun', 'prefix'), null, 'only the exact word "regex:" is a prefix');
+});
+test('tags in keywords hold slashes and spaces; slash tokens still work', () => {
+    const {plain, patterns} = extractRegexKeywords('term <regex>^/usr/bin/.* term$</regex> shell /^x$/ <re>(bad</re> <regex>unclosed');
+    assert.equal(plain, 'term shell <regex>unclosed', 'an unclosed tag stays plain text');
+    assert.equal(patterns.length, 2, 'invalid pattern ignored');
+    assert.ok(patterns[0].test('/usr/bin/x term') && patterns[1].test('x'));
+    assert.ok(compileKeywordPattern('<regex>^a/b$</regex>').test('a/b'), 'a pasted tagged pattern works in whole-field mode');
+    const eng = new SearchEngine();
+    eng.setEntries([prepare({id: 'c', kind: 'command', name: 'Home files', keywords: '<regex>^/home/.*$</regex>', rxKeywords: true})]);
+    assert.equal(eng.search('/home/me', {limit: 3})[0].id, 'c');
+});
 test('keywords marked as a regular expression need no slashes', () => {
     assert.ok(compileKeywordPattern('^(open )?term(inal)?$').test('open terminal'));
     assert.equal(compileKeywordPattern('  '), null);

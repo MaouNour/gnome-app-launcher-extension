@@ -8,6 +8,13 @@ All notable changes to GNOME Launcher (`gnome-launcher@maou-nournar`). Newest fi
   expression (no slashes needed)*. When it is on, the whole *Search keywords* field is one pattern, written as it is
   (`^(open )?term(inal)?$`), and the entry is listed when the pattern matches what you typed. The `/regex/` form inside
   ordinary keywords still works. Off by default; the same safety limits apply (unsafe or invalid patterns are ignored).
+- **Other ways to write a regex.** A pattern that contains slashes of its own (a path such as `/home/*`) no longer
+  gets mixed up with the opening and closing slash: wrap it in tags, `<regex>/home/*</regex>` or the short
+  `<re>...</re>`, and everything between the tags is the pattern exactly as written. In the search box the closing
+  tag is optional while you type and `regex:/home/*` works too (these are used whenever regular expressions are not
+  set to *Never*). In *Search keywords* the tags can sit next to ordinary words, like `/regex/` tokens do:
+  `terminal <regex>^/usr/bin/.*term$</regex>`. The plain `/regex/` form is unchanged. The info popover and the
+  explanation under the regex setting cover the new forms.
 - **Regex setting explained.** Under *Search > Regular expressions > Use regular expressions* a new row explains what
   each choice does (starts with a slash / always / never), with the selected one in bold.
 

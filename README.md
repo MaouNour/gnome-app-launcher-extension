@@ -112,7 +112,9 @@ A pattern runs on every keystroke against every entry, and JavaScript's engine b
 shell. Defences: patterns over 120 characters, more than two open-ended repeats, repeated groups that contain repeats or alternatives,
 back-references and look-behind are refused with a message; only short slices of each entry's text are tested; and the whole scan has a 60 ms budget
 (partial results beat a frozen shell). Custom commands and actions can also put `/regex/` tokens in their **search keywords**; such a pattern is
-matched against the whole query and puts the command first, for example `terminal /^open term(inal)?$/`.
+matched against the whole query and puts the command first, for example `terminal /^open term(inal)?$/`. A pattern with slashes of its own
+(a path) is written in tags instead, `<regex>/home/*</regex>` or `<re>...</re>` (in the search box also `regex:/home/*`), and is taken exactly as
+written; tags work in keywords too. A command can also be marked *Keywords are a regular expression*, and then its whole keywords field is the pattern.
 
 ### Web and AI fallback
 

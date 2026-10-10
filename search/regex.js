@@ -7,6 +7,12 @@
 
 export const REGEX_MODES = ['off', 'prefix', 'always'];
 
+// Besides /slashes/, a pattern can be wrapped in tags, which never get confused with a path or with a slash
+// inside the pattern: <regex>/home/*</regex>, <re>^a/b$</re>, and in the search box also the prefix
+// "regex:" (regex:/home/*). The text between the tags is taken exactly as written.
+const TAG_OPEN = /^<(regex|re)>/i;
+const WORD_PREFIX = /^regex:[ \t]?/i;
+
 const MAX_PATTERN = 120;
 const META = /[\\^$.*+?()[\]{}|]/;
 const UNBOUNDED = /[+*]|\{\d+,\}/g;
@@ -30,7 +36,9 @@ export function isRiskyPattern(src) {
 //   null                      -> not a regex query, search normally
 //   {re, source}              -> run this
 //   {error}                   -> explicit regex that cannot be used (say why)
-// mode 'prefix': only text starting with "/" ("/chrom|fire" or "/chrom|fire/").
+// mode 'prefix': only text starting with "/" ("/chrom|fire" or "/chrom|fire/"), or one of the explicit
+//                forms "<regex>...</regex>" (closing tag optional), "<re>...</re>" and "regex:...".
+//                The explicit forms are used whenever the mode is not 'off'.
 // mode 'always': also plain text that contains regex characters, but only when it compiles
 //                and is safe; otherwise it silently falls back to the normal search.
 export function parseRegexQuery(query, mode) {
@@ -39,7 +47,15 @@ export function parseRegexQuery(query, mode) {
     const t = String(query ?? '').trimStart();
     let body;
     let explicit = false;
-    if (t.startsWith('/')) {
+    const tag = TAG_OPEN.exec(t);
+    if (tag) {
+        // The body is taken as typed (slashes and all); only the closing tag is removed.
+        explicit = true;
+        body = t.slice(tag[0].length).replace(new RegExp(`</${tag[1]}>\\s*$`, 'i'), '');
+    } else if (WORD_PREFIX.test(t)) {
+        explicit = true;
+        body = t.replace(WORD_PREFIX, '');
+    } else if (t.startsWith('/')) {
         explicit = true;
         body = t.slice(1);
         if (body.endsWith('/') && !body.endsWith('\\/'))
@@ -50,7 +66,7 @@ export function parseRegexQuery(query, mode) {
         return null;
     }
     if (body.trim() === '')
-        return explicit ? {error: 'Type a regular expression after the slash'} : null;
+        return explicit ? {error: tag || WORD_PREFIX.test(t) ? 'Type a regular expression after the tag' : 'Type a regular expression after the slash'} : null;
     if (isRiskyPattern(body))
         return explicit ? {error: 'That pattern is too complex or could be very slow'} : null;
     try {
@@ -64,7 +80,10 @@ export function parseRegexQuery(query, mode) {
 // written without slashes ("^(open )?term(inal)?$"). Returns the compiled pattern, or null when the field is
 // empty, not valid yet or unsafe (the entry then simply has no pattern, like an ignored /regex/ token).
 export function compileKeywordPattern(text) {
-    const src = String(text ?? '').trim();
+    let src = String(text ?? '').trim();
+    const wrapped = /^<(regex|re)>([\s\S]*)<\/\1>$/i.exec(src); // a pasted <regex>...</regex> is fine too
+    if (wrapped)
+        src = wrapped[2].trim();
     if (!src || isRiskyPattern(src))
         return null;
     try {
@@ -78,14 +97,22 @@ export function compileKeywordPattern(text) {
 //   "terminal /^(open )?term(inal)?$/"
 // Returns the ordinary words and the compiled patterns (unsafe or invalid ones are ignored).
 // A pattern is tested against the whole query.
+//   "terminal <regex>^/usr/bin/.*term$</regex>"   (tags: the pattern may hold slashes and spaces freely)
 export function extractRegexKeywords(text) {
     const patterns = [];
-    const plain = String(text ?? '').replace(/(^|\s)\/((?:\\.|[^/\\])+)\/(?=\s|$)/g, (_m, lead, src) => {
+    const add = src => {
         if (patterns.length < 8 && !isRiskyPattern(src)) {
             try {
                 patterns.push(new RegExp(src, 'i'));
             } catch (_e) { /* ignored */ }
         }
+    };
+    const untagged = String(text ?? '').replace(/<(regex|re)>([\s\S]*?)<\/\1>/gi, (_m, _t, src) => {
+        add(src);
+        return ' ';
+    });
+    const plain = untagged.replace(/(^|\s)\/((?:\\.|[^/\\])+)\/(?=\s|$)/g, (_m, lead, src) => {
+        add(src);
         return lead;
     }).replace(/\s+/g, ' ').trim();
     return {plain, patterns};

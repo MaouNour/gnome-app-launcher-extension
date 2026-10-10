@@ -672,9 +672,9 @@ function layoutGroups(window, settings) {
 // What each "Use regular expressions" choice does; shown under the choice list, the current one in bold.
 const REGEX_MODE_HELP = [
     ['prefix', 'When the search starts with a slash',
-        'Only text that begins with \"/\" is a pattern, e.g. /chrom|fire (the closing slash is optional). Everything else is a normal search.'],
+        'Only text that begins with \"/\" is a pattern, e.g. /chrom|fire (the closing slash is optional). Everything else is a normal search, unless you wrap the pattern in tags: <regex>/home/*</regex>, <re>...</re> or regex:...  (those work in this mode and in \"Always\").'],
     ['always', 'Always when the text looks like a pattern',
-        'Any text with regex characters ( . * + ? ^ $ ( ) [ ] | ) is tried as a pattern first. If it is not valid or could be slow, the normal search runs instead, so \"c++\" still finds apps.'],
+        'Any text with regex characters ( . * + ? ^ $ ( ) [ ] | ) is tried as a pattern first. If it is not valid or could be slow, the normal search runs instead, so \"c++\" still finds apps. The tag forms are always taken as patterns.'],
     ['off', 'Never',
         'The search box always does a normal search; slashes and symbols are just text. Patterns in your commands\' keywords still work.'],
 ];
@@ -695,7 +695,7 @@ function regexModeExplanation(settings) {
 function search(window, settings) {
     const p = page('Search', 'system-search-symbolic');
     const rx = group('Regular expressions',
-        'Match names, keywords and descriptions with a pattern, for example /^(chrom|fire)/ or /term.*emu/. Matching ignores case. To use a pattern as a keyword of one of your own commands, write it between slashes in that command\'s Search keywords field, or switch on "Keywords are a regular expression" there and write it with no slashes (see the i button).');
+        'Match names, keywords and descriptions with a pattern, for example /^(chrom|fire)/ or /term.*emu/. If the pattern itself contains slashes (a path such as /home/*), wrap it in regex tags instead (see the i button). Matching ignores case. To use a pattern as a keyword of one of your own commands, write it between slashes in that command\'s Search keywords field, or switch on "Keywords are a regular expression" there and write it with no slashes (see the i button).');
     rx.set_header_suffix(regexHelpButton());
     rx.add(comboRow(settings, 'regex-mode', 'Use regular expressions', [
         ['prefix', 'When the search starts with a slash'],

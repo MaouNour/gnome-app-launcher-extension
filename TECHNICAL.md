@@ -317,3 +317,9 @@ results to confirm only one row is highlighted; apply Tokyo Night.
   `compileKeywordPattern()` (`search/regex.js`) instead of extracting `/regex/` tokens. `prepare()` is guarded by `_rxDone` so a second call
   does not wipe the patterns.
 - `prefs/pages.js`: `regexModeExplanation()` row under the *Use regular expressions* choice.
+
+### Regex tags (0.6.4)
+- `search/regex.js`: `TAG_OPEN` / `WORD_PREFIX` in `parseRegexQuery()` (tag body taken verbatim, only a trailing closing tag removed; used when the
+  mode is not `off`); `extractRegexKeywords()` extracts `<regex>..</regex>` / `<re>..</re>` first, then `/slash/` tokens, sharing one 8-pattern cap;
+  `compileKeywordPattern()` accepts a field wrapped in tags. The same safety checks (`isRiskyPattern`) apply to every form.
+- `prefs/widgets.js` `REGEX_HELP` and `prefs/pages.js` `REGEX_MODE_HELP` describe the forms (angle brackets escaped for Pango markup).

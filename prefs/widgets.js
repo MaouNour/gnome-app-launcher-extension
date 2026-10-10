@@ -33,7 +33,7 @@ const REGEX_HELP = `<b>Regular expressions</b>
 A pattern is a short rule that matches text. Case is ignored.
 
 <b>In a command or action  (recommended)</b>
-Open the entry's <i>Search keywords</i> field and write the pattern between two slashes, next to ordinary words:
+Open the entry's <i>Search keywords</i> field and write the pattern between two slashes (or between tags, see below), next to ordinary words:
 <tt>terminal /^(open )?term(inal)?$/</tt>
 The pattern is tested against everything typed in the launcher, and the entry is listed when it matches. Add <tt>^</tt> and <tt>$</tt> to require the whole text. This works whatever the search-box setting below is.
 
@@ -44,6 +44,12 @@ Ordinary words are not used as keywords in that case; put them in the pattern in
 
 <b>In the search box  (optional)</b>
 Start with a slash, for example <tt>/chrom|fire</tt>. Turn it on or off under Search, "Use regular expressions".
+
+<b>Other ways to write a pattern</b>
+When the pattern has slashes of its own, such as a path, a leading or closing slash gets mixed up with them. Wrap it in tags instead; whatever is between the tags is the pattern, exactly as written:
+<tt>&lt;regex&gt;/home/*&lt;/regex&gt;</tt>   or   <tt>&lt;re&gt;^/usr/bin/.*term$&lt;/re&gt;</tt>
+In the search box the closing tag is optional and <tt>regex:/home/*</tt> works too. In a Search keywords field the tags can sit next to ordinary words, like slashes do:
+<tt>terminal &lt;regex&gt;^/usr/bin/.*term$&lt;/regex&gt;</tt>
 
 <b>Cheat sheet</b>
 <tt>^</tt> start    <tt>$</tt> end    <tt>.</tt> any character
