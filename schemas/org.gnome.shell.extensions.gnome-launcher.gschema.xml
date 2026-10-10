@@ -91,6 +91,11 @@
     <key name="active-accent" type="s"><default>'system'</default></key>
     <key name="active-color" type="s"><default>'#3584e4'</default></key>
     <!-- Ring around the search field: off | system (desktop accent) | theme | custom (search-ring-color) -->
+    <!-- Running marker: shape dot | dash | ring | square | pill | bar | none (active-indicator), size in percent,
+         colour on the highlighted row: auto | same | custom (active-color-selected-custom) -->
+    <key name="active-size" type="i"><default>100</default><range min="50" max="300"/></key>
+    <key name="active-color-selected" type="s"><default>'auto'</default></key>
+    <key name="active-color-selected-custom" type="s"><default>'#ffffff'</default></key>
     <key name="search-ring" type="s"><default>'system'</default></key>
     <key name="search-ring-color" type="s"><default>'#3584e4'</default></key>
     <key name="search-ring-width" type="i"><default>2</default><range min="1" max="6"/></key>

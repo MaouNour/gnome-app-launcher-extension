@@ -2,7 +2,7 @@
 
 All notable changes to GNOME Launcher (`gnome-launcher@maou-nournar`). Newest first.
 
-## 0.6.3 (in progress)
+## 0.6.3
 
 - **Search text in commands.** `$q` (or `${q}`) in a custom command's arguments, a script action's arguments or a URL
   action's address is replaced by what is typed in the search box when you press Enter (in URLs it is
@@ -18,6 +18,9 @@ All notable changes to GNOME Launcher (`gnome-launcher@maou-nournar`). Newest fi
   the window first) and falls back to the text colour, then black or white, only when it would vanish.
 - **Running marker under the icon** (like Vicinae): *Appearance > Running applications > Position > Under the icon*.
   The icon is shrunk if needed so the marker fits inside the row height.
+- **More running-marker options** (*Appearance > Running applications*): shapes dot, dash, ring, square, pill and
+  vertical bar; a size (50-300 %); and the colour on the highlighted row: automatic, always its own colour, or a
+  colour of your choice.
 - File search: results were dropped when the box held trailing spaces or when a keyboard-layout map had converted the
   text; both fixed. `Automatic` now falls back to `locate` when GNOME's search errors or finds nothing.
 

@@ -42,6 +42,7 @@ const SHORTCUT_KEY = 'gnome-launcher-toggle';
 const STYLE_KEYS = new Set([
     'shadow-enabled', 'active-indicator', 'active-accent', 'active-color',
     'active-position', 'search-ring', 'search-ring-color', 'search-ring-width',
+    'active-size', 'active-color-selected', 'active-color-selected-custom',
     'width', 'window-height', 'max-height', 'search-height', 'search-position', 'row-height',
     'icon-size', 'font-size', 'scale', 'padding', 'result-spacing', 'search-padding',
     'icon-spacing', 'show-descriptions', 'show-tags', 'placeholder', 'theme-mode',
@@ -498,6 +499,8 @@ export default class GnomeLauncherExtension extends Extension {
                 shadow: c.bool('shadow-enabled'),
                 activeIndicator: c.str('active-indicator'), activePosition: c.str('active-position'),
                 activeColor: this._activeColor(theme.accent),
+                activeSize: c.int('active-size'), activeSelMode: c.str('active-color-selected'),
+                activeSelColor: c.str('active-color-selected-custom'),
                 // The ring around the search field is drawn by the launcher itself, so it does not depend on the
                 // active GNOME Shell theme having a focus style.
                 ringColor: c.str('search-ring') === 'off' ? null : this._activeColor(theme.accent, 'search-ring', 'search-ring-color'),

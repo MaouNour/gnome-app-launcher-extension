@@ -401,14 +401,21 @@ function appearance(window, settings) {
 
     const act = group('Running applications',
         'A small mark on the entries of applications that are open, so you can tell a switch from a launch.');
-    act.add(comboRow(settings, 'active-indicator', 'Mark', [['dot', 'Dot'], ['dash', 'Dash'], ['none', 'None']]));
+    act.add(comboRow(settings, 'active-indicator', 'Mark', [['dot', 'Dot'], ['dash', 'Dash'], ['ring', 'Ring'], ['square', 'Square'], ['pill', 'Pill'], ['bar', 'Vertical bar'], ['none', 'None']]));
     act.add(comboRow(settings, 'active-position', 'Position', [['before', 'Before the icon'], ['after', 'At the end of the row'], ['below', 'Under the icon']]));
     act.add(comboRow(settings, 'active-accent', 'Colour from', [
         ['system', 'The desktop accent colour (GNOME 47 and newer)'],
         ['theme', 'The launcher theme\'s accent'],
         ['custom', 'A colour of my choice'],
     ]));
-    act.add(colorRow(settings, 'active-color', 'Custom colour', 'Used when the choice above is \"A colour of my choice\". On the highlighted row the mark takes the selection text colour so it stays visible.'));
+    act.add(colorRow(settings, 'active-color', 'Custom colour', 'Used when the choice above is \"A colour of my choice\". The colour on the highlighted row is set below.'));
+    act.add(spinRow(settings, 'active-size', 'Size (%)', 50, 300, 10));
+    act.add(comboRow(settings, 'active-color-selected', 'Colour on the highlighted row', [
+        ['auto', 'Automatic (its own colour, or a contrasting one when it would not show)'],
+        ['same', 'Always its own colour'],
+        ['custom', 'A colour of my choice'],
+    ]));
+    act.add(colorRow(settings, 'active-color-selected-custom', 'Custom colour on the highlighted row'));
     p.add(act);
 
     const ring = group('Search field ring', 'The coloured outline around the search field. The launcher draws it itself, so it also appears with GNOME Shell themes that have no focus style.');

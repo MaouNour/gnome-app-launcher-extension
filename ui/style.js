@@ -1,5 +1,5 @@
 import {cssColor} from '../themes/themes.js';
-import {markOnSelection} from './accent.js';
+import {isColor, markOnSelection} from './accent.js';
 
 const GENERIC_FAMILIES = new Set(['serif', 'sans-serif', 'monospace', 'cursive', 'fantasy', 'system-ui']);
 
@@ -16,12 +16,28 @@ export function cssFontFamily(name) {
 
 // Builds every inline St style string once per settings/theme change (not per
 // keystroke). Pure function: layout numbers + resolved theme in, strings out.
-function markShape(kind, s, below = false) {
-    const px = n => `${Math.max(1, Math.round(n * s))}px`;
-    const gap = below ? `margin-top: ${px(2)}; ` : '';
-    if (kind === 'dash')
-        return `${gap}width: ${px(14)}; height: ${px(3)}; border-radius: ${px(2)};`;
-    return `${gap}width: ${px(6)}; height: ${px(6)}; border-radius: ${px(3)};`;
+export const MARK_SHAPES = ['dot', 'dash', 'ring', 'square', 'pill', 'bar'];
+
+// CSS of the running-application marker: shape, size (percent of the default) and colour.
+function markCss(kind, color, s, size, below = false) {
+    const k = (s * (size > 0 ? size : 100)) / 100;
+    const px = n => `${Math.max(1, Math.round(n * k))}px`;
+    const gap = below ? `margin-top: ${Math.max(1, Math.round(2 * s))}px; ` : '';
+    const fill = `background-color: ${color}; `;
+    switch (kind) {
+    case 'dash':
+        return `${gap}${fill}width: ${px(14)}; height: ${px(3)}; border-radius: ${px(2)};`;
+    case 'pill':
+        return `${gap}${fill}width: ${px(18)}; height: ${px(6)}; border-radius: ${px(3)};`;
+    case 'square':
+        return `${gap}${fill}width: ${px(6)}; height: ${px(6)}; border-radius: ${px(1)};`;
+    case 'bar':
+        return `${gap}${fill}width: ${px(3)}; height: ${px(16)}; border-radius: ${px(2)};`;
+    case 'ring':
+        return `${gap}border: ${px(1.5)} solid ${color}; width: ${px(7)}; height: ${px(7)}; border-radius: ${px(5)};`;
+    default:
+        return `${gap}${fill}width: ${px(6)}; height: ${px(6)}; border-radius: ${px(3)};`;
+    }
 }
 
 export function buildStyles(l, t) {
@@ -49,6 +65,10 @@ export function buildStyles(l, t) {
     const sel = cssColor(t.selectionText);
     const sec = cssColor(t.secondary);
     const below = l.activePosition === 'below';
+    // Marker colour on the highlighted row: auto (own colour unless unreadable there), the same colour, or a chosen one.
+    const selMark = l.activeSelMode === 'same' ? l.activeColor
+        : l.activeSelMode === 'custom' && isColor(l.activeSelColor) ? l.activeSelColor.trim()
+        : markOnSelection({mark: l.activeColor, selection: t.selection, background: t.background, selectionText: t.selectionText});
     const rowBase = `height: ${px(l.rowHeight)}; padding: 0 ${px(l.padding)}; border-radius: ${px(t.rowRadius)}; spacing: ${px(l.iconSpacing)}; `;
     const rowH = Math.round(l.rowHeight * s);
     const gap = Math.round(l.resultSpacing * s);
@@ -86,9 +106,9 @@ export function buildStyles(l, t) {
         icon: `-st-icon-style: ${t.iconStyle};`,
         // The marker of a running application. On the highlighted row it keeps its colour when that is readable on
         // the highlight (the accent is often the highlight itself, then it switches to a contrasting colour).
-        active: `background-color: ${l.activeColor}; ${markShape(l.activeIndicator, s, below)}`,
-        activeSel: `background-color: ${markOnSelection({mark: l.activeColor, selection: t.selection, background: t.background, selectionText: t.selectionText})}; ${markShape(l.activeIndicator, s, below)}`,
-        activeOn: (l.activeIndicator === 'dot' || l.activeIndicator === 'dash'),
+        active: markCss(l.activeIndicator, l.activeColor, s, l.activeSize, below),
+        activeSel: markCss(l.activeIndicator, selMark, s, l.activeSize, below),
+        activeOn: MARK_SHAPES.includes(l.activeIndicator),
         activeAfter: l.activePosition === 'after',
         activePos: l.activePosition === 'after' || l.activePosition === 'below' ? l.activePosition : 'before',
         // Emoji rows draw the glyph as text instead of an icon, sized to fill the icon slot.
@@ -106,8 +126,8 @@ export function buildStyles(l, t) {
         glyphSel: `color: ${sel}; ${emojiFace}font-size: ${Math.round(l.iconSize * s * 0.68)}px; min-width: ${Math.round(l.iconSize * s)}px; text-align: center;`,
         empty: `color: ${sec}; font-size: ${pt(l.fontSize)}; ${font}padding: ${px(l.padding)};`,
         // Under the icon the marker needs room of its own inside the row, so a large icon is shrunk to leave it.
-        iconSize: l.activePosition === 'below' && l.activeIndicator !== 'none'
-            ? Math.max(8, Math.min(Math.round(l.iconSize * s), Math.round(l.rowHeight * s) - Math.round(7 * s) - 4))
+        iconSize: l.activePosition === 'below' && MARK_SHAPES.includes(l.activeIndicator)
+            ? Math.max(8, Math.min(Math.round(l.iconSize * s), Math.round(l.rowHeight * s) - Math.round(8 * s * (l.activeSize > 0 ? l.activeSize : 100) / 100) - 4))
             : Math.round(l.iconSize * s),
         rowH,
         gap,

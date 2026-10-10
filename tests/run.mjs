@@ -1279,6 +1279,19 @@ test('marker under the icon: own slot in the icon box, icon shrinks to leave roo
     assert.equal(buildStyles({...base, activePosition: 'before'}, t).iconSize, 44);
     assert.equal(buildStyles({...base, activePosition: 'bogus'}, t).activePos, 'before');
 });
+test('marker shapes, size and highlighted-row colour', () => {
+    const base = {scale: 1, width: 600, padding: 12, rowHeight: 48, searchHeight: 48, searchPadding: 12, iconSpacing: 8, resultSpacing: 2, fontSize: 12, iconSize: 32, maxHeight: 600, fonts: {}, activePosition: 'before', activeColor: '#3584e4', activeSize: 100};
+    const t = resolveTheme({}, 'default-dark');
+    const st = o => buildStyles({...base, ...o}, t);
+    for (const k of ['dot', 'dash', 'ring', 'square', 'pill', 'bar'])
+        assert.ok(st({activeIndicator: k}).activeOn, k);
+    assert.ok(!st({activeIndicator: 'none'}).activeOn && !st({activeIndicator: 'bogus'}).activeOn);
+    assert.ok(st({activeIndicator: 'ring'}).active.includes('border:') && !st({activeIndicator: 'ring'}).active.includes('background-color'));
+    assert.ok(st({activeIndicator: 'dot', activeSize: 200}).active.includes('width: 12px'));
+    assert.ok(st({activeIndicator: 'dot', activeSelMode: 'same'}).activeSel.includes('#3584e4'));
+    assert.ok(st({activeIndicator: 'dot', activeSelMode: 'custom', activeSelColor: '#ff0000'}).activeSel.includes('#ff0000'));
+    assert.ok(st({activeIndicator: 'dot', activeSelMode: 'custom', activeSelColor: 'nope'}).activeSel.includes('#ffffff'), 'bad custom colour falls back to auto');
+});
 test('every animation style offered in prefs exists in the launcher', () => {
     const pages = readFileSync(join(root, 'prefs/pages.js'), 'utf8');
     const ui = readFileSync(join(root, 'ui/launcher.js'), 'utf8');
