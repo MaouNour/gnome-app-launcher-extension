@@ -3,3 +3,4 @@ log.txt
 *.tar.xz
 *.zip
 *.patch
+dist/

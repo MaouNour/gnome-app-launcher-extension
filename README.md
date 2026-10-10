@@ -19,6 +19,16 @@ gnome-extensions enable gnome-launcher@maou-nournar
 gnome-extensions prefs gnome-launcher@maou-nournar
 ```
 
+### Packaging for extensions.gnome.org
+
+```sh
+./pack.sh   # writes dist/gnome-launcher@maou-nournar.shell-extension.zip
+```
+
+The zip holds only what runs (no tests, tools, docs, icons or compiled schemas) and the script refuses to build one
+over the 5 MB limit of extensions.gnome.org. Install it locally with
+`gnome-extensions install --force dist/gnome-launcher@maou-nournar.shell-extension.zip`.
+
 The directory name must equal the UUID (`gnome-launcher@maou-nournar`). Default shortcut: **Ctrl+Alt+Space**
 (change it in *Keyboard Shortcuts*; known GNOME conflicts are flagged there).
 

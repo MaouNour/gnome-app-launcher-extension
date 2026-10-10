@@ -4,6 +4,10 @@ All notable changes to GNOME Launcher (`gnome-launcher@maou-nournar`). Newest fi
 
 ## 0.6.4 (in progress)
 
+- **Release clean-up.** Removed the leftover `blur/` folder and `prefs/blur.js` (nothing imported them; two tests were
+  failing because of them). The unused artwork in `icons/` (about 6.7 MB) stays in the source tree but is never
+  packaged. New `pack.sh` builds the zip for extensions.gnome.org (about 180 KB, schema checked, no compiled schema, 5 MB guard);
+  `install.sh` no longer copies development files. No change to behaviour or performance.
 - **Regex keywords without slashes.** Custom commands and actions have a new switch, *Keywords are a regular
   expression (no slashes needed)*. When it is on, the whole *Search keywords* field is one pattern, written as it is
   (`^(open )?term(inal)?$`), and the entry is listed when the pattern matches what you typed. The `/regex/` form inside
