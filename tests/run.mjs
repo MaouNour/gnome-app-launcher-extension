@@ -1253,6 +1253,12 @@ test('$q in commands: replaced per argument, whole word only', () => {
     assert.ok(runner.includes('.map(t => substituteQuery(t, q))') && runner.includes("queryEnv(q)"));
     assert.ok(!/shell[\s\S]{0,200}substituteQuery\(`\$\{a\.target\}/.test(runner), 'shell snippets get the text only through the environment');
 });
+test('search field ring is drawn by the launcher, not by the Shell theme', () => {
+    const base = {scale: 1, width: 600, padding: 12, rowHeight: 48, searchHeight: 48, searchPadding: 12, iconSpacing: 8, resultSpacing: 2, fontSize: 12, iconSize: 32, maxHeight: 600, fonts: {}};
+    const t = resolveTheme({}, 'default-dark');
+    assert.ok(buildStyles({...base, ringColor: '#e62d42', ringWidth: 3}, t).entry.includes('box-shadow: inset 0 0 0 3px #e62d42'));
+    assert.ok(buildStyles({...base, ringColor: null}, t).entry.includes('box-shadow: none'));
+});
 test('every animation style offered in prefs exists in the launcher', () => {
     const pages = readFileSync(join(root, 'prefs/pages.js'), 'utf8');
     const ui = readFileSync(join(root, 'ui/launcher.js'), 'utf8');

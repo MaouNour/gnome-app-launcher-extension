@@ -90,6 +90,10 @@
     <key name="active-indicator" type="s"><default>'dot'</default></key>
     <key name="active-accent" type="s"><default>'system'</default></key>
     <key name="active-color" type="s"><default>'#3584e4'</default></key>
+    <!-- Ring around the search field: off | system (desktop accent) | theme | custom (search-ring-color) -->
+    <key name="search-ring" type="s"><default>'system'</default></key>
+    <key name="search-ring-color" type="s"><default>'#3584e4'</default></key>
+    <key name="search-ring-width" type="i"><default>2</default><range min="1" max="6"/></key>
     <key name="active-position" type="s"><default>'before'</default></key>
 
     <!-- Clipboard history on disk. Source: clipboard | primary | both | own (nothing is watched; only what

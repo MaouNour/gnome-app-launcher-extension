@@ -9,6 +9,9 @@ All notable changes to GNOME Launcher (`gnome-launcher@maou-nournar`). Newest fi
   percent-encoded). It is substituted after the command line is split, so the text can never add arguments. Commands,
   scripts and shell snippets also get it in the environment as `q` and `LAUNCHER_QUERY`; in a shell snippet write
   `"$q"` (quoted) and the shell expands it. The text is empty when the entry is run from its own global shortcut.
+- **Search field ring.** The accent-coloured outline around the search field came from the active GNOME Shell theme's
+  focus style, so it vanished with any Shell theme other than the default. The launcher now draws it itself
+  (*Appearance > Search field ring*: desktop accent, theme accent, custom colour or off, plus thickness).
 - File search: results were dropped when the box held trailing spaces or when a keyboard-layout map had converted the
   text; both fixed. `Automatic` now falls back to `locate` when GNOME's search errors or finds nothing.
 

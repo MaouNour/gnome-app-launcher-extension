@@ -411,6 +411,17 @@ function appearance(window, settings) {
     act.add(colorRow(settings, 'active-color', 'Custom colour', 'Used when the choice above is \"A colour of my choice\". On the highlighted row the mark takes the selection text colour so it stays visible.'));
     p.add(act);
 
+    const ring = group('Search field ring', 'The coloured outline around the search field. The launcher draws it itself, so it also appears with GNOME Shell themes that have no focus style.');
+    ring.add(comboRow(settings, 'search-ring', 'Colour from', [
+        ['system', 'The desktop accent colour (GNOME 47 and newer)'],
+        ['theme', 'The launcher theme\'s accent'],
+        ['custom', 'A colour of my choice'],
+        ['off', 'No ring'],
+    ]));
+    ring.add(colorRow(settings, 'search-ring-color', 'Custom colour'));
+    ring.add(spinRow(settings, 'search-ring-width', 'Thickness (px)', 1, 6, 1));
+    p.add(ring);
+
     const field = group('Search field icon', 'The icon at the start of the search field.');
     const iconRow = entryRow(settings, 'search-icon', 'Icon name or file path (empty = no icon)');
     const browse = new Gtk.Button({icon_name: 'document-open-symbolic', css_classes: ['flat'], valign: Gtk.Align.CENTER, tooltip_text: 'Choose an image file'});

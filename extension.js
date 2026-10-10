@@ -41,7 +41,7 @@ const SHORTCUT_KEY = 'gnome-launcher-toggle';
 // Keys that only affect appearance: a change just marks the UI style dirty.
 const STYLE_KEYS = new Set([
     'shadow-enabled', 'active-indicator', 'active-accent', 'active-color',
-    'active-position',
+    'active-position', 'search-ring', 'search-ring-color', 'search-ring-width',
     'width', 'window-height', 'max-height', 'search-height', 'search-position', 'row-height',
     'icon-size', 'font-size', 'scale', 'padding', 'result-spacing', 'search-padding',
     'icon-spacing', 'show-descriptions', 'show-tags', 'placeholder', 'theme-mode',
@@ -464,14 +464,14 @@ export default class GnomeLauncherExtension extends Extension {
 
     // Colour of the running-application marker: the desktop accent (GNOME 47+), the launcher theme's accent, or
     // the colour typed in the preferences.
-    _activeColor(themeAccent) {
+    _activeColor(themeAccent, modeKey = 'active-accent', colorKey = 'active-color') {
         const c = this._config;
         let system = null;
         try {
             if (this._iface?.settings_schema.has_key('accent-color'))
                 system = this._iface.get_string('accent-color');
         } catch (_e) { /* an older GNOME has no accent colour */ }
-        return activeColor({mode: c.str('active-accent'), custom: c.str('active-color'), system, theme: themeAccent});
+        return activeColor({mode: c.str(modeKey), custom: c.str(colorKey), system, theme: themeAccent});
     }
 
     _styleInputs() {
@@ -498,6 +498,10 @@ export default class GnomeLauncherExtension extends Extension {
                 shadow: c.bool('shadow-enabled'),
                 activeIndicator: c.str('active-indicator'), activePosition: c.str('active-position'),
                 activeColor: this._activeColor(theme.accent),
+                // The ring around the search field is drawn by the launcher itself, so it does not depend on the
+                // active GNOME Shell theme having a focus style.
+                ringColor: c.str('search-ring') === 'off' ? null : this._activeColor(theme.accent, 'search-ring', 'search-ring-color'),
+                ringWidth: c.int('search-ring-width'),
                 fonts: {
                     search: {family: c.str('font-search'), size: c.num('font-size-search'), weight: c.int('font-weight-search')},
                     main: {family: c.str('font-main'), weight: c.int('font-weight-main')},

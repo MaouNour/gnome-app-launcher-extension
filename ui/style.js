@@ -68,7 +68,8 @@ export function buildStyles(l, t) {
         entry: `min-height: ${px(l.searchHeight)}; padding: 0 ${px(l.searchPadding)}; spacing: ${px(l.iconSpacing)}; ` +
             `border-radius: ${px(t.searchRadius)}; background-color: ${cssColor(t.searchBackground)}; ` +
             `color: ${fg}; caret-color: ${cssColor(t.accent)}; selection-background-color: ${cssColor(t.accent)}; ` +
-            `selected-color: ${sel}; font-size: ${pt(searchSize)}; ${searchFont}border-width: 0;`,
+            `selected-color: ${sel}; font-size: ${pt(searchSize)}; ${searchFont}border-width: 0; ` +
+            (l.ringColor ? `box-shadow: inset 0 0 0 ${px(Math.max(1, l.ringWidth ?? 2))} ${l.ringColor};` : 'box-shadow: none;'),
         hint: `color: ${sec}; ${searchFont}`,
         list: `spacing: ${gap}px;`,
         row: `${rowBase}background-color: transparent;`,
