@@ -267,7 +267,10 @@ class Row {
         this._st = null;
 
         this.actor = new St.BoxLayout({reactive: true, x_expand: true});
-        this.icon = new St.Icon({fallback_icon_name: FALLBACK_ICON, y_align: Clutter.ActorAlign.CENTER});
+        this.icon = new St.Icon({fallback_icon_name: FALLBACK_ICON, x_align: Clutter.ActorAlign.CENTER});
+        // The icon sits in a small vertical box so the running marker can be drawn under it.
+        this.iconBox = new St.BoxLayout({vertical: true, y_align: Clutter.ActorAlign.CENTER});
+        this.iconBox.add_child(this.icon);
         this.glyph = new St.Label({visible: false, y_align: Clutter.ActorAlign.CENTER});
         this.text = new St.BoxLayout({vertical: true, x_expand: true, y_align: Clutter.ActorAlign.CENTER});
         this.title = new St.Label({x_expand: true});
@@ -275,13 +278,13 @@ class Row {
         this.tag = new St.Label({y_align: Clutter.ActorAlign.CENTER});
         // "This application is running": a dot or a dash, before the icon or before the tag.
         this.mark = new St.Widget({y_align: Clutter.ActorAlign.CENTER, visible: false});
-        this._markAfter = false;
+        this._markPos = '';
         for (const l of [this.title, this.sub])
             l.clutter_text.ellipsize = Pango.EllipsizeMode.END;
         this.text.add_child(this.title);
         this.text.add_child(this.sub);
         this.actor.add_child(this.mark);
-        this.actor.add_child(this.icon);
+        this.actor.add_child(this.iconBox);
         this.actor.add_child(this.glyph);
         this.actor.add_child(this.text);
         this.actor.add_child(this.tag);
@@ -309,9 +312,20 @@ class Row {
         this.glyph.set_style(sel ? st.glyphSel : st.glyph);
         this.mark.set_style(sel ? st.activeSel : st.active);
         // Where the marker sits follows the setting; moving it is only done when the setting changed.
-        if (this._markAfter !== st.activeAfter) {
-            this._markAfter = st.activeAfter;
-            this.actor.set_child_below_sibling(this.mark, st.activeAfter ? this.tag : this.icon);
+        if (this._markPos !== st.activePos) {
+            this._markPos = st.activePos;
+            const parent = this.mark.get_parent();
+            parent?.remove_child(this.mark);
+            if (st.activePos === 'below') {
+                this.mark.x_align = Clutter.ActorAlign.CENTER;
+                this.iconBox.add_child(this.mark);
+            } else {
+                this.mark.x_align = Clutter.ActorAlign.FILL;
+                if (st.activePos === 'after')
+                    this.actor.insert_child_below(this.mark, this.tag);
+                else
+                    this.actor.insert_child_below(this.mark, this.iconBox);
+            }
         }
     }
 
@@ -338,11 +352,11 @@ class Row {
         if (entry.glyph) {
             this.glyph.text = entry.glyph;
             this.glyph.visible = true;
-            this.icon.visible = false;
+            this.iconBox.visible = false;
             return;
         }
         this.glyph.visible = false;
-        this.icon.visible = true;
+        this.iconBox.visible = true;
         const gi = gicon(entry);
         if (this.icon.gicon !== gi)
             this.icon.gicon = gi;

@@ -16,6 +16,8 @@ All notable changes to GNOME Launcher (`gnome-launcher@maou-nournar`). Newest fi
   there, which is dark on pale or translucent highlights (Solarized light, the light Raycast-style themes). It now
   keeps its own colour when that is readable on the highlight (contrast 3:1, with a translucent highlight blended over
   the window first) and falls back to the text colour, then black or white, only when it would vanish.
+- **Running marker under the icon** (like Vicinae): *Appearance > Running applications > Position > Under the icon*.
+  The icon is shrunk if needed so the marker fits inside the row height.
 - File search: results were dropped when the box held trailing spaces or when a keyboard-layout map had converted the
   text; both fixed. `Automatic` now falls back to `locate` when GNOME's search errors or finds nothing.
 

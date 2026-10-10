@@ -1270,6 +1270,15 @@ test('marker on the highlighted row keeps its colour unless it would vanish', ()
     assert.equal(markOnSelection({mark: '#777777', selection: '#777777', background: '#777777', selectionText: '#7a7a7a'}), '#000000');
     assert.equal(markOnSelection({mark: 'bad', selection: '#fff', selectionText: '#123456'}), '#123456');
 });
+test('marker under the icon: own slot in the icon box, icon shrinks to leave room', () => {
+    const base = {scale: 1, width: 600, padding: 12, rowHeight: 48, searchHeight: 48, searchPadding: 12, iconSpacing: 8, resultSpacing: 2, fontSize: 12, iconSize: 44, maxHeight: 600, fonts: {}, activeIndicator: 'dot', activeColor: '#3584e4'};
+    const t = resolveTheme({}, 'default-dark');
+    const below = buildStyles({...base, activePosition: 'below'}, t);
+    assert.equal(below.activePos, 'below');
+    assert.ok(below.iconSize <= 48 - 7 - 4 && below.active.includes('margin-top'));
+    assert.equal(buildStyles({...base, activePosition: 'before'}, t).iconSize, 44);
+    assert.equal(buildStyles({...base, activePosition: 'bogus'}, t).activePos, 'before');
+});
 test('every animation style offered in prefs exists in the launcher', () => {
     const pages = readFileSync(join(root, 'prefs/pages.js'), 'utf8');
     const ui = readFileSync(join(root, 'ui/launcher.js'), 'utf8');

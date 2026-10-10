@@ -16,11 +16,12 @@ export function cssFontFamily(name) {
 
 // Builds every inline St style string once per settings/theme change (not per
 // keystroke). Pure function: layout numbers + resolved theme in, strings out.
-function markShape(kind, s) {
+function markShape(kind, s, below = false) {
     const px = n => `${Math.max(1, Math.round(n * s))}px`;
+    const gap = below ? `margin-top: ${px(2)}; ` : '';
     if (kind === 'dash')
-        return `width: ${px(14)}; height: ${px(3)}; border-radius: ${px(2)};`;
-    return `width: ${px(6)}; height: ${px(6)}; border-radius: ${px(3)};`;
+        return `${gap}width: ${px(14)}; height: ${px(3)}; border-radius: ${px(2)};`;
+    return `${gap}width: ${px(6)}; height: ${px(6)}; border-radius: ${px(3)};`;
 }
 
 export function buildStyles(l, t) {
@@ -47,6 +48,7 @@ export function buildStyles(l, t) {
     const fg = cssColor(t.foreground);
     const sel = cssColor(t.selectionText);
     const sec = cssColor(t.secondary);
+    const below = l.activePosition === 'below';
     const rowBase = `height: ${px(l.rowHeight)}; padding: 0 ${px(l.padding)}; border-radius: ${px(t.rowRadius)}; spacing: ${px(l.iconSpacing)}; `;
     const rowH = Math.round(l.rowHeight * s);
     const gap = Math.round(l.resultSpacing * s);
@@ -84,10 +86,11 @@ export function buildStyles(l, t) {
         icon: `-st-icon-style: ${t.iconStyle};`,
         // The marker of a running application. On the highlighted row it keeps its colour when that is readable on
         // the highlight (the accent is often the highlight itself, then it switches to a contrasting colour).
-        active: `background-color: ${l.activeColor}; ${markShape(l.activeIndicator, s)}`,
-        activeSel: `background-color: ${markOnSelection({mark: l.activeColor, selection: t.selection, background: t.background, selectionText: t.selectionText})}; ${markShape(l.activeIndicator, s)}`,
+        active: `background-color: ${l.activeColor}; ${markShape(l.activeIndicator, s, below)}`,
+        activeSel: `background-color: ${markOnSelection({mark: l.activeColor, selection: t.selection, background: t.background, selectionText: t.selectionText})}; ${markShape(l.activeIndicator, s, below)}`,
         activeOn: (l.activeIndicator === 'dot' || l.activeIndicator === 'dash'),
         activeAfter: l.activePosition === 'after',
+        activePos: l.activePosition === 'after' || l.activePosition === 'below' ? l.activePosition : 'before',
         // Emoji rows draw the glyph as text instead of an icon, sized to fill the icon slot.
         glyph: `color: ${fg}; ${emojiFace}font-size: ${Math.round(l.iconSize * s * 0.68)}px; min-width: ${Math.round(l.iconSize * s)}px; text-align: center;`,
         cell: cellBase,
@@ -102,7 +105,10 @@ export function buildStyles(l, t) {
         gridCols, gridCell: cell, gridGap,
         glyphSel: `color: ${sel}; ${emojiFace}font-size: ${Math.round(l.iconSize * s * 0.68)}px; min-width: ${Math.round(l.iconSize * s)}px; text-align: center;`,
         empty: `color: ${sec}; font-size: ${pt(l.fontSize)}; ${font}padding: ${px(l.padding)};`,
-        iconSize: Math.round(l.iconSize * s),
+        // Under the icon the marker needs room of its own inside the row, so a large icon is shrunk to leave it.
+        iconSize: l.activePosition === 'below' && l.activeIndicator !== 'none'
+            ? Math.max(8, Math.min(Math.round(l.iconSize * s), Math.round(l.rowHeight * s) - Math.round(7 * s) - 4))
+            : Math.round(l.iconSize * s),
         rowH,
         gap,
         maxListH: Math.max(rowH, Math.round((l.maxHeight - l.searchHeight - l.padding * 3) * s)),

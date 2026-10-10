@@ -402,7 +402,7 @@ function appearance(window, settings) {
     const act = group('Running applications',
         'A small mark on the entries of applications that are open, so you can tell a switch from a launch.');
     act.add(comboRow(settings, 'active-indicator', 'Mark', [['dot', 'Dot'], ['dash', 'Dash'], ['none', 'None']]));
-    act.add(comboRow(settings, 'active-position', 'Position', [['before', 'Before the icon'], ['after', 'At the end of the row']]));
+    act.add(comboRow(settings, 'active-position', 'Position', [['before', 'Before the icon'], ['after', 'At the end of the row'], ['below', 'Under the icon']]));
     act.add(comboRow(settings, 'active-accent', 'Colour from', [
         ['system', 'The desktop accent colour (GNOME 47 and newer)'],
         ['theme', 'The launcher theme\'s accent'],
