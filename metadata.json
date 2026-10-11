@@ -2,7 +2,9 @@
   "uuid": "gnome-launcher@maou-nournar",
   "name": "GNOME Launcher",
   "description": "Fast, lightweight, highly customizable launcher with fuzzy search, custom commands and actions, themes, an emoji picker, clipboard images, a password vault and optional file search.",
-  "shell-version": ["46", "47", "48", "49", "50"],
+  "shell-version": ["46", "47", "48", "49", "50","51"],
+  "url":"https://github.com/MaouNour/gnome-app-launcher-extension",
   "settings-schema": "org.gnome.shell.extensions.gnome-launcher",
-  "version-name": "0.6.4"
+  "version-name": "1.0",
+  "version":"1"
 }
