@@ -1,19 +1,9 @@
-// Pure JS (no GI imports). Converts text typed with another keyboard layout into what the same keys
-// produce on the layout the entries are named in (Arabic "لىةث" -> Latin "gnme"), so a search typed
-// with the wrong layout still finds things.
-//
-// A map is plain text, one pair per line: what was typed, whitespace, what it stands for.
-//     ض q
-//     ص w
-//     لا b        (the typed side may be more than one character; the longest match wins)
-// Empty lines and lines starting with # are ignored. Characters that are not in the map stay as they are.
 
 const MAX_MAPS = 16;
 const MAX_PAIRS = 400;
 const MAX_TEXT = 20000;
 const clean = (v, max) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
 
-// Standard Arabic (101) layout, unshifted keys plus the shifted letters that stand for a Latin letter.
 export const ARABIC_TEXT = [
     'ض q', 'ص w', 'ث e', 'ق r', 'ف t', 'غ y', 'ع u', 'ه i', 'خ o', 'ح p', 'ج [', 'د ]',
     'ش a', 'س s', 'ي d', 'ب f', 'ل g', 'ا h', 'ت j', 'ن k', 'م l', 'ك ;', "ط '",
@@ -49,7 +39,6 @@ export function sanitizeMaps(list) {
     return out;
 }
 
-// Map text -> {pairs: Map(typed -> result), maxLen}. Never throws; bad lines are skipped.
 export function parseMapText(text) {
     const pairs = new Map();
     let maxLen = 1;
@@ -68,7 +57,6 @@ export function parseMapText(text) {
     return {pairs, maxLen};
 }
 
-// Enabled maps, parsed once; the extension keeps the result until the setting changes.
 export function compileMaps(list) {
     return sanitizeMaps(list).filter(m => m.enabled).map(m => ({id: m.id, name: m.name, ...parseMapText(m.text)}))
         .filter(m => m.pairs.size > 0);
@@ -97,8 +85,6 @@ function applyMap(chars, map) {
     return {text: out, hits};
 }
 
-// The map that recognises most of the typed characters wins (the first one on a tie), so several maps
-// (Arabic, Russian, ...) can be on at once. Returns {text, id, name, hits} or null when none applies.
 export function translateQuery(query, maps) {
     if (typeof query !== 'string' || !query || !maps?.length)
         return null;

@@ -8,8 +8,6 @@ import {QUERY_RECIPES, previewQueryTemplate, quoteArgument} from '../commands/qu
 import {SearchEngine, prepare} from '../search/engine.js';
 import {MAX_SEPARATOR, describeKeywords, sanitizeSeparator} from '../search/keywords.js';
 
-// --- simple GSettings-bound rows -------------------------------------------
-
 export function switchRow(settings, key, title, subtitle = '') {
     const row = new Adw.SwitchRow({title, subtitle});
     settings.bind(key, row, 'active', Gio.SettingsBindFlags.DEFAULT);
@@ -31,8 +29,6 @@ export function entryRow(settings, key, title) {
     return row;
 }
 
-// "i" button with a popover that explains regular expressions. Shared by the Search page and the
-// keywords field of commands/actions.
 const REGEX_HELP = `<b>Regular expressions</b>
 A pattern is a short rule that matches text. Case is ignored.
 
@@ -83,8 +79,6 @@ export function regexHelpButton() {
     });
 }
 
-// "i" button of the Search keywords field: explains keyword lists with a separator and regular expressions for
-// all keywords, and lets you try them. getValues() returns the entry's current {text, sep, all}.
 const KEYWORDS_HELP = `<b>Several keywords, with spaces and symbols</b>
 By default the Search keywords are plain words separated by spaces. To use keywords that contain spaces or symbols, such as <tt>new tab</tt>, <tt>c++</tt> or <tt>wi-fi</tt>, type a <i>Keyword separator</i> in the field under this one and separate the keywords with it:
 separator <tt>;</tt>   keywords <tt>new tab; c++; wi-fi</tt>
@@ -156,8 +150,6 @@ export function keywordsHelpButton(getValues) {
     });
 }
 
-// "i" button for the Arguments fields of commands and actions: explains the ${q...} edits of the typed text,
-// offers ready-made edits and a box to try them on a sample. insert(text) puts an edit into the field.
 const QUERY_HELP = `<b>Edit the typed text before it is used</b>
 <tt>$q</tt> is the text typed in the launcher. Write <tt>\${q...}</tt> instead to change it first. The result is always ONE argument: an edit can never add arguments.
 
@@ -259,8 +251,6 @@ export function toast(window, text) {
     window.add_toast(new Adw.Toast({title: text, timeout: 3}));
 }
 
-// --- accelerators ----------------------------------------------------------
-
 export function accelLabel(accel) {
     if (!accel)
         return 'Disabled';
@@ -274,7 +264,6 @@ const KEYBINDING_SCHEMAS = [
     'org.gnome.mutter.wayland.keybindings',
 ];
 
-// Names of GNOME keybindings that already use `accel` (best effort, read-only).
 export function findConflicts(accel) {
     const out = [];
     if (!accel)
@@ -328,7 +317,7 @@ export function captureShortcut(parent, callback) {
             return Gdk.EVENT_STOP;
         }
         if (!Gtk.accelerator_valid(keyval, mask) || !mask)
-            return Gdk.EVENT_STOP; // modifiers only / bare keys are not accepted
+            return Gdk.EVENT_STOP;
         callback(Gtk.accelerator_name_with_keycode(null, keyval, keycode, mask));
         win.close();
         return Gdk.EVENT_STOP;
@@ -337,9 +326,6 @@ export function captureShortcut(parent, callback) {
     win.present();
 }
 
-// Row with the current accelerator, a "Set" and a "Clear" button, plus a conflict hint.
-// local = a window shortcut (only active while the launcher is open): no GNOME conflict check
-// is needed because it is never grabbed globally, but it must include Ctrl, Alt or Super.
 export function shortcutRow(window, title, getter, setter, extraConflicts = () => [], local = false) {
     const row = new Adw.ActionRow({title});
     const label = new Gtk.Label({css_classes: ['dim-label'], valign: Gtk.Align.CENTER});
@@ -369,8 +355,6 @@ export function shortcutRow(window, title, getter, setter, extraConflicts = () =
     return row;
 }
 
-// --- colour helpers ----------------------------------------------------------
-
 export function hexToRgba(hex) {
     const c = new Gdk.RGBA();
     c.parse(hex.slice(0, 7));
@@ -384,7 +368,6 @@ export function rgbaToHex(c, withAlpha) {
     return `#${h(c.red)}${h(c.green)}${h(c.blue)}${withAlpha && c.alpha < 1 ? h(c.alpha) : ''}`;
 }
 
-// A row with a colour button bound to a string setting that holds #rrggbb.
 export function colorRow(settings, key, title, subtitle = '') {
     const row = new Adw.ActionRow({title, subtitle});
     const btn = colorButton(settings.get_string(key) || '#3584e4', hex => {
@@ -407,8 +390,6 @@ function colorButton(initial, onChange) {
     btn.connect('notify::rgba', () => onChange(rgbaToHex(btn.rgba, true)));
     return btn;
 }
-
-// --- generic list editor over a JSON-array GSettings key --------------------
 
 function readJsonArray(settings, key) {
     try {
@@ -436,8 +417,6 @@ export function fileDialog(window, {save, title, name}, done) {
 }
 
 export class ListEditor {
-    // opts: {window, settings, key, title, description, fields, newItem(), sanitize(item, i),
-    //        exportName, itemSubtitle(item), extraHeaderButtons: [Gtk.Widget]}
     constructor(opts) {
         this._o = opts;
         this._rows = [];
@@ -613,7 +592,6 @@ export class ListEditor {
     }
 }
 
-// Appearance overrides: one JSON object ('theme-overrides') layered over the active theme.
 export class Overrides {
     constructor(settings) {
         this._s = settings;
@@ -637,7 +615,6 @@ export class Overrides {
         this._s.set_string('theme-overrides', JSON.stringify(o));
     }
 
-    // `field` is a THEME_FIELDS entry; `current` the effective value shown initially.
     row(field, current) {
         const row = new Adw.ActionRow({title: field.label});
         const reset = new Gtk.Button({icon_name: 'edit-undo-symbolic', css_classes: ['flat'], valign: Gtk.Align.CENTER, tooltip_text: 'Use the theme value'});
@@ -684,7 +661,6 @@ export class Overrides {
                 widget.selected = Math.max(0, field.options.indexOf(current));
             else
                 widget.text = current ?? '';
-            // Resetting re-triggers the change handler; clear the override again afterwards.
             this.set(field.key, undefined);
             reset.sensitive = false;
         });

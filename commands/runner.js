@@ -108,10 +108,7 @@ const GNOME = {
     'power-off': () => spawn(['gnome-session-quit', '--power-off']),
 };
 
-// Executes entries. Every failure path throws an Error with a user-presentable message;
-// the caller catches it, so a broken entry never takes the extension down.
 export class Runner {
-    // hooks: {clearClipboard(), pasteEmojiBuffer(), openPrefs()} provided by the extension for built-in entries.
     constructor(hooks = {}) {
         this._hooks = hooks;
     }
@@ -141,9 +138,6 @@ export class Runner {
         }
     }
 
-    // "!command": through /bin/sh (pipes, &&, $VARS and globs work) or, when `shell` is off, split like a
-    // shell would but run directly. Runs in the home folder. A non-zero exit is reported once, nothing is
-    // captured (a program that prints a lot or keeps running must never be able to block on its output).
     _exec({command, shell}) {
         const text = String(command ?? '').trim();
         if (!text)
@@ -162,10 +156,8 @@ export class Runner {
         case 'app':
             return launchApp(a.target.endsWith('.desktop') ? a.target : `${a.target}.desktop`);
         case 'shell':
-            // Explicit, user-authored shell snippet (the only place a shell is involved).
             return spawn(['/bin/sh', '-c', `${a.target} ${a.args}`.trim()], queryEnv(q));
         case 'url':
-            // In an address the text is percent-encoded (after any ${q...} edit has been applied to it).
             return openUri(substituteQuery(a.target, q.trim(), encodeURIComponent));
         case 'file':
         case 'dir': {

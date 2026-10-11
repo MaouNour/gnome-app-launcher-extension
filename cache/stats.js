@@ -3,8 +3,6 @@ import {Debounce} from '../utils/timing.js';
 const MAX_ENTRIES = 1500;
 const SAVE_DELAY_MS = 8000;
 
-// Launch counts + last-used time per entry id: {id: [count, lastUsedUnixSeconds]}.
-// In memory while running; written debounced (and once more on disable).
 export class Stats {
     constructor(store) {
         this._store = store;

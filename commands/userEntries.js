@@ -4,9 +4,6 @@ import {sanitizeCommand, sanitizeAction, validateCommand, validateAction} from '
 const KIND_ICON = {command: 'utilities-terminal', action: 'system-run'};
 const KIND_CATEGORY = {command: 'Commands', action: 'Actions'};
 
-// Turn the stored JSON arrays into search entries. Invalid or disabled items are skipped
-// (invalid ones are reported in `problems`); one bad item can never break the others.
-// Pure function: safe to call again whenever the settings change.
 export function buildUserEntries(commands, actions, categoryIcons) {
     const entries = [];
     const shortcuts = [];

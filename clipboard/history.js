@@ -3,6 +3,7 @@ import GLib from 'gi://GLib';
 import Meta from 'gi://Meta';
 import St from 'gi://St';
 
+import '../utils/gio.js';
 import {prepare} from '../search/engine.js';
 import {Debounce} from '../utils/timing.js';
 import {dbg, warn} from '../utils/log.js';
@@ -13,7 +14,7 @@ import {
 } from './persist.js';
 
 const INDEX = 'history.json';
-const LINK_MAX = 48 * 1024 * 1024; // the largest copied image held in memory while its original file is looked for
+const LINK_MAX = 48 * 1024 * 1024;
 const enc = new TextEncoder();
 const dec = new TextDecoder();
 
@@ -31,94 +32,30 @@ function expandHome(p) {
     return p.startsWith('~/') ? join(GLib.get_home_dir(), p.slice(2)) : p;
 }
 
-// --- small async file helpers (callback style, so nothing depends on Gio._promisify) ------------------
+const PRIVATE_REPLACE = Gio.FileCreateFlags.REPLACE_DESTINATION | Gio.FileCreateFlags.PRIVATE;
+const LOW = GLib.PRIORITY_LOW;
 
-function loadBytes(file) {
-    return new Promise((resolve, reject) => {
-        file.load_contents_async(null, (f, res) => {
-            try {
-                resolve(f.load_contents_finish(res)[1]);
-            } catch (e) {
-                reject(e);
-            }
-        });
-    });
-}
-
-function writeBytes(file, bytes) {
-    const flags = Gio.FileCreateFlags.REPLACE_DESTINATION | Gio.FileCreateFlags.PRIVATE; // private: mode 0600
-    return new Promise((resolve, reject) => {
-        file.replace_contents_bytes_async(bytes, null, false, flags, null, (f, res) => {
-            try {
-                f.replace_contents_finish(res);
-                resolve(true);
-            } catch (e) {
-                reject(e);
-            }
-        });
-    });
-}
-
-function copyFile(src, dst) {
-    return new Promise((resolve, reject) => {
-        Gio.File.new_for_path(src).copy_async(Gio.File.new_for_path(dst), Gio.FileCopyFlags.OVERWRITE,
-            GLib.PRIORITY_LOW, null, null, (f, res) => {
-                try {
-                    f.copy_finish(res);
-                    resolve(true);
-                } catch (e) {
-                    reject(e);
-                }
-            });
-    });
-}
+const loadBytes = async file => (await file.load_contents_async(null))[0];
+const writeBytes = (file, bytes) => file.replace_contents_bytes_async(bytes, null, false, PRIVATE_REPLACE, null).then(() => true);
+const copyFile = (src, dst) => Gio.File.new_for_path(src)
+    .copy_async(Gio.File.new_for_path(dst), Gio.FileCopyFlags.OVERWRITE, LOW, null, null).then(() => true);
+const queryInfo = (file, attrs) => file.query_info_async(attrs, Gio.FileQueryInfoFlags.NONE, LOW, null);
 
 function deleteFile(path) {
-    Gio.File.new_for_path(path).delete_async(GLib.PRIORITY_LOW, null, (f, res) => {
+    Gio.File.new_for_path(path).delete_async(LOW, null, (f, res) => {
         try {
             f.delete_finish(res);
         } catch (_e) { /* already gone */ }
     });
 }
 
-function queryInfo(file, attrs) {
-    return new Promise((resolve, reject) => {
-        file.query_info_async(attrs, Gio.FileQueryInfoFlags.NONE, GLib.PRIORITY_LOW, null, (f, res) => {
-            try {
-                resolve(f.query_info_finish(res));
-            } catch (e) {
-                reject(e);
-            }
-        });
-    });
-}
-
-// [{name, size, mtime(seconds)}] of the regular files in a folder, read in batches so a folder with
-// thousands of screenshots never blocks the shell.
 async function listDir(path) {
-    const dir = Gio.File.new_for_path(path);
-    const en = await new Promise((resolve, reject) => {
-        dir.enumerate_children_async('standard::name,standard::size,standard::type,time::modified',
-            Gio.FileQueryInfoFlags.NONE, GLib.PRIORITY_LOW, null, (f, res) => {
-                try {
-                    resolve(f.enumerate_children_finish(res));
-                } catch (e) {
-                    reject(e);
-                }
-            });
-    });
+    const en = await Gio.File.new_for_path(path).enumerate_children_async(
+        'standard::name,standard::size,standard::type,time::modified', Gio.FileQueryInfoFlags.NONE, LOW, null);
     const out = [];
     try {
         for (;;) {
-            const infos = await new Promise((resolve, reject) => {
-                en.next_files_async(256, GLib.PRIORITY_LOW, null, (f, res) => {
-                    try {
-                        resolve(f.next_files_finish(res));
-                    } catch (e) {
-                        reject(e);
-                    }
-                });
-            });
+            const infos = await en.next_files_async(256, LOW, null);
             if (infos.length === 0 || out.length > 50000)
                 break;
             for (const i of infos) {
@@ -134,7 +71,6 @@ async function listDir(path) {
     return out;
 }
 
-// Names in a folder (synchronous, only used on the small history folder itself).
 function namesIn(path) {
     const out = [];
     try {
@@ -153,13 +89,6 @@ function defaultDir(kind) {
     return join(base, kind === 'shot' ? 'Screenshots' : 'Screencasts');
 }
 
-// Clipboard history: text, images and screen recordings.
-//  - Event-driven (Mutter's selection `owner-changed` signal and a file monitor); there is no polling.
-//  - Which selection is followed is a setting: the normal clipboard, the primary selection, both, or none
-//    ("own": the history then only holds what is added through the launcher).
-//  - Optionally kept on disk (private folder, mode 0700/0600, plain text) and read back at start-up.
-//  - A copied image is linked to the file it came from (a screenshot saved by GNOME) when there is one,
-//    instead of being copied again. Screen recordings are only ever linked.
 export class ClipboardHistory {
     // host: {openUri(uri), notify(text)}
     constructor(onChange, host = {}) {
@@ -191,18 +120,13 @@ export class ClipboardHistory {
         return this._running;
     }
 
-    // Ignore clipboard changes for the next `ms` milliseconds. Used while the emoji picker briefly
-    // borrows the clipboard to paste, so the emoji and the restored text do not land in history.
     mute(ms) {
         this._muteUntil = Math.max(this._muteUntil, GLib.get_monotonic_time() + ms * 1000);
     }
 
-    // --- configuration -------------------------------------------------------------------------
-
-    // Image support on/off, how many images to keep and the largest copied image (in MB) worth keeping.
     setImages(enabled, count, mb) {
         this._images = enabled;
-        this._maxImages = count > 0 ? count : Infinity; // 0 = no limit
+        this._maxImages = count > 0 ? count : Infinity;
         this._maxImageBytes = mb * 1024 * 1024;
         let changed = false;
         if (!enabled) {
@@ -213,7 +137,7 @@ export class ClipboardHistory {
                 changed = true;
             }
             if (this._running && this._watch.clipboard)
-                this._readClip.call(); // an image may already be sitting on the clipboard
+                this._readClip.call();
         }
         if (changed)
             this._changed();
@@ -262,8 +186,6 @@ export class ClipboardHistory {
         return d ? expandHome(d) : defaultDir('video');
     }
 
-    // --- start / stop --------------------------------------------------------------------------
-
     start() {
         if (this._running)
             return;
@@ -291,7 +213,6 @@ export class ClipboardHistory {
         this._sels = null;
     }
 
-    // Follow only the selections the source setting asks for; with none, no signal is connected at all.
     _rewire() {
         this._watch = watchedSelections(this._o.source);
         const want = this._watch.clipboard || this._watch.primary;
@@ -311,15 +232,10 @@ export class ClipboardHistory {
         }));
     }
 
-    // --- reading the clipboard -----------------------------------------------------------------
-
-    // Add what is on the clipboard right now, whatever the source setting says (the "Save clipboard" entry).
     captureNow() {
         this._fetch('clipboard', true);
     }
 
-    // In "own" mode the launcher does not watch anything; text it copies itself (calculator results,
-    // re-copied entries) is added here.
     noteCopied(text) {
         if (this._running && this._o.source === 'own')
             this._add(text);
@@ -336,7 +252,7 @@ export class ClipboardHistory {
             mimes = cb.get_mimetypes(type);
         } catch (_e) { /* no mimetype list: fall back to text */ }
         if (isSecret(mimes))
-            return; // a password manager asked not to be recorded
+            return;
         let kind = {kind: 'text'};
         if (!primary) {
             try {
@@ -357,8 +273,6 @@ export class ClipboardHistory {
                 this._add(text);
         });
     }
-
-    // --- adding items --------------------------------------------------------------------------
 
     _add(text) {
         if (!text || !text.trim() || text.length > MAX_CHARS)
@@ -402,8 +316,6 @@ export class ClipboardHistory {
         this._resolveImage(item).catch(e => warn(`clipboard image: ${e.message}`));
     }
 
-    // Decide what to keep of a new image: link the file it came from, or store a copy.
-    // The file may be written a moment after the clipboard is set, so the search is repeated twice.
     async _resolveImage(item) {
         const img = item.image;
         let found = null;
@@ -424,7 +336,7 @@ export class ClipboardHistory {
             dbg(`image linked to ${found}`);
             img.path = found;
             img.linked = true;
-            img.bytes = null; // the file is the data; nothing stays in memory
+            img.bytes = null;
             this._changed();
             return;
         }
@@ -444,7 +356,7 @@ export class ClipboardHistory {
             try {
                 files = await listDir(dir);
             } catch (_e) {
-                continue; // folder does not exist
+                continue;
             }
             for (const c of linkCandidates(files, img.size, now)) {
                 const path = join(dir, c.name);
@@ -477,8 +389,6 @@ export class ClipboardHistory {
         this._changed();
     }
 
-    // --- screen recordings ---------------------------------------------------------------------
-
     _syncVideos() {
         this._unwatchVideos();
         if (!this._running || !this._o.videos)
@@ -487,7 +397,7 @@ export class ClipboardHistory {
         try {
             const f = Gio.File.new_for_path(dir);
             if (!f.query_exists(null))
-                return; // nothing recorded yet; tried again when the launcher opens
+                return;
             this._monitor = f.monitor_directory(Gio.FileMonitorFlags.WATCH_MOVES, null);
             this._monitor.connect('changed', (_m, file, other, ev) => this._onFileEvent(file, other, ev));
         } catch (e) {
@@ -504,7 +414,6 @@ export class ClipboardHistory {
         }
     }
 
-    // Called when the launcher opens: the recordings folder may have been created since.
     ensureWatching() {
         if (this._running && this._o.videos && !this._monitor)
             this._syncVideos();
@@ -538,8 +447,6 @@ export class ClipboardHistory {
         }
         this._changed();
     }
-
-    // --- disk ----------------------------------------------------------------------------------
 
     _saveSoon() {
         if (this._o.persist && this._loaded && this._running)
@@ -594,7 +501,7 @@ export class ClipboardHistory {
             } else {
                 const abs = r.t === 'image' && !r.linked ? join(dir, r.path) : r.path;
                 if (!GLib.file_test(abs, GLib.FileTest.EXISTS))
-                    continue; // the file was moved or deleted: forget the entry
+                    continue;
                 if (r.t === 'image')
                     this._items.push({id: ++this._seq, ts: r.ts, image: {mime: r.mime, hash: r.hash, size: r.size, info: r.info, bytes: null, path: r.path, linked: r.linked}});
                 else
@@ -607,13 +514,11 @@ export class ClipboardHistory {
         this._trim();
         this._loaded = true;
         this._sweep(dir);
-        // Copies that only exist in memory (made before saving was switched on) get written now.
         for (const it of this._items.filter(x => x.image?.bytes && !x.image.path && !x.image.linked))
             await this._writeCopy(it).catch(e => warn(`could not store image: ${e.message}`));
         this._changed();
     }
 
-    // Image copies in the history folder that no item refers to any more (e.g. after a crash).
     _sweep(dir) {
         const used = new Set(this._items.filter(x => x.image && !x.image.linked && x.image.path).map(x => x.image.path));
         for (const n of namesIn(dir)) {
@@ -626,8 +531,6 @@ export class ClipboardHistory {
         await this._loadFromDisk();
     }
 
-    // Saving switched off: the history on disk is deleted. Copied images are read back into memory first
-    // so they stay usable for the rest of the session.
     async _disablePersist(dir) {
         this._loaded = false;
         this._saver.cancel();
@@ -643,7 +546,6 @@ export class ClipboardHistory {
         this._changed();
     }
 
-    // The folder setting changed: copies move to the new folder, the old folder is left as it is.
     async _relocate(oldDir) {
         this._loaded = false;
         const nd = this._dir();
@@ -653,8 +555,6 @@ export class ClipboardHistory {
         this._loaded = true;
         this._saveSoon();
     }
-
-    // --- bookkeeping ---------------------------------------------------------------------------
 
     _removeWhere(pred) {
         const keep = [];
@@ -671,7 +571,6 @@ export class ClipboardHistory {
         return removed;
     }
 
-    // A dropped image copy is deleted from disk. A linked file is never touched: it is not ours.
     _discard(it) {
         if (it?.image?.path && !it.image.linked && isCopyName(it.image.path))
             deleteFile(join(this._dir(), it.image.path));
@@ -702,9 +601,6 @@ export class ClipboardHistory {
         });
     }
 
-    // --- entries -------------------------------------------------------------------------------
-
-    // Newest first, as search entries (kinds 'clip', 'clipimage', 'clipfile').
     entries() {
         if (!this._entries) {
             this._entries = this._items.map(it => {
@@ -733,7 +629,7 @@ export class ClipboardHistory {
             category: 'Clipboard', icon: 'image-x-generic-symbolic', payload: {imageId: it.id},
         });
         if (m.path)
-            e._gi = Gio.FileIcon.new(Gio.File.new_for_path(this._absPath(it))); // thumbnail from the file
+            e._gi = Gio.FileIcon.new(Gio.File.new_for_path(this._absPath(it)));
         else if (m.bytes)
             e._gi = Gio.BytesIcon.new(m.bytes);
         return e;
@@ -746,10 +642,6 @@ export class ClipboardHistory {
         });
     }
 
-    // --- using an item -------------------------------------------------------------------------
-
-    // Enter: put it back on the clipboard (a file goes as a file reference). Ctrl+Enter opens it,
-    // Alt+Enter shows its folder. Both only apply to items that are backed by a file.
     useItem(id, how = '', onSet = null) {
         const it = this._items.find(x => x.id === id && (x.image || x.file));
         if (!it)
@@ -780,7 +672,7 @@ export class ClipboardHistory {
                 if (this._dead)
                     return;
                 cb.set_content(St.ClipboardType.CLIPBOARD, it.image.mime, new GLib.Bytes(data));
-                onSet?.(); // only now is the image on the clipboard, so this is when it can be pasted
+                onSet?.();
             }).catch(e => this._host.notify?.(`Could not read ${baseName(path)}: ${e.message}`));
         }
     }
@@ -792,8 +684,6 @@ export class ClipboardHistory {
         this._host.notify?.(`${name} is no longer there, so it was removed from the clipboard history.`);
     }
 
-    // Deletes one entry (by the number in its id, `clip:<n>`). A copied image file is deleted with it; a linked
-    // file is never touched.
     remove(id) {
         if (this._removeWhere(it => it.id === id))
             this._changed();
@@ -815,8 +705,6 @@ export class ClipboardHistory {
     }
 }
 
-// Empties the clipboard, but only if it still holds `text` (the user may have copied something
-// else since). Used to take a copied password off the clipboard again.
 export function clearClipboardIf(text, done = () => {}) {
     const cb = St.Clipboard.get_default();
     cb.get_text(St.ClipboardType.CLIPBOARD, (_c, current) => {

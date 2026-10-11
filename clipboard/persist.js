@@ -1,7 +1,3 @@
-// Pure JS (no GI imports): unit-testable under plain node. Rules for the clipboard history that is
-// kept on disk: what is stored, how a stored list is validated when it is read back, how a copied image
-// is matched to a file that already exists (so it can be linked instead of copied), and the labels of
-// file entries (screen recordings).
 
 export const MAX_CHARS = 20000;
 export const SOURCES = ['clipboard', 'primary', 'both', 'own'];
@@ -10,8 +6,6 @@ const IMAGE_EXTS = ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp'];
 export const VIDEO_EXTS = ['webm', 'mp4', 'mkv', 'mov', 'avi', 'ogv', 'm4v'];
 
 const HASH_RE = /^[0-9a-f]{64}$/;
-// Name of an image copy kept in the history folder. Anything else read from the index is rejected, so a
-// damaged or edited index can never point outside that folder.
 const COPY_RE = /^img-[0-9a-f]{64}\.(png|jpg|gif|bmp|webp)$/;
 
 export function extOf(name) {
@@ -45,13 +39,10 @@ export function imageExt(mime) {
 export const copyName = (hash, mime) => `img-${hash}.${imageExt(mime)}`;
 export const isCopyName = name => COPY_RE.test(name ?? '');
 
-// Applications that mark a copied secret (password managers) say so with an extra clipboard format.
 export function isSecret(mimes) {
     return Array.isArray(mimes) && mimes.includes('x-kde-passwordManagerHint');
 }
 
-// Which selections are watched for a source setting. 'own' watches nothing: the history then only holds
-// what is added through the launcher itself.
 export function watchedSelections(source) {
     switch (source) {
     case 'primary': return {clipboard: false, primary: true};
@@ -61,9 +52,6 @@ export function watchedSelections(source) {
     }
 }
 
-// Which of the files in a folder could be the file a copied image came from: an image of exactly the
-// same size, written shortly before (or after) it was copied. `files` is [{name, size, mtime}] with
-// mtime in seconds. At most `limit` candidates, the closest in time first.
 export function linkCandidates(files, size, nowSec, windowSec = 20, limit = 3) {
     return files
         .filter(f => f && f.size === size && isImageName(f.name) && !isTempName(f.name) &&
@@ -80,8 +68,6 @@ function cleanInfo(i) {
     return {type: i.type.slice(0, 8), width: num(i.width, 0, 1e6, 0), height: num(i.height, 0, 1e6, 0)};
 }
 
-// What goes into the index file. `items` are the in-memory items (newest first); anything that only
-// exists in memory (an image whose copy has not been written yet) is left out.
 export function serializeItems(items) {
     const out = [];
     for (const it of items) {
@@ -98,7 +84,6 @@ export function serializeItems(items) {
     return out;
 }
 
-// Validates a stored list. Returns clean {t, ...} records, newest first, never more than `max`.
 export function reviveItems(raw, max = 200) {
     const out = [];
     if (!Array.isArray(raw))

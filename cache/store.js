@@ -1,19 +1,14 @@
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 
+import '../utils/gio.js';
 import {dbg, warn} from '../utils/log.js';
 
-Gio._promisify(Gio.File.prototype, 'load_contents_async', 'load_contents_finish');
-Gio._promisify(Gio.File.prototype, 'replace_contents_async', 'replace_contents_finish');
 
 const enc = new TextEncoder();
 const dec = new TextDecoder();
 
-// Versioned JSON file. Reads/writes are async (never block the compositor), writes are
-// atomic (replace), and anything unreadable/mismatched is treated as "no cache" and
-// deleted so the next write starts clean.
 export class JsonStore {
-    // opts.private: the folder is created 0700 and files 0600 (for data that is nobody else's business).
     constructor(path, version, opts = {}) {
         this._private = !!opts.private;
         this._flags = Gio.FileCreateFlags.REPLACE_DESTINATION | (this._private ? Gio.FileCreateFlags.PRIVATE : 0);
@@ -24,7 +19,6 @@ export class JsonStore {
         this._dirReady = false;
     }
 
-    // Resolves to the stored data, or null if missing/corrupt/outdated. Never rejects.
     async load() {
         try {
             const [bytes] = await this._file.load_contents_async(this._cancellable);

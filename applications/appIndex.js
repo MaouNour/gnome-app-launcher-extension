@@ -44,14 +44,11 @@ function entryOf(r) {
     });
 }
 
-// Flow: persisted cache is loaded asynchronously and shown immediately; a low-priority
-// refresh then diffs it against the installed apps and updates only what changed. After
-// that, refreshes happen only when Gio's AppInfoMonitor reports a change (no polling).
 export class AppIndex {
     constructor(store, onChanged) {
         this._store = store;
         this._onChanged = onChanged;
-        this._map = new Map(); // appId -> {rec, sig, entry}
+        this._map = new Map();
         this._entries = null;
         this._ready = false;
         this._destroyed = false;
@@ -98,11 +95,9 @@ export class AppIndex {
             }
             dbg('app cache loaded:', this._map.size);
         }
-        this._verify.schedule(); // reconcile with reality at low priority
+        this._verify.schedule();
     }
 
-    // Called when the launcher opens. If nothing is loaded yet, does a synchronous scan
-    // (only ever the first time, before the cache arrived). Returns true if it did work.
     ensureReady() {
         if (this._ready)
             return false;
@@ -116,7 +111,6 @@ export class AppIndex {
         return this._entries;
     }
 
-    // Diff installed applications against the index; touch only what changed.
     refresh() {
         if (this._destroyed)
             return;
@@ -156,7 +150,6 @@ export class AppIndex {
         dbg('app refresh done; changed =', changed, 'count =', this._map.size);
     }
 
-    // Drop the cache and rescan (used by the "clear cache" button and recovery paths).
     rebuild() {
         this._map.clear();
         this._entries = null;
@@ -175,8 +168,6 @@ export class AppIndex {
         this._destroyed = true;
         this._changed.cancel();
         this._verify.cancel();
-        // Only write on disable if a save was still pending (avoids disk I/O on every
-        // disable/enable cycle such as screen lock).
         const pending = this._saver.pending && this._persist && this._map.size > 0;
         this._saver.cancel();
         if (pending)

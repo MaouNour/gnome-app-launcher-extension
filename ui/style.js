@@ -3,9 +3,6 @@ import {isColor, markOnSelection} from './accent.js';
 
 const GENERIC_FAMILIES = new Set(['serif', 'sans-serif', 'monospace', 'cursive', 'fantasy', 'system-ui']);
 
-// A font name typed by a person, made safe to put into an inline style: only letters, digits and
-// a few punctuation marks survive (so nothing can close the declaration and add its own), names are
-// quoted, and the CSS generic families stay unquoted. "Fira Sans, monospace" works as a fallback list.
 export function cssFontFamily(name) {
     return String(name ?? '').split(',')
         .map(p => p.replace(/[^\p{L}\p{N} _.-]/gu, '').trim())
@@ -14,11 +11,8 @@ export function cssFontFamily(name) {
         .join(', ');
 }
 
-// Builds every inline St style string once per settings/theme change (not per
-// keystroke). Pure function: layout numbers + resolved theme in, strings out.
 export const MARK_SHAPES = ['dot', 'dash', 'ring', 'square', 'pill', 'bar'];
 
-// CSS of the running-application marker: shape, size (percent of the default) and colour.
 function markCss(kind, color, s, size, below = false) {
     const k = (s * (size > 0 ? size : 100)) / 100;
     const px = n => `${Math.max(1, Math.round(n * k))}px`;
@@ -44,8 +38,6 @@ export function buildStyles(l, t) {
     const s = l.scale;
     const px = n => `${Math.max(0, Math.round(n * s))}px`;
     const pt = n => `${(n * s).toFixed(2)}pt`;
-    // Three font slots. Each falls back to the theme's family and weight; sizes fall back to ratios of
-    // the main size (which is the "font-size" setting).
     const slotCss = f => {
         const fam = cssFontFamily(f?.family) || cssFontFamily(t.fontFamily);
         return `${fam ? `font-family: ${fam}; ` : ''}font-weight: ${f?.weight > 0 ? f.weight : t.fontWeight}; `;
@@ -65,7 +57,6 @@ export function buildStyles(l, t) {
     const sel = cssColor(t.selectionText);
     const sec = cssColor(t.secondary);
     const below = l.activePosition === 'below';
-    // Marker colour on the highlighted row: auto (own colour unless unreadable there), the same colour, or a chosen one.
     const selMark = l.activeSelMode === 'same' ? l.activeColor
         : l.activeSelMode === 'custom' && isColor(l.activeSelColor) ? l.activeSelColor.trim()
         : markOnSelection({mark: l.activeColor, selection: t.selection, background: t.background, selectionText: t.selectionText});
@@ -73,7 +64,6 @@ export function buildStyles(l, t) {
     const rowH = Math.round(l.rowHeight * s);
     const gap = Math.round(l.resultSpacing * s);
 
-    // Emoji grid: square cells laid out in as many columns as fit the window, centred.
     const cell = Math.round((l.gridCell ?? 44) * s);
     const gridGap = Math.max(2, gap);
     const innerW = Math.round((l.width - l.padding * 2) * s);
@@ -104,14 +94,11 @@ export function buildStyles(l, t) {
         tag: `color: ${sec}; font-size: ${pt(tagSize)}; ${detailFont}`,
         tagSel: `color: ${cssColor(t.selectionText, 0.75)}; font-size: ${pt(tagSize)}; ${detailFont}`,
         icon: `-st-icon-style: ${t.iconStyle};`,
-        // The marker of a running application. On the highlighted row it keeps its colour when that is readable on
-        // the highlight (the accent is often the highlight itself, then it switches to a contrasting colour).
         active: markCss(l.activeIndicator, l.activeColor, s, l.activeSize, below),
         activeSel: markCss(l.activeIndicator, selMark, s, l.activeSize, below),
         activeOn: MARK_SHAPES.includes(l.activeIndicator),
         activeAfter: l.activePosition === 'after',
         activePos: l.activePosition === 'after' || l.activePosition === 'below' ? l.activePosition : 'before',
-        // Emoji rows draw the glyph as text instead of an icon, sized to fill the icon slot.
         glyph: `color: ${fg}; ${emojiFace}font-size: ${Math.round(l.iconSize * s * 0.68)}px; min-width: ${Math.round(l.iconSize * s)}px; text-align: center;`,
         cell: cellBase,
         cellSel: `${cellBase}background-color: ${cssColor(t.selection)}; `,
@@ -125,7 +112,6 @@ export function buildStyles(l, t) {
         gridCols, gridCell: cell, gridGap,
         glyphSel: `color: ${sel}; ${emojiFace}font-size: ${Math.round(l.iconSize * s * 0.68)}px; min-width: ${Math.round(l.iconSize * s)}px; text-align: center;`,
         empty: `color: ${sec}; font-size: ${pt(l.fontSize)}; ${font}padding: ${px(l.padding)};`,
-        // Under the icon the marker needs room of its own inside the row, so a large icon is shrunk to leave it.
         iconSize: l.activePosition === 'below' && MARK_SHAPES.includes(l.activeIndicator)
             ? Math.max(8, Math.min(Math.round(l.iconSize * s), Math.round(l.rowHeight * s) - Math.round(8 * s * (l.activeSize > 0 ? l.activeSize : 100) / 100) - 4))
             : Math.round(l.iconSize * s),

@@ -1,10 +1,7 @@
-// Pure JS (no GI imports): turning what a file-search backend returns into the list shown in the launcher.
-// Nothing here stores anything; every search asks the backend again.
 
 export const MAX_TERMS = 6;
 export const MAX_TERM_LEN = 64;
 
-// "my  report 2024" -> ['my', 'report', '2024']. Control characters and empty words are dropped.
 export function toTerms(query) {
     if (typeof query !== 'string')
         return [];
@@ -12,8 +9,6 @@ export function toTerms(query) {
         .map(t => t.slice(0, MAX_TERM_LEN)).slice(0, MAX_TERMS);
 }
 
-// Which backend to use. pref: 'auto' | 'gnome' | 'locate'. avail: {gnome: boolean, locate: string|null}.
-// auto takes GNOME's file search when it is there, else locate. Returns null when nothing can be used.
 export function pickBackend(pref, avail) {
     const gnome = !!avail?.gnome;
     const locate = !!avail?.locate;
@@ -26,21 +21,18 @@ export function pickBackend(pref, avail) {
     return locate ? 'locate' : null;
 }
 
-// Command line for locate / plocate / mlocate: case-insensitive, file names only, all words must match,
-// existing files only, at most `limit` results.
 export function locateArgs(tool, terms, limit) {
     return [tool, '-i', '-b', '-A', '-e', '-l', String(Math.max(1, Math.floor(limit))), '--', ...terms];
 }
 
 export const parseLines = text => (typeof text === 'string' ? text.split('\n').filter(Boolean) : []);
 
-// file:///home/me/My%20Doc.txt -> /home/me/My Doc.txt (null for anything that is not a local file URI)
 export function pathFromUri(uri) {
     if (typeof uri !== 'string' || !uri.startsWith('file://'))
         return null;
     let rest = uri.slice('file://'.length);
     if (!rest.startsWith('/')) {
-        const slash = rest.indexOf('/'); // file://host/path
+        const slash = rest.indexOf('/');
         if (slash < 0)
             return null;
         rest = rest.slice(slash);
@@ -54,9 +46,6 @@ export function pathFromUri(uri) {
 
 const SYSTEM_PREFIXES = ['/proc/', '/sys/', '/dev/', '/run/', '/tmp/.'];
 
-// Cleans a list of paths: absolute, no control characters, no duplicates, no pseudo file systems, hidden files and
-// folders only when asked for, anything outside the home folder only when asked for.
-// o: {home, hidden, outsideHome, max}
 export function filterPaths(paths, o) {
     const home = (o.home ?? '').replace(/\/+$/, '');
     const out = [];

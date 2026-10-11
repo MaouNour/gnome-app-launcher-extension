@@ -16,7 +16,8 @@ import {parseExec} from './commands/exec.js';
 import {parseEmoji, emojiPlan, emojiOptions, inlineEmojiQuery} from './emoji/emoji.js';
 import {Paster} from './emoji/paste.js';
 import {Runner, openUri} from './commands/runner.js';
-import {describeApp, editFile, quitApp} from './applications/launch.js';
+import {editFile, quitApp} from './applications/launch.js';
+import {HIDEABLE_KINDS, menuItems} from './commands/menu.js';
 import {FileSearch} from './files/search.js';
 import {describeFile, dirName, filterPaths, pickBackend, toTerms} from './files/results.js';
 import {buildUserEntries} from './commands/userEntries.js';
@@ -29,16 +30,15 @@ import {QueryHistory} from './search/history.js';
 import {DEFAULT_MAPS, compileMaps, translateQuery} from './search/layout.js';
 import {activeColor} from './ui/accent.js';
 import {Keybindings} from './shortcuts/keybindings.js';
-import {compileBlocklist} from './shortcuts/blocklist.js';
-import {resolveTheme} from './themes/themes.js';
+import {FocusBlock} from './shortcuts/focusBlock.js';
 import {Launcher} from './ui/launcher.js';
+import {styleInputs} from './ui/styleInputs.js';
 import {Debounce, Idle} from './utils/timing.js';
 import {setDebug, dbg, warn} from './utils/log.js';
 
 const NOTIFY_TITLE = 'GNOME Launcher';
 const SHORTCUT_KEY = 'gnome-launcher-toggle';
 
-// Keys that only affect appearance: a change just marks the UI style dirty.
 const STYLE_KEYS = new Set([
     'shadow-enabled', 'active-indicator', 'active-accent', 'active-color',
     'active-position', 'search-ring', 'search-ring-color', 'search-ring-width',
@@ -52,10 +52,6 @@ const STYLE_KEYS = new Set([
     'font-secondary', 'font-size-secondary', 'font-weight-secondary', 'emoji-font',
 ]);
 
-// Kinds of search result that have a fixed id and so can be hidden with Ctrl+H.
-const HIDEABLE_KINDS = new Set(['app', 'command', 'action', 'system', 'mode']);
-
-// The emoji dataset is only loaded when first needed and released again after this long idle.
 const EMOJI_FREE_MS = 60000;
 
 export default class GnomeLauncherExtension extends Extension {
@@ -68,28 +64,23 @@ export default class GnomeLauncherExtension extends Extension {
         const cacheDir = GLib.build_filenamev([GLib.get_user_cache_dir(), 'gnome-launcher']);
         const stateDir = GLib.build_filenamev([GLib.get_user_state_dir(), 'gnome-launcher']);
 
-        this._special = new Map(); // id -> entry for user commands/actions and built-ins
+        this._special = new Map();
         this._specialEntries = [];
         this._pending = null;
-        this._focusSig = 0;
-        this._fsSig = 0;
-        this._fsWin = null;
-        this._block = null;
-        this._blockFs = false;
 
         this._engine = new SearchEngine();
         this._clipEngine = new SearchEngine();
-        this._emojiEngine = null; // created lazily by _ensureEmoji()
+        this._emojiEngine = null;
         this._emojiLoading = false;
         this._accountEngine = new SearchEngine();
-        this._pwClear = null; // {id, pw}: a copied password waiting to be taken off the clipboard
-        this._buffer = ''; // private emoji buffer: memory only, never on disk or in clipboard history
+        this._pwClear = null;
+        this._buffer = '';
         this._stats = new Stats(new JsonStore(GLib.build_filenamev([stateDir, 'stats.json']), 1));
         this._engine.stats = this._stats;
-        this._files = new FileSearch();   // asks GNOME's file search or locate; keeps nothing itself
-        this._filesFor = '';              // the query a file search was already started for
+        this._files = new FileSearch();
+        this._filesFor = '';
         this._filesWait = new Debounce(250, () => this._runFiles());
-        this._menuTarget = null;          // the entry the action menu is open for
+        this._menuTarget = null;
         this._history = new QueryHistory(cfg.int('history-max'));
         this._historyStore = new JsonStore(GLib.build_filenamev([stateDir, 'history.json']), 1, {private: true});
         this._historyDirty = false;
@@ -97,11 +88,11 @@ export default class GnomeLauncherExtension extends Extension {
         this._runner = new Runner({
             clearClipboard: () => this._clip?.clear(),
             pasteEmojiBuffer: () => this._pasteEmojiBuffer(),
-            // Same window `gnome-extensions prefs <uuid>` opens, without spawning a process.
             openPrefs: () => this.openPreferences(),
             saveClipboard: () => this._clip?.captureNow(),
         });
         this._keys = new Keybindings();
+        this._focus = new FocusBlock(this._keys);
         this._clip = new ClipboardHistory(() => this._onClipboardChanged(), {
             openUri: uri => openUri(uri),
             notify: text => Main.notify(NOTIFY_TITLE, text),
@@ -163,7 +154,6 @@ export default class GnomeLauncherExtension extends Extension {
         this._bindShortcuts();
         cfg.onChanged(key => this._onConfigChanged(key));
 
-        // Startup work is asynchronous / idle: load usage stats, then the app cache.
         this._stats.load().then(() => {
             if (this._alive)
                 this._rebuild.schedule();
@@ -179,15 +169,15 @@ export default class GnomeLauncherExtension extends Extension {
         this._alive = false;
         for (const t of [this._prebuild, this._restyle, this._rebuild, this._runIdle, this._emojiFree])
             t?.cancel();
-        this._finishPasswordClear(); // a copied password never outlives the extension
-        this._unwatchFocus();
+        this._finishPasswordClear();
+        this._focus?.destroy();
         this._filesWait?.cancel();
         this._files?.destroy();
         this._historySave?.cancel();
         this._flushHistory(true);
         this._historyStore?.cancel();
-        this._paster?.destroy(); // puts a borrowed clipboard back
-        this._keys?.destroy(); // also gives the Super key back to the overview
+        this._paster?.destroy();
+        this._keys?.destroy();
         this._launcher?.destroy();
         this._clip?.destroy();
         this._apps?.destroy();
@@ -197,190 +187,88 @@ export default class GnomeLauncherExtension extends Extension {
         if (this._accentId)
             this._iface.disconnect(this._accentId);
         this._config?.destroy();
+        this._configHandlers = null;
         this._prebuild = this._restyle = this._rebuild = this._runIdle = this._emojiFree = null;
         this._paster = this._emojiEngine = this._buffer = null;
-        this._keys = this._launcher = this._clip = this._apps = this._stats = null;
+        this._focus = this._keys = this._launcher = this._clip = this._apps = this._stats = null;
         this._engine = this._clipEngine = this._runner = null;
         this._iface = this._ifaceId = this._config = this._settings = null;
         this._special = this._specialEntries = this._pending = null;
         dbg('disabled');
     }
 
-    // --- configuration -----------------------------------------------------
-
     _onConfigChanged(key) {
-        switch (key) {
-        case 'use-super-key':
-            this._keys.setSuperKey(this._config.bool('use-super-key'), () => this._launcher.toggle());
-            break;
-        case 'blocklist':
-        case 'block-fullscreen':
-            this._syncBlocklist();
-            break;
-        case 'commands':
-        case 'actions':
-        case 'category-icons':
-        case 'builtins':
-            this._buildSpecial();
-            break;
-        case 'clipboard-enabled':
-            this._syncClipboard();
-            this._buildSpecial();
-            break;
-        case 'accounts':
-            this._syncAccounts();
-            break;
-        case 'web-providers':
-            this._webProviders = null;
-            break;
-        case 'layout-maps':
-            this._layoutMaps = null;
-            this._launcher?.refreshResults();
-            break;
-        case 'layout-map-enabled':
-            this._launcher?.refreshResults();
-            break;
-        case 'emoji-enabled':
-        case 'accounts-enabled':
-        case 'own-keyword':
-            this._buildSpecial();
-            break;
-        case 'clipboard-images':
-        case 'clipboard-image-count':
-        case 'clipboard-image-mb':
-            this._syncClipboardImages();
-            break;
-        case 'clipboard-source':
-        case 'clipboard-persist':
-        case 'clipboard-dir':
-        case 'clipboard-link-files':
-        case 'clipboard-screenshot-dir':
-        case 'clipboard-videos':
-        case 'clipboard-video-dir':
-            this._syncClipboardOptions();
-            break;
-        case 'clipboard-max':
-            this._clip.setMax(this._config.int('clipboard-max'));
-            break;
-        case 'hidden-entries':
-            this._rebuild.schedule();
-            break;
-        case 'files-enabled':
-        case 'files-backend':
-        case 'files-min-chars':
-        case 'files-max':
-        case 'files-hidden':
-        case 'files-outside-home':
-            this._files.cancel();
-            this._filesFor = '';
-            this._launcher?.refreshResults();
-            break;
-        case 'favorites':
-        case 'favorites-enabled':
-            this._launcher?.refreshResults();
-            break;
-        case 'history-max':
-            if (this._history.setMax(this._config.int('history-max')))
-                this._markHistory();
-            break;
-        case 'history-persist':
-            if (this._config.bool('history-persist'))
-                this._markHistory();
-            else
-                this._historyStore.remove(); // switching it off deletes what is on disk
-            break;
-        case 'history-generation':
-            this._history.clear();
-            this._historyDirty = false;
-            this._historyStore.remove();
-            break;
-        case 'debug':
-            setDebug(this._config.bool('debug'));
-            break;
-        case 'persist-cache':
-            this._apps.setPersist(this._config.bool('persist-cache'));
-            break;
-        case 'cache-generation':
-            this._apps.rebuild();
-            break;
-        case 'stats-generation':
-            this._stats.reset();
-            this._rebuild.schedule();
-            break;
-        default:
-            if (STYLE_KEYS.has(key))
-                this._restyle.call();
-        }
+        this._configHandlers ??= this._buildConfigHandlers();
+        const run = this._configHandlers.get(key);
+        if (run)
+            run();
+        else if (STYLE_KEYS.has(key))
+            this._restyle.call();
     }
 
-    // The main shortcut is registered once; Mutter follows later changes to the setting itself.
+    _buildConfigHandlers() {
+        const c = this._config;
+        const refresh = () => this._launcher?.refreshResults();
+        const resetFiles = () => {
+            this._files.cancel();
+            this._filesFor = '';
+            refresh();
+        };
+        const table = [
+            [['use-super-key'], () => this._keys.setSuperKey(c.bool('use-super-key'), () => this._launcher.toggle())],
+            [['blocklist', 'block-fullscreen'], () => this._syncBlocklist()],
+            [['commands', 'actions', 'category-icons', 'builtins', 'emoji-enabled', 'accounts-enabled', 'own-keyword'], () => this._buildSpecial()],
+            [['clipboard-enabled'], () => {
+                this._syncClipboard();
+                this._buildSpecial();
+            }],
+            [['accounts'], () => this._syncAccounts()],
+            [['web-providers'], () => (this._webProviders = null)],
+            [['layout-maps'], () => {
+                this._layoutMaps = null;
+                refresh();
+            }],
+            [['layout-map-enabled', 'favorites', 'favorites-enabled'], refresh],
+            [['clipboard-images', 'clipboard-image-count', 'clipboard-image-mb'], () => this._syncClipboardImages()],
+            [['clipboard-source', 'clipboard-persist', 'clipboard-dir', 'clipboard-link-files', 'clipboard-screenshot-dir',
+                'clipboard-videos', 'clipboard-video-dir'], () => this._syncClipboardOptions()],
+            [['clipboard-max'], () => this._clip.setMax(c.int('clipboard-max'))],
+            [['hidden-entries'], () => this._rebuild.schedule()],
+            [['files-enabled', 'files-backend', 'files-min-chars', 'files-max', 'files-hidden', 'files-outside-home'], resetFiles],
+            [['history-max'], () => {
+                if (this._history.setMax(c.int('history-max')))
+                    this._markHistory();
+            }],
+            [['history-persist'], () => {
+                if (c.bool('history-persist'))
+                    this._markHistory();
+                else
+                    this._historyStore.remove();
+            }],
+            [['history-generation'], () => {
+                this._history.clear();
+                this._historyDirty = false;
+                this._historyStore.remove();
+            }],
+            [['debug'], () => setDebug(c.bool('debug'))],
+            [['persist-cache'], () => this._apps.setPersist(c.bool('persist-cache'))],
+            [['cache-generation'], () => this._apps.rebuild()],
+            [['stats-generation'], () => {
+                this._stats.reset();
+                this._rebuild.schedule();
+            }],
+        ];
+        return new Map(table.flatMap(([keys, fn]) => keys.map(k => [k, fn])));
+    }
+
     _bindShortcuts() {
         if (!this._keys.setMain(this._settings, SHORTCUT_KEY, () => this._launcher.toggle()))
             Main.notify(NOTIFY_TITLE, 'Could not register the launcher shortcut. See: journalctl -o cat /usr/bin/gnome-shell | grep gnome-launcher');
         this._keys.setSuperKey(this._config.bool('use-super-key'), () => this._launcher.toggle());
     }
 
-    // --- blocklist -----------------------------------------------------------
-    // The launcher shortcuts are released while a blocked application (or any fullscreen window, if
-    // chosen) has focus. Nothing runs at idle: the focus signal is only connected while the feature is
-    // configured, and a focus change costs a few string comparisons.
-
     _syncBlocklist() {
-        this._block = compileBlocklist(this._config.strv('blocklist'));
-        this._blockFs = this._config.bool('block-fullscreen');
-        if (this._block.size === 0 && !this._blockFs) {
-            this._unwatchFocus();
-            this._keys.setBlocked(false);
-            return;
-        }
-        if (!this._focusSig)
-            this._focusSig = global.display.connect('notify::focus-window', () => this._checkFocus());
-        this._checkFocus(true);
-    }
-
-    _unwatchFocus() {
-        if (this._focusSig) {
-            global.display.disconnect(this._focusSig);
-            this._focusSig = 0;
-        }
-        this._dropFsWatch();
-        this._fsWin = null;
-    }
-
-    _dropFsWatch() {
-        if (this._fsSig && this._fsWin) {
-            try {
-                this._fsWin.disconnect(this._fsSig);
-            } catch (_e) { /* window already destroyed */ }
-        }
-        this._fsSig = 0;
-    }
-
-    _checkFocus(force = false) {
-        const win = global.display.focus_window ?? null;
-        if (force || win !== this._fsWin) {
-            this._dropFsWatch();
-            this._fsWin = win;
-            if (win && this._blockFs)
-                this._fsSig = win.connect('notify::fullscreen', () => this._checkFocus());
-        }
-        this._keys?.setBlocked(this._isBlocked(win));
-    }
-
-    _isBlocked(win) {
-        if (!win)
-            return false;
-        if (this._blockFs && win.is_fullscreen())
-            return true;
-        if (this._block.size === 0)
-            return false;
-        const names = [win.get_wm_class?.(), win.get_wm_class_instance?.(), win.get_gtk_application_id?.(), win.get_sandboxed_app_id?.()];
-        try {
-            const app = Shell.WindowTracker.get_default().get_window_app(win);
-            if (app)
-                names.push(app.get_id(), app.get_name());
-        } catch (_e) { /* no app for this window */ }
-        return this._block.test(names);
+        this._focus.configure(this._config.strv('blocklist'), this._config.bool('block-fullscreen'));
     }
 
     _syncAccounts() {
@@ -412,7 +300,6 @@ export default class GnomeLauncherExtension extends Extension {
             this._clip.stop();
     }
 
-    // User commands/actions plus the built-in entries, and all of their shortcuts.
     _buildSpecial() {
         const c = this._config;
         const user = buildUserEntries(c.json('commands', []), c.json('actions', []), c.json('category-icons', {}));
@@ -452,8 +339,6 @@ export default class GnomeLauncherExtension extends Extension {
             this._launcher.refresh();
     }
 
-    // --- theme -------------------------------------------------------------
-
     _isDark() {
         const mode = this._config.str('theme-mode');
         if (mode === 'dark')
@@ -463,8 +348,6 @@ export default class GnomeLauncherExtension extends Extension {
         return this._iface.get_string('color-scheme') === 'prefer-dark';
     }
 
-    // Colour of the running-application marker: the desktop accent (GNOME 47+), the launcher theme's accent, or
-    // the colour typed in the preferences.
     _activeColor(themeAccent, modeKey = 'active-accent', colorKey = 'active-color') {
         const c = this._config;
         let system = null;
@@ -476,46 +359,8 @@ export default class GnomeLauncherExtension extends Extension {
     }
 
     _styleInputs() {
-        const c = this._config;
-        const dark = this._isDark();
-        const theme = resolveTheme({
-            custom: c.json('custom-themes', []),
-            name: dark ? c.str('theme-dark') : c.str('theme-light'),
-            dark,
-            overrides: c.json('theme-overrides', {}),
-        });
-        return {
-            layout: {
-                width: c.int('width'), windowHeight: c.int('window-height'), maxHeight: c.int('max-height'),
-                searchHeight: c.int('search-height'), searchPosition: c.str('search-position'),
-                rowHeight: c.int('row-height'), iconSize: c.int('icon-size'), fontSize: c.num('font-size'),
-                scale: c.num('scale'), padding: c.int('padding'), resultSpacing: c.int('result-spacing'),
-                searchPadding: c.int('search-padding'), iconSpacing: c.int('icon-spacing'),
-                showDescriptions: c.bool('show-descriptions'), showTags: c.bool('show-tags'),
-                placeholder: c.str('placeholder'),
-                searchIcon: c.str('search-icon').trim(), searchIconSize: c.int('search-icon-size'),
-                showScrollbar: c.bool('show-scrollbar'), gridCell: c.int('emoji-grid-size'),
-                emojiFont: c.str('emoji-font'),
-                shadow: c.bool('shadow-enabled'),
-                activeIndicator: c.str('active-indicator'), activePosition: c.str('active-position'),
-                activeColor: this._activeColor(theme.accent),
-                activeSize: c.int('active-size'), activeSelMode: c.str('active-color-selected'),
-                activeSelColor: c.str('active-color-selected-custom'),
-                // The ring around the search field is drawn by the launcher itself, so it does not depend on the
-                // active GNOME Shell theme having a focus style.
-                ringColor: c.str('search-ring') === 'off' ? null : this._activeColor(theme.accent, 'search-ring', 'search-ring-color'),
-                ringWidth: c.int('search-ring-width'),
-                fonts: {
-                    search: {family: c.str('font-search'), size: c.num('font-size-search'), weight: c.int('font-weight-search')},
-                    main: {family: c.str('font-main'), weight: c.int('font-weight-main')},
-                    secondary: {family: c.str('font-secondary'), size: c.num('font-size-secondary'), weight: c.int('font-weight-secondary')},
-                },
-            },
-            theme,
-        };
+        return styleInputs(this._config, this._isDark(), (theme, modeKey, colorKey) => this._activeColor(theme, modeKey, colorKey));
     }
-
-    // --- search / activation -------------------------------------------------
 
     _search(query, mode) {
         const c = this._config;
@@ -533,13 +378,10 @@ export default class GnomeLauncherExtension extends Extension {
                 fuzzy: c.bool('fuzzy'), descriptions: true, frecency: false, limit: Infinity, initial: Infinity,
             });
         }
-        // Text typed with another keyboard layout is converted to the layout the entries are named in.
-        // "? ..." (explicit web search) and the web fallback keep what was really typed.
         const typed = query;
         if (c.bool('layout-map-enabled') && explicitWebQuery(query) === null)
             query = this._fromLayout(query);
 
-        // "!ls -la": offers to run what follows the prefix (a symbol of your choice; empty = off).
         const ex = parseExec(query, c.str('exec-prefix'));
         if (ex) {
             this._launcher?.setEmptyText(`Type a command after ${c.str('exec-prefix').trim()} and press Enter`);
@@ -551,7 +393,6 @@ export default class GnomeLauncherExtension extends Extension {
                 icon: 'utilities-terminal-symbolic', category: 'Run', payload: {command: ex.command, shell: c.bool('exec-shell')},
             })];
         }
-        // Typing exactly the shared keyword lists every entry that belongs to the launcher itself.
         const own = c.str('own-keyword').trim().toLowerCase();
         if (own && query.trim().toLowerCase() === own && this._ownEntries?.length)
             return this._ownEntries;
@@ -568,7 +409,6 @@ export default class GnomeLauncherExtension extends Extension {
         if (asked !== null)
             return webEntries(this._providers(), asked);
 
-        // Regular expression over names, keywords and descriptions ("/chrom|fire").
         const rx = parseRegexQuery(query, c.str('regex-mode'));
         this._launcher?.setEmptyText(rx?.error ?? 'No results');
         if (rx?.error)
@@ -604,7 +444,6 @@ export default class GnomeLauncherExtension extends Extension {
         return out;
     }
 
-    // Compiled once per change of the 'layout-maps' setting; nothing runs while the feature is off.
     _fromLayout(query) {
         this._layoutMaps ??= compileMaps(this._config.json('layout-maps', DEFAULT_MAPS));
         const r = translateQuery(query, this._layoutMaps);
@@ -640,7 +479,6 @@ export default class GnomeLauncherExtension extends Extension {
             this._useAccount(entry, how);
             return;
         case 'mode':
-            // Sub-view: stays open (and opens the launcher first if a global shortcut was used).
             if (!this._launcher.isOpen)
                 this._launcher.open();
             this._remember(entry.id);
@@ -677,7 +515,6 @@ export default class GnomeLauncherExtension extends Extension {
             this._clip.noteCopied(entry.payload.text);
             return;
         case 'exec':
-            // Same path as every other entry: run after the grab is released; no frecency for typed commands.
             this._launcher.close();
             this._pending = entry;
             this._runIdle.schedule();
@@ -686,12 +523,9 @@ export default class GnomeLauncherExtension extends Extension {
         }
         this._launcher.close();
         this._remember(entry.id);
-        // Run after the modal grab is released and the launcher has started closing.
         this._pending = entry;
         this._runIdle.schedule();
     }
-
-    // --- search history ------------------------------------------------------
 
     _loadHistory() {
         if (!this._config.bool('history-persist'))
@@ -720,8 +554,6 @@ export default class GnomeLauncherExtension extends Extension {
             this._historyStore.save(this._history.toJSON());
     }
 
-    // Remembers the text of the search that led to this entry (main search only; nothing typed in the
-    // clipboard, emoji or password views). Typed `!commands` are optional.
     _recordSearch(entry) {
         const c = this._config;
         const l = this._launcher;
@@ -733,16 +565,11 @@ export default class GnomeLauncherExtension extends Extension {
             this._markHistory();
     }
 
-    // Usage statistics feed both the ranking and the "recently used" start list.
     _remember(id) {
         if (this._config.bool('frecency') || this._config.bool('start-recent'))
             this._stats.hit(id);
     }
 
-    // --- clipboard entries ---------------------------------------------------
-
-    // Enter pastes the entry into the window that had focus before the launcher (or only copies it, if
-    // "paste" is switched off). Shift+Enter does the opposite. The text stays on the clipboard afterwards.
     _wantsPaste(how) {
         return this._config.bool('clipboard-paste') !== (how === 'shift');
     }
@@ -750,14 +577,12 @@ export default class GnomeLauncherExtension extends Extension {
     _pasteClip(entry, how) {
         const text = entry.payload.text;
         this._launcher.close();
-        this._clip.mute(1500); // choosing an entry must not reshuffle the history
+        this._clip.mute(1500);
         copyText(text);
         if (this._wantsPaste(how))
             this._paster.paste(text, {keys: 'auto', borrow: false}, () => this._pasteFailed());
     }
 
-    // Images go on the clipboard first (a linked file is read asynchronously) and are pasted once they are
-    // there. Ctrl+Enter opens the image and Alt+Enter shows its folder instead, as before.
     _useClipImage(entry, how) {
         const open = how === 'ctrl' || how === 'alt';
         this._launcher.close();
@@ -766,11 +591,6 @@ export default class GnomeLauncherExtension extends Extension {
             !open && this._wantsPaste(how) ? () => this._paster.paste('', {keys: 'auto', borrow: false}, () => this._pasteFailed()) : null);
     }
 
-    // --- file search ---------------------------------------------------------
-    // Off by default. Each search goes to GNOME's file search (the Files search provider, answered from the
-    // LocalSearch index GNOME already keeps) or to the system's locate database. This extension stores nothing.
-
-    // typed: what is in the search box (results are matched to it); query: the text to search for (after layout conversion).
     _wantFiles(typed, query) {
         const c = this._config;
         const q = typed.trim();
@@ -783,7 +603,7 @@ export default class GnomeLauncherExtension extends Extension {
             return;
         }
         if (this._filesFor === q)
-            return; // already asked (the results arrive through addAsyncResults)
+            return;
         this._filesFor = q;
         this._filesText = query.trim();
         this._files.cancel();
@@ -802,7 +622,6 @@ export default class GnomeLauncherExtension extends Extension {
             return;
         }
         const terms = toTerms(this._filesText || query);
-        // "auto": GNOME's search first; locate takes over when it fails or finds nothing (index not ready, provider off).
         const order = c.str('files-backend') === 'auto' && backend === 'gnome' && avail.locate ? ['gnome', 'locate'] : [backend];
         let paths = null;
         for (const b of order) {
@@ -833,7 +652,6 @@ export default class GnomeLauncherExtension extends Extension {
         return e;
     }
 
-    // Enter opens the file, Alt+Enter shows its folder, Ctrl+Enter copies its path.
     _openFile(entry, how) {
         this._launcher.close();
         const p = entry.payload;
@@ -847,9 +665,6 @@ export default class GnomeLauncherExtension extends Extension {
         }
     }
 
-    // --- action menu ---------------------------------------------------------
-    // Ctrl+B (or a right click) on a result lists what can be done with it. Only in the main search.
-
     _menuInfo(entry) {
         const items = this._menuItems(entry);
         if (!items.length) {
@@ -861,80 +676,15 @@ export default class GnomeLauncherExtension extends Extension {
         return {placeholder: `Actions for ${entry.name}`};
     }
 
-    _menuEntry(op, name, desc, icon, extra = {}) {
-        return prepare({
-            id: `menu:${op}:${extra.action ?? ''}`, kind: 'menu', name, desc, icon, category: 'Action',
-            payload: {op, ...extra},
+    _menuItems(e) {
+        const stable = HIDEABLE_KINDS.has(e.kind);
+        return menuItems(e, {
+            favorites: stable && this._config.bool('favorites-enabled'),
+            isFavorite: this._favoriteIds().includes(e.id),
+            hasUsage: stable && !!this._stats.get(e.id),
         });
     }
 
-    _menuItems(e) {
-        const m = (...a) => this._menuEntry(...a);
-        const items = [];
-        const fav = this._favoriteIds().includes(e.id);
-        const stable = HIDEABLE_KINDS.has(e.kind);
-        const tail = () => {
-            if (stable && this._config.bool('favorites-enabled'))
-                items.push(m('favorite', fav ? 'Remove from favorites' : 'Add to favorites', fav ? 'It is listed first when the launcher opens' : 'List it first when the launcher opens', 'starred-symbolic'));
-            if (stable)
-                items.push(m('hide', 'Hide from search', 'Show it again in the preferences, under Hidden entries', 'view-conceal-symbolic'));
-            if (stable && this._stats.get(e.id))
-                items.push(m('forget', 'Forget usage history', 'Resets how often and when you opened it', 'edit-clear-all-symbolic'));
-        };
-        switch (e.kind) {
-        case 'app': {
-            let info = null;
-            try {
-                info = describeApp(e.payload.appId);
-            } catch (err) {
-                warn(`describeApp: ${err.message}`);
-            }
-            items.push(m('open', info?.running ? 'Switch to it' : 'Open', 'Same as Enter', 'media-playback-start-symbolic'));
-            if (info?.running && info.canNewWindow)
-                items.push(m('newWindow', 'New window', 'Open another window of the running application', 'window-new-symbolic'));
-            items.push(m('newWorkspace', 'Open in a new workspace', 'Switch to an empty workspace and start it there', 'view-grid-symbolic'));
-            for (const a of info?.actions ?? [])
-                items.push(m('appaction', a.name, 'Action of the application', 'emblem-system-symbolic', {action: a.id}));
-            if (info?.running)
-                items.push(m('quit', 'Quit', 'Ask the application to close all its windows', 'application-exit-symbolic'));
-            if (info?.file) {
-                items.push(m('showDir', 'Show the desktop entry in the file manager', info.file, 'folder-open-symbolic', {path: info.file}));
-                items.push(m('editDesktop', 'Open the desktop entry in a text editor', info.file, 'document-edit-symbolic', {path: info.file}));
-                items.push(m('copy', 'Copy the desktop entry path', info.file, 'edit-copy-symbolic', {text: info.file, action: 'path'}));
-            }
-            if (info?.commandline)
-                items.push(m('copy', 'Copy the command', info.commandline, 'edit-copy-symbolic', {text: info.commandline, action: 'cmd'}));
-            items.push(m('copy', 'Copy the name', e.name, 'edit-copy-symbolic', {text: e.name, action: 'name'}));
-            tail();
-            break;
-        }
-        case 'command':
-        case 'action': {
-            items.push(m('open', 'Run', 'Same as Enter', 'media-playback-start-symbolic'));
-            const text = e.kind === 'command' ? `${e.payload.command} ${e.payload.args ?? ''}`.trim() : String(e.payload.target ?? '');
-            if (text)
-                items.push(m('copy', e.kind === 'command' ? 'Copy the command' : 'Copy the target', text, 'edit-copy-symbolic', {text, action: 'cmd'}));
-            items.push(m('prefs', 'Edit in the preferences', 'Opens the extension preferences', 'preferences-system-symbolic'));
-            tail();
-            break;
-        }
-        case 'system':
-        case 'mode':
-            items.push(m('open', 'Run', 'Same as Enter', 'media-playback-start-symbolic'));
-            tail();
-            break;
-        case 'file':
-            items.push(m('open', 'Open', 'Same as Enter', 'document-open-symbolic'));
-            items.push(m('showDir', 'Show in the file manager', dirName(e.payload.path), 'folder-open-symbolic', {path: e.payload.path}));
-            items.push(m('copy', 'Copy the path', e.payload.path, 'edit-copy-symbolic', {text: e.payload.path, action: 'path'}));
-            items.push(m('copy', 'Copy the name', e.name, 'edit-copy-symbolic', {text: e.name, action: 'name'}));
-            break;
-        default:
-        }
-        return items;
-    }
-
-    // The entries of the open menu, narrowed by what is typed.
     _menuSearch(query) {
         const items = this._menuList ?? [];
         const q = query.trim().toLowerCase();
@@ -954,7 +704,7 @@ export default class GnomeLauncherExtension extends Extension {
         };
         switch (p.op) {
         case 'open':
-            L.leaveMenu(); // back to the search first, so that a sub-view opens in the right place
+            L.leaveMenu();
             this._activate(target);
             break;
         case 'newWindow':
@@ -1015,19 +765,15 @@ export default class GnomeLauncherExtension extends Extension {
         }
     }
 
-    // --- favorites -----------------------------------------------------------
-
-    _favoriteList() {
-        const list = this._config.json('favorites', []);
+    _idList(key) {
+        const list = this._config.json(key, []);
         return Array.isArray(list) ? list.filter(x => x && typeof x.id === 'string') : [];
     }
 
     _favoriteIds() {
-        return this._favoriteList().map(x => x.id);
+        return this._idList('favorites').map(x => x.id);
     }
 
-    // Ctrl+D on a result: add it to the favorites, or take it off again. Returns true if it is a favorite now,
-    // false if it was removed, null if this kind of entry cannot be a favorite.
     _toggleFavorite(entry) {
         if (!this._config.bool('favorites-enabled'))
             return null;
@@ -1035,7 +781,7 @@ export default class GnomeLauncherExtension extends Extension {
             Main.notify(NOTIFY_TITLE, 'This entry cannot be a favorite: it is not a fixed entry.');
             return null;
         }
-        const list = this._favoriteList();
+        const list = this._idList('favorites');
         const i = list.findIndex(x => x.id === entry.id);
         if (i >= 0)
             list.splice(i, 1);
@@ -1045,35 +791,23 @@ export default class GnomeLauncherExtension extends Extension {
         return i < 0;
     }
 
-    // --- hiding entries ------------------------------------------------------
-
     _hiddenSet() {
-        const list = this._config.json('hidden-entries', []);
-        return new Set(Array.isArray(list) ? list.filter(x => x && typeof x.id === 'string').map(x => x.id) : []);
+        return new Set(this._idList('hidden-entries').map(x => x.id));
     }
 
-    // Ctrl+H on a result. Returns true when the entry was hidden. Only entries with a stable id can be hidden
-    // (applications, your commands and actions, built-ins); clipboard items, emoji, calculator results and
-    // web searches are generated on the fly.
     _hideEntry(entry) {
         if (!HIDEABLE_KINDS.has(entry.kind)) {
             Main.notify(NOTIFY_TITLE, 'This entry cannot be hidden: it is not a fixed entry.');
             return false;
         }
-        const list = this._config.json('hidden-entries', []);
-        const next = Array.isArray(list) ? list.filter(x => x && typeof x.id === 'string') : [];
+        const next = this._idList('hidden-entries');
         if (!next.some(x => x.id === entry.id))
             next.push({id: entry.id, name: String(entry.name).slice(0, 120)});
         this._settings.set_string('hidden-entries', JSON.stringify(next));
-        this._rebuildEntries(); // now, so the launcher shows the shorter list straight away
+        this._rebuildEntries();
         return true;
     }
 
-    // --- accounts ------------------------------------------------------------
-
-    // Enter copies the password, Shift+Enter types it into the previous window, Ctrl+Enter copies the
-    // username and Alt+Enter opens the site. The password is read from the GNOME Keyring only now,
-    // asynchronously (an unlock prompt must not freeze the shell), and is never kept.
     async _useAccount(entry, how) {
         const {accountId, username, url} = entry.payload;
         this._launcher.close();
@@ -1116,7 +850,6 @@ export default class GnomeLauncherExtension extends Extension {
             this._copyPassword(pw);
     }
 
-    // On the clipboard only for a limited time, and kept out of the clipboard history.
     _copyPassword(pw) {
         this._finishPasswordClear();
         this._clip.mute(1500);
@@ -1133,7 +866,6 @@ export default class GnomeLauncherExtension extends Extension {
         }
     }
 
-    // Cancels a pending timer and clears right away (used before a new copy and on disable).
     _finishPasswordClear() {
         const p = this._pwClear;
         if (!p)
@@ -1144,10 +876,6 @@ export default class GnomeLauncherExtension extends Extension {
         clearClipboardIf(p.pw);
     }
 
-    // --- emoji ---------------------------------------------------------------
-
-    // The dataset (~130 KB of text) is imported on first use, turned into entries, and dropped
-    // again after EMOJI_FREE_MS without use. Returns the engine, or null while it is loading.
     _ensureEmoji() {
         this._emojiFree?.cancel();
         if (this._emojiEngine)
@@ -1180,8 +908,6 @@ export default class GnomeLauncherExtension extends Extension {
         dbg('emoji data released');
     }
 
-    // The emoji view. In the grid, with nothing typed: a "Recent" section (by last use), then every emoji.
-    // Anything else (a search, the list layout, no recent emoji yet) is one plain list.
     _emojiMode(query) {
         const c = this._config;
         if (query.trim() || !c.bool('emoji-recent') || c.str('emoji-layout') !== 'grid')

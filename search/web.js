@@ -1,11 +1,8 @@
-// Pure JS (no GI imports). "Search the web / ask an AI" fallback entries.
 
 import {prepare} from './engine.js';
 
 export const WEB_MODES = ['off', 'empty', 'always'];
 
-// Shipped defaults (also the default of the "web-providers" setting). `ai` only changes the wording
-// and the category label.
 export const DEFAULT_PROVIDERS = [
     {id: 'google', name: 'Google', url: 'https://www.google.com/search?q={query}', icon: 'system-search-symbolic', ai: false, enabled: true},
     {id: 'duckduckgo', name: 'DuckDuckGo', url: 'https://duckduckgo.com/?q={query}', icon: 'system-search-symbolic', ai: false, enabled: false},

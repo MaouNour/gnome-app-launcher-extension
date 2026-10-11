@@ -1,6 +1,3 @@
-// Pure JS (no GI imports): shared by the shell process, the prefs process and tests.
-// Field specs drive the prefs editor; sanitize*/validate* protect the runtime from
-// hand-edited or corrupted settings. Nothing here executes anything.
 
 import {sanitizeSeparator} from '../search/keywords.js';
 
@@ -10,20 +7,12 @@ const clean = v => (typeof v === 'string' ? v.replace(/[\u0000-\u001f\u007f]/g, 
 export const ACTION_TYPES = ['app', 'shell', 'url', 'file', 'dir', 'script', 'gnome'];
 export const GNOME_ACTIONS = ['overview', 'app-grid', 'screenshot', 'lock-screen', 'settings', 'logout', 'reboot', 'suspend', 'power-off', 'toggle-dark-mode', 'toggle-dnd'];
 
-// The search text for custom commands. "$q" and "${q}" are replaced inside each argument AFTER the command line
-// has been split, so the text can never add or change arguments; scripts and shell snippets also get it in the
-// environment as q and LAUNCHER_QUERY (a shell snippet uses "$q" itself, quoted, as it would any variable).
-// "${q:1}", "${q/regex/new}" and friends edit the text first: see queryfilter.js.
 export {substituteQuery} from './queryfilter.js';
 
 const URL_RE = /^(https?:\/\/|ftp:\/\/|mailto:)\S+$/i;
 const ENV_RE = /^[A-Za-z_][A-Za-z0-9_]*=/;
 
-// Off by default (a missing value means off, unlike the other switches). When on, the keywords are regular
-// expressions and need no slashes: the whole field is one pattern, or with a separator each keyword is one.
 const REGEX_KEYWORDS_FIELD = {key: 'regexKeywords', label: 'Keywords are regular expressions (no slashes needed; with a separator, each keyword is one)', type: 'switch', default: false};
-// Empty: the keywords are words separated by spaces. Filled: they are separated by it, and each keyword may
-// contain spaces and symbols.
 const KEYWORD_SEPARATOR_FIELD = {key: 'keywordSeparator', label: 'Keyword separator (empty: words separated by spaces; fill it to allow spaces and symbols in each keyword, e.g. ;)', type: 'text'};
 
 export const COMMAND_FIELDS = [

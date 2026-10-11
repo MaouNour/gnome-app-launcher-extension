@@ -1,4 +1,3 @@
-// Pure JS (no GI imports): the list of searches you ran, newest first, and how the Up/Down arrows walk it.
 
 export const MAX_QUERY_LEN = 200;
 
@@ -30,8 +29,6 @@ export class QueryHistory {
         return this._trim();
     }
 
-    // Remembers a search. Returns true when the list changed. A search that is already in the list moves to
-    // the front instead of appearing twice; blank or very long text is ignored.
     add(query) {
         if (typeof query !== 'string')
             return false;
@@ -59,9 +56,6 @@ export class QueryHistory {
         this._items = [];
     }
 
-    // Walks the list. `cursor` is -1 while the text field holds what you typed (nothing recalled yet),
-    // otherwise the position of the recalled search (0 = newest). dir -1 = older (Up), +1 = newer (Down).
-    // Returns the new cursor, or null when there is nowhere to go.
     step(cursor, dir) {
         if (dir < 0) {
             const next = cursor + 1;
@@ -70,7 +64,6 @@ export class QueryHistory {
         return cursor >= 0 ? cursor - 1 : null;
     }
 
-    // Replaces the list with stored data (validated), keeping at most the current limit.
     load(raw) {
         const seen = new Set();
         const out = [];
@@ -89,7 +82,6 @@ export class QueryHistory {
         this._trim();
     }
 
-    // Merges stored data that arrived after some searches were already made: what is in memory stays in front.
     merge(raw) {
         const mine = this._items.slice();
         this.load(raw);

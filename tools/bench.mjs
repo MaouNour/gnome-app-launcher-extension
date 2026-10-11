@@ -1,6 +1,3 @@
-// Benchmark the pure search engine:  node tools/bench.mjs [entryCount]
-// Figures from node (V8) are indicative only; GJS uses SpiderMonkey. For real numbers
-// run it on the target machine:  gjs -m tools/bench.mjs
 import {SearchEngine, prepare} from '../search/engine.js';
 
 const N = Number(globalThis.process?.argv?.[2] ?? 20000);

@@ -1,11 +1,5 @@
-// Pure JS (no GI imports): unit-testable and benchmarkable under plain node.
-//
 import {compileKeywordPattern, extractRegexKeywords} from './regex.js';
 import {parseKeywordList} from './keywords.js';
-//
-// Entries are "prepared" once (lowercased/diacritic-folded copies of their text fields),
-// so a keystroke only does cheap string comparisons against in-memory data. Extending the
-// previous query (typing another character) re-scans only the previous matches.
 
 const NON_ASCII = /[^\x00-\x7f]/;
 const MARKS = /[\u0300-\u036f]/g;
@@ -16,12 +10,7 @@ export function fold(s) {
     return NON_ASCII.test(s) ? s.normalize('NFD').replace(MARKS, '') : s;
 }
 
-// Adds search metadata to an entry ({name, desc, keywords, category}). Idempotent.
 export function prepare(e) {
-    // Custom commands/actions may carry /regex/ keywords: split them from the plain words.
-    // ("rxWhole": the whole keywords field is one pattern, no slashes. "kwSep": the field is a list of keywords
-    // split by that separator; each keyword is matched as a phrase, or as a pattern when rxWhole is set too.)
-    // Done once: a second prepare() must not overwrite the patterns with the already-stripped keywords.
     if (e.rxKeywords && !e._rxDone) {
         e._rxDone = true;
         if (e.kwSep) {
@@ -51,7 +40,6 @@ export function prepare(e) {
     return e;
 }
 
-// Frecency: log-scaled use count, decaying with time since last use. Range ~0..200.
 export function frecency(stat, nowSec) {
     if (!stat)
         return 0;
@@ -99,8 +87,6 @@ function scoreToken(t, e, fuzzy, descs) {
     if (sub >= 0)
         return 450 - Math.min(sub, 100) * 0.5;
     let best = 0;
-    // Short tokens only match names, so one-letter queries are not flooded by
-    // keyword/description/category noise.
     if (t.length >= 2 && e._kw.indexOf(` ${t}`) >= 0)
         best = 300;
     else if (t.length >= 3 && e._k.includes(t))
@@ -117,8 +103,6 @@ function scoreToken(t, e, fuzzy, descs) {
     return best;
 }
 
-// A whole typed text against the keyword phrases of an entry (keywords that may hold spaces and symbols).
-// Equal to a keyword is a strong match, even for one letter; starting it needs 2 characters, being part of it 3.
 function phraseScore(q, phrases) {
     let best = 0;
     for (const p of phrases) {
@@ -145,7 +129,7 @@ export class SearchEngine {
         this._prevQ = '';
         this._prevIdx = null;
         this._prevKey = '';
-        this.stats = null; // object with get(id) and entries(), or null
+        this.stats = null;
     }
 
     setEntries(list) {
@@ -166,7 +150,6 @@ export class SearchEngine {
         return this._entries.length;
     }
 
-    // Normal search, plus entries whose /regex/ keywords match the whole query (those come first).
     search(query, opts = {}) {
         const out = this._search(query, opts);
         const q = String(query ?? '').trim();
@@ -179,18 +162,12 @@ export class SearchEngine {
         return [...hits, ...out.filter(e => !seen.has(e.id))].slice(0, opts.limit ?? 30);
     }
 
-    // Regular-expression search over names, keywords and (optionally) descriptions. `re` comes from
-    // parseRegexQuery(), so it is already known to be safe; only short slices of text are tested.
-    // Name matches rank above keyword matches above description matches; earlier and fuller
-    // matches rank higher.
     searchRegex(re, opts = {}) {
         const limit = opts.limit ?? 30;
         const descs = opts.descriptions ?? true;
         const useFrec = (opts.frecency ?? true) && this.stats;
         const now = Math.floor(Date.now() / 1000);
         const hits = [];
-        // Only short slices are tested and the whole scan has a time budget: a pattern that is merely
-        // polynomial can still be slow over thousands of entries, so partial results beat a frozen shell.
         const deadline = Date.now() + (opts.budgetMs ?? 60);
         let n = 0;
         for (const e of this._entries) {
@@ -215,8 +192,6 @@ export class SearchEngine {
         return hits.slice(0, limit).map(h => h[1]);
     }
 
-    // opts: {limit, initial, fuzzy, descriptions, frecency, natural}
-    // limit/initial may be Infinity; `natural` fills an empty query in entry order, not A-Z.
     _search(query, opts = {}) {
         const limit = opts.limit ?? 30;
         const fuzzy = opts.fuzzy ?? true;
@@ -232,11 +207,8 @@ export class SearchEngine {
         const list = this._entries;
         const key = `${fuzzy}${descs}`;
 
-        // Appending characters can only remove matches, so re-scan the previous matches only.
         const narrow = this._prevIdx && this._prevKey === key && q.startsWith(this._prevQ);
         let candidates = narrow ? this._prevIdx : null;
-        // A phrase keyword can match a longer text that its shorter prefixes did not ("new tab" for "n"), so
-        // entries that have phrases are always looked at again.
         if (candidates && this._phraseIdx.length) {
             const seen = new Set(candidates);
             const extra = this._phraseIdx.filter(i => !seen.has(i));
@@ -294,9 +266,6 @@ export class SearchEngine {
         return this._byId.get(id) ?? null;
     }
 
-    // Empty query. Favorites (ids, in the order given) come first and always all show; the rest of `count`
-    // is the entries used most recently (recent: {fill}) or most often, then an alphabetical (or natural) fill.
-    // `fill` false leaves out entries that were never used.
     _initial(count, useFrec, now, natural, recent = null, favorites = null) {
         this._prevIdx = null;
         this._prevQ = '';

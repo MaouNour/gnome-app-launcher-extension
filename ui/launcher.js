@@ -19,11 +19,6 @@ const TAGS = {
     mode: 'Mode', clip: 'Clipboard', clipimage: 'Image', clipfile: 'File', exec: 'Run', account: 'Account', web: 'Web', calc: 'Result', emoji: 'Emoji',
 };
 
-// --- pointer and touch input ----------------------------------------------------------------------
-// Newer Shells recognise clicks and taps with gestures (`Clutter.ClickGesture`); older ones deliver plain button
-// events. Every click is wired through both, each guarded on its own: connecting to a signal a Shell no longer
-// has throws, and that is caught, so whichever path exists is used and the other is skipped. A click that
-// arrives through both counts once (`Launcher._clicked`). Nothing here decides in advance what exists.
 const HAS_CLICK_GESTURE = typeof Clutter.ClickGesture === 'function';
 
 // Connects a signal if this Shell has it. Returns whether it did.
@@ -45,7 +40,7 @@ function onPrimaryClick(actor, fn) {
                 let b = Clutter.BUTTON_PRIMARY;
                 try {
                     b = g.get_button();
-                } catch (_e) { /* no button information: treat it as a primary click */ }
+                } catch (_e) { }
                 if (!b || b === Clutter.BUTTON_PRIMARY)
                     fn();
             });
@@ -56,13 +51,12 @@ function onPrimaryClick(actor, fn) {
     }
     tryConnect(actor, 'button-release-event', (_a, ev) => {
         if (ev.get_button() !== Clutter.BUTTON_PRIMARY)
-            return Clutter.EVENT_PROPAGATE; // the right click is handled by onSecondaryClick
+            return Clutter.EVENT_PROPAGATE;
         fn();
         return Clutter.EVENT_STOP;
     });
 }
 
-// fn() runs on a right click (opens the action menu when that behaviour is on).
 function onSecondaryClick(actor, fn) {
     tryConnect(actor, 'button-release-event', (_a, ev) => {
         if (ev.get_button() !== Clutter.BUTTON_SECONDARY)
@@ -72,7 +66,6 @@ function onSecondaryClick(actor, fn) {
     });
 }
 
-// fn() runs when the pointer moves over `actor` (not when the rows scroll under a resting pointer).
 function onPointerOver(actor, fn, recentKey) {
     const moved = tryConnect(actor, 'motion-event', () => {
         fn();
@@ -87,17 +80,12 @@ function onPointerOver(actor, fn, recentKey) {
     });
 }
 
-// Rows are created lazily in batches while scrolling, so even a list of thousands of
-// entries (emoji, unlimited results) only ever costs a few dozen actors.
 const CHUNK = 40;
-// Rows kept pooled after the launcher closes; a bigger pool is trimmed to save memory.
 const KEEP_ROWS = 60;
 const MOD_MASK = Clutter.ModifierType.SHIFT_MASK | Clutter.ModifierType.CONTROL_MASK |
     Clutter.ModifierType.MOD1_MASK | Clutter.ModifierType.SUPER_MASK;
 const NEEDS_MOD = Clutter.ModifierType.CONTROL_MASK | Clutter.ModifierType.MOD1_MASK | Clutter.ModifierType.SUPER_MASK;
 
-// "<Control><Alt>t" -> {mods, key} using Clutter.KEY_* constants. Window shortcuts must
-// include Ctrl, Alt or Super (otherwise they would swallow normal typing).
 function parseAccel(accel) {
     let rest = String(accel ?? '').trim();
     let mods = 0;
@@ -125,8 +113,6 @@ const FALLBACK_ICON = 'application-x-executable';
 // Entries that "open the only match" may start.
 const AUTO_KINDS = new Set(['app', 'command', 'action']);
 
-// Opening/closing animations: how small the window starts (scale), how far it travels vertically (ty,
-// in px, as a transform: the layout position never changes) and the easing for each direction.
 const AM = Clutter.AnimationMode;
 const ANIMS = {
     'fade-scale': {scale: 0.96, ty: 0, open: AM.EASE_OUT_QUAD, close: AM.EASE_OUT_QUAD},
@@ -137,13 +123,10 @@ const ANIMS = {
     'rise': {scale: 0.985, ty: 12, open: AM.EASE_OUT_CUBIC, close: AM.EASE_IN_QUAD},
 };
 
-// The scroll adjustment lives under different names across Shell versions.
 function vAdjustment(scroll) {
     return scroll.vadjustment ?? scroll.vscroll?.adjustment ?? scroll.get_vscroll_bar?.()?.adjustment ?? null;
 }
 
-// CSS pixels (what every style string uses) -> actor pixels. Needed for the few sizes set as
-// plain actor properties instead of CSS (see _render).
 function scaleFactor() {
     try {
         return St.ThemeContext.get_for_stage(global.stage).scale_factor || 1;
@@ -152,7 +135,6 @@ function scaleFactor() {
     }
 }
 
-// Icon from a theme name or an absolute/home-relative path; null when it cannot be built.
 function iconFromString(name) {
     try {
         const n = name.startsWith('~/') ? GLib.build_filenamev([GLib.get_home_dir(), name.slice(2)]) : name;
@@ -218,8 +200,6 @@ class Cell {
     }
 }
 
-// A horizontal line of cells; `base` is the result index of its first cell. The first line of a section
-// also carries the section's title above its cells.
 class GridRow {
     constructor(launcher, cols) {
         this.base = 0;
@@ -258,7 +238,6 @@ class GridRow {
     }
 }
 
-// One reusable result row. Rows are pooled: created lazily, then only updated.
 class Row {
     constructor(launcher, index) {
         this.index = index;
@@ -268,7 +247,6 @@ class Row {
 
         this.actor = new St.BoxLayout({reactive: true, x_expand: true});
         this.icon = new St.Icon({fallback_icon_name: FALLBACK_ICON, x_align: Clutter.ActorAlign.CENTER});
-        // The icon sits in a small vertical box so the running marker can be drawn under it.
         this.iconBox = new St.BoxLayout({vertical: true, y_align: Clutter.ActorAlign.CENTER});
         this.iconBox.add_child(this.icon);
         this.glyph = new St.Label({visible: false, y_align: Clutter.ActorAlign.CENTER});
@@ -276,7 +254,6 @@ class Row {
         this.title = new St.Label({x_expand: true});
         this.sub = new St.Label({x_expand: true});
         this.tag = new St.Label({y_align: Clutter.ActorAlign.CENTER});
-        // "This application is running": a dot or a dash, before the icon or before the tag.
         this.mark = new St.Widget({y_align: Clutter.ActorAlign.CENTER, visible: false});
         this._markPos = '';
         for (const l of [this.title, this.sub])
@@ -299,7 +276,7 @@ class Row {
         this.icon.set_icon_size(st.iconSize);
         this.icon.set_style(st.icon);
         this._paint();
-        this.entry = null; // force content refresh (description/tag visibility may change)
+        this.entry = null;
     }
 
     _paint() {
@@ -311,7 +288,6 @@ class Row {
         this.tag.set_style(sel ? st.tagSel : st.tag);
         this.glyph.set_style(sel ? st.glyphSel : st.glyph);
         this.mark.set_style(sel ? st.activeSel : st.active);
-        // Where the marker sits follows the setting; moving it is only done when the setting changed.
         if (this._markPos !== st.activePos) {
             this._markPos = st.activePos;
             const parent = this.mark.get_parent();
@@ -364,8 +340,6 @@ class Row {
 }
 
 export class Launcher {
-    // search(query, mode) -> entries[]; onActivate(entry); getStyle() -> {layout, theme}; onOpen();
-    // onClose() runs once the window is fully hidden.
     constructor({config, search, onActivate, getStyle, onOpen, onClose, onWindowShortcut, onHide, onFavorite, onMenu, favorites, running, history}) {
         this._cfg = config;
         this._search = search;
@@ -377,8 +351,8 @@ export class Launcher {
         this._onHide = onHide;
         this._onFavorite = onFavorite;
         this._onMenu = onMenu;
-        this._menuReturn = null; // {text, id}: where the action menu was opened from
-        this._extra = [];        // results that arrived later (file search) for the query in _extraFor
+        this._menuReturn = null;
+        this._extra = [];
         this._extraFor = '';
         this._favorites = favorites;
         this._favSet = new Set();
@@ -390,11 +364,11 @@ export class Launcher {
         this._textLen = 0;
 
         this._built = false;
-        this._state = 'hidden'; // hidden | opening | open | closing
+        this._state = 'hidden';
         this._rows = [];
         this._results = [];
         this._sel = -1;
-        this._selItem = null; // the row/cell that is painted as selected right now
+        this._selItem = null;
         this._grab = null;
         this._st = null;
         this._dirty = true;
@@ -405,15 +379,15 @@ export class Launcher {
         this._grid = false;
         this._gridRows = [];
         this._gridCols = 0;
-        this._gridShown = 0;   // lines of the grid that exist and are visible
-        this._lines = [];      // grid layout: [{base, count, header}]
-        this._tops = [];       // top of each line in CSS px (header included), plus the total at the end
-        this._secs = [];       // [{start, count, line0}] the sections of the grid
-        this._sections = null; // [{title, count}] asked for by the search, grid only
+        this._gridShown = 0;
+        this._lines = [];
+        this._tops = [];
+        this._secs = [];
+        this._sections = null;
         this._history = history ?? null;
-        this._hCursor = -1;    // position in the search history while browsing it, else -1
-        this._draft = '';      // what was typed before the first Up
-        this._histSet = false; // true while the text is being set from the history
+        this._hCursor = -1;
+        this._draft = '';
+        this._histSet = false;
         this._siKey = '';
         this._reveal = new Idle(() => this._scrollToSelected(), GLib.PRIORITY_DEFAULT_IDLE);
         this._mode = null;
@@ -423,8 +397,6 @@ export class Launcher {
         this._armed = false;
     }
 
-    // [{id, accel}] shortcuts that only work while the window is open (no global grab, so
-    // they cannot conflict with anything else). Safe to call before the UI is built.
     setWindowShortcuts(list) {
         this._win = [];
         for (const {id, accel} of list) {
@@ -448,7 +420,6 @@ export class Launcher {
         return this._entry?.get_text() ?? '';
     }
 
-    // Re-run the search with the current text (used when asynchronous data arrives).
     refresh() {
         if (this._built && this.isOpen)
             this._refresh();
@@ -479,10 +450,6 @@ export class Launcher {
             accessible_name: IDENTITY.window.accessibleName,
             vertical: true,
             reactive: true,
-            // Both axes expand on purpose. A BinLayout only applies a child's x_align / y_align (and so the
-            // window position) on an axis where the child expands; without this the window was always centred
-            // vertically, whatever the alignment or the margins said, and it only worked horizontally because the
-            // rows inside it happen to expand sideways.
             x_expand: true,
             y_expand: true,
             x_align: Clutter.ActorAlign.CENTER,
@@ -491,7 +458,6 @@ export class Launcher {
         this._box.set_pivot_point(0.5, 0.5);
 
         this._entry = new St.Entry({can_focus: true, x_expand: true});
-        // EXTERNAL: the list still scrolls (wheel, keys, touchpad) but no scrollbar is ever drawn.
         this._scroll = new St.ScrollView({
             hscrollbar_policy: St.PolicyType.NEVER,
             vscrollbar_policy: St.PolicyType.EXTERNAL,
@@ -508,7 +474,6 @@ export class Launcher {
         this._overlay.add_child(this._box);
         Main.uiGroup.add_child(this._overlay);
 
-        // More rows are created as the user scrolls towards the end of what exists so far.
         const adj = vAdjustment(this._scroll);
         if (adj)
             adj.connect('notify::value', () => this._onScrolled());
@@ -521,14 +486,13 @@ export class Launcher {
             const grew = len > this._textLen;
             this._textLen = len;
             if (!this._histSet)
-                this._hCursor = -1; // typing something yourself ends the history walk
+                this._hCursor = -1;
             this._refresh();
-            this._autoLaunch(grew && !this._histSet); // a recalled search is never opened by itself
+            this._autoLaunch(grew && !this._histSet);
         });
         ct.connect('key-press-event', (_a, ev) => this._onKey(ev));
 
         this._overlay.connect('key-press-event', (_a, ev) => {
-            // Focus can leave the entry after a click; keep Escape and navigation working.
             return this._onKey(ev);
         });
         tryConnect(this._overlay, 'button-press-event', (_a, ev) => {
@@ -537,7 +501,7 @@ export class Launcher {
             } else if (this._outside === 'click') {
                 this.close();
             }
-            return Clutter.EVENT_STOP; // 'hover' and 'none' ignore outside clicks
+            return Clutter.EVENT_STOP;
         });
         tryConnect(this._overlay, 'motion-event', (_a, ev) => this._onMotion(ev));
         this._applyStyle();
@@ -556,9 +520,6 @@ export class Launcher {
         return !src || this._box.contains(src);
     }
 
-    // 'hover' mode: close once the pointer leaves the window. It only arms after the pointer
-    // has been inside once, so opening the launcher with the pointer elsewhere does not
-    // close it straight away.
     _onMotion(ev) {
         if (this._outside !== 'hover')
             return Clutter.EVENT_PROPAGATE;
@@ -569,9 +530,6 @@ export class Launcher {
         return Clutter.EVENT_PROPAGATE;
     }
 
-    // --- modes (sub-views such as clipboard history) ---
-
-    // grid: show the results as a grid of square glyph cells instead of rows (used for emoji).
     enterMode(mode, {placeholder = '', empty = 'No results', grid = false} = {}) {
         this._mode = mode;
         this._grid = grid;
@@ -606,8 +564,6 @@ export class Launcher {
         if (this._entry && this._st)
             this._entry.hint_text = this._st.placeholder;
     }
-
-    // --- styling -----------------------------------------------------------
 
     invalidateStyle() {
         this._dirty = true;
@@ -680,8 +636,6 @@ export class Launcher {
         }));
     }
 
-    // --- open / close ------------------------------------------------------
-
     toggle() {
         if (this.isOpen)
             this.close();
@@ -744,7 +698,6 @@ export class Launcher {
         const mon = this._monitor();
         this._overlay.set_position(mon.x, mon.y);
         this._overlay.set_size(mon.width, mon.height);
-        // Alignment and all four margins are set from scratch every time (see ui/placement.js).
         const wa = Main.layoutManager.getWorkAreaForMonitor(mon.index);
         const scale = this._cfg.num('scale');
         const p = computePlacement({
@@ -783,8 +736,6 @@ export class Launcher {
         const shown = {opacity: 255, scale_x: 1, scale_y: 1, translation_y: 0};
         const a = ANIMS[style] ?? ANIMS['fade-scale'];
         const hidden = {opacity: 0, scale_x: a.scale, scale_y: a.scale, translation_y: a.ty};
-        // While fading, paint the whole window as one flattened layer. Otherwise the translucent
-        // background, border and shadow are blended separately and the shadow visibly pulses.
         const redirect = mode => {
             try {
                 box.set_offscreen_redirect(mode);
@@ -797,7 +748,7 @@ export class Launcher {
             } else {
                 this._overlay.hide();
                 this._state = 'hidden';
-                this._clearSel(); // nothing may stay painted as selected while the window is hidden
+                this._clearSel();
                 this._trimPool();
                 this._onClose?.();
             }
@@ -810,8 +761,6 @@ export class Launcher {
             done();
             return;
         }
-        // The window is flattened into one layer while it fades, so its translucent background, border and
-        // shadow fade as one piece.
         redirect(Clutter.OffscreenRedirect.ALWAYS);
         box.ease({
             ...(opening ? shown : hidden),
@@ -821,19 +770,15 @@ export class Launcher {
         });
     }
 
-    // --- search + render ---------------------------------------------------
-
     _canBrowse() {
         return !!this._history && this._history.size > 0 && this._mode === null && this._cfg.bool('history-enabled');
     }
 
-    // One step through the search history (dir -1 = older, +1 = newer). Returns false when the arrow key
-    // should do its normal job instead.
     _historyStep(dir) {
         const cur = this._hCursor;
         const next = this._history.step(cur, dir);
         if (next === null)
-            return cur >= 0; // at the oldest search: stay, do not fall back to moving the list
+            return cur >= 0;
         if (cur === -1)
             this._draft = this.text;
         this._hCursor = next;
@@ -847,7 +792,6 @@ export class Launcher {
         return true;
     }
 
-    // Ctrl+H: hide the highlighted entry from the search (it can be shown again in the preferences).
     _hideSelected() {
         const e = this._results[this._sel];
         if (!e || !this._onHide)
@@ -857,10 +801,6 @@ export class Launcher {
             this._select(Math.min(keep, this._results.length - 1));
     }
 
-    // Opens the only matching entry once typing has paused. Only for entries that are safe to start by
-    // accident (applications and your own commands/actions); never for web searches, `!commands`,
-    // calculator results, clipboard items, emoji, accounts or power actions. It only reacts to typing more
-    // (not deleting), needs two characters, and checks again after the delay that nothing changed.
     _autoLaunch(grew) {
         if (this._autoTimer) {
             GLib.source_remove(this._autoTimer);
@@ -893,7 +833,6 @@ export class Launcher {
             this._autoTimer = GLib.timeout_add(GLib.PRIORITY_DEFAULT, delay, fire);
     }
 
-    // Is this entry an application with an open window? (the marker on its row)
     _isRunning(e) {
         return e.kind === 'app' && this._runSet.has(e.payload.appId);
     }
@@ -909,12 +848,11 @@ export class Launcher {
             warn('search failed:', e.message);
             results = [];
         }
-        // Results that arrive later (the file search) belong to the query they were asked for.
         if (this._extraFor !== text.trim() || this._mode !== null)
             this._extra = [];
         if (this._extra.length) {
             const sections = results._sections;
-            const web = results.findIndex(r => r.kind === 'web'); // a web fallback stays last
+            const web = results.findIndex(r => r.kind === 'web');
             results = web < 0 ? [...results, ...this._extra] : [...results.slice(0, web), ...this._extra, ...results.slice(web)];
             if (sections)
                 results._sections = sections;
@@ -932,10 +870,6 @@ export class Launcher {
         if (grid)
             this._layoutGrid();
 
-        // The window grows with the results up to the configured maximum, then scrolls. This is an
-        // actor size rather than an inline CSS height: changing the style string re-resolves the
-        // style of the whole list on every result-count change, which made the border and shadow
-        // flicker while typing. CSS px -> actor px goes through the theme scale factor.
         let need = 0;
         let max = st.maxListH;
         if (grid) {
@@ -950,9 +884,6 @@ export class Launcher {
             this._lastListH = h;
         }
 
-        // Only the first batch of rows exists up front; _grow() adds more on demand. The batch must at
-        // least fill the visible height: with a tall window and small cells the first batch used to cover
-        // only part of it, and the rest stayed empty until the selection moved down.
         this._shown = 0;
         this._gridShown = 0;
         this._grow(Math.min(n, Math.max(this._chunk(), this._fillCount(h))));
@@ -975,19 +906,12 @@ export class Launcher {
             adj.value = 0;
     }
 
-    // Un-highlight whatever is painted as selected (even if the view switched between list and grid
-    // since) and forget the index. Resetting only the index left the previous row/cell highlighted,
-    // so two entries looked selected at once.
     _clearSel() {
         this._selItem?.setSelected(false);
         this._selItem = null;
         this._sel = -1;
     }
 
-    // --- grid layout: lines of cells, optionally in titled sections ---------------------------------
-
-    // Works out which results sit on which line. `_sections` ([{title, count}]) splits the results into
-    // blocks that each start on a new line under a small title; without it the grid is one plain block.
     _layoutGrid() {
         const st = this._st;
         const cols = st.gridCols;
@@ -1045,7 +969,6 @@ export class Launcher {
         return (this._tops[line] ?? 0) + (l?.header ? this._st.sectionH : 0) + this._st.gridCell;
     }
 
-    // How many results to create so that `heightPx` of the list is filled, plus a few lines ahead.
     _fillCount(heightPx) {
         const n = this._results.length;
         if (heightPx <= 0)
@@ -1061,12 +984,10 @@ export class Launcher {
         return Math.min(n, Math.ceil(heightPx / ((this._st.rowH + this._st.gap) * sf)) + 3);
     }
 
-    // Entries created per batch: a few lines of cells in the grid, 40 rows in the list.
     _chunk() {
         return this._grid ? this._st.gridCols * 6 : CHUNK;
     }
 
-    // Make sure rows/cells for entries [0, upto) exist and show them. Returns whether any were added.
     _grow(upto) {
         const n = this._results.length;
         const from = this._shown;
@@ -1100,7 +1021,6 @@ export class Launcher {
         return row;
     }
 
-    // Row geometry of the list view in actor pixels: distance between rows, size of one row.
     _metrics() {
         const st = this._st;
         const sf = scaleFactor();
@@ -1118,7 +1038,6 @@ export class Launcher {
         return this._rows[i] ?? null;
     }
 
-    // Called on every scroll movement: add the next batch before the user reaches the last row.
     _onScrolled() {
         if (this._shown >= this._results.length || !this._st)
             return;
@@ -1164,15 +1083,10 @@ export class Launcher {
             this._hint.text = e ? (e.desc ? `${e.name}  ·  ${e.desc}` : e.name) : '';
         }
         this._scrollToSelected();
-        // Rows created just now have no allocation yet, so the scroll range is still the old one.
-        // Apply the same scroll again once the layout has caught up.
         if (grew)
             this._reveal.schedule();
     }
 
-    // Keep the selected row fully visible. Pure arithmetic from the row index (rows have a fixed
-    // height), so it works for rows that were created a moment ago and does not depend on any
-    // Shell helper that may be moved or removed between versions.
     _scrollToSelected() {
         try {
             const adj = vAdjustment(this._scroll);
@@ -1182,7 +1096,6 @@ export class Launcher {
             let top;
             let bottom;
             if (this._grid) {
-                // From the top of the line (its section title included) to the bottom of its cells.
                 const ln = this._gridPos(this._sel).line;
                 const sf = scaleFactor();
                 top = this._tops[ln] * sf;
@@ -1199,7 +1112,6 @@ export class Launcher {
         } catch (_e) { /* scrolling is best effort */ }
     }
 
-    // After the window has closed, give back rows that only a very long list needed.
     _trimPool() {
         this._clearSel();
         for (const row of this._gridRows.splice(KEEP_ROWS / 4))
@@ -1222,16 +1134,12 @@ export class Launcher {
         if (n === 0)
             return;
         let i = this._sel + delta;
-        // Wrapping from the first row to the last would have to create every row of a very long
-        // list at once, so long lists stop at their ends instead (short lists still wrap).
         if (n > this._chunk() * 3 || this._grid)
             clamp = true;
         i = clamp ? Math.min(n - 1, Math.max(0, i)) : (i + n) % n;
         this._select(i);
     }
 
-    // Grid: move whole lines, keeping the column where the line is long enough. Down on the last line stays
-    // where it is; Up on the first line goes to the first cell.
     _moveLines(d) {
         if (this._results.length === 0)
             return;
@@ -1246,16 +1154,12 @@ export class Launcher {
         this._select(ln.base + Math.min(p.col, ln.count - 1));
     }
 
-    // `how` says which modifier was held with Enter: '', 'ctrl', 'alt' or 'shift'. Most entries ignore
-    // it; account entries use it to copy the username, open the site or type the password.
     _activateIndex(i, how = '') {
         const entry = this._results[i];
         if (entry)
             this._onActivate(entry, how);
     }
 
-    // A click, tap or touch on result i. Both input paths may report the same click; only the first counts, and
-    // nothing happens once the window is on its way out.
     _clicked(i) {
         if (this._state !== 'open' && this._state !== 'opening')
             return;
@@ -1274,13 +1178,10 @@ export class Launcher {
         this._openMenu(i);
     }
 
-    // True shortly after a key press: rows scrolling under a resting pointer must not steal the selection.
     _keyRecent() {
         return GLib.get_monotonic_time() - this._lastKey < 300000;
     }
 
-    // Results that took time to find (files). Added after the others, before a web-search fallback; ignored when
-    // the text has changed since they were asked for.
     addAsyncResults(query, entries) {
         if (!this._built || (this._state !== 'open' && this._state !== 'opening') || this._mode !== null || this.text.trim() !== query)
             return;
@@ -1289,8 +1190,6 @@ export class Launcher {
         this.refreshResults();
     }
 
-    // The search shows the same query again (favorites or hidden entries changed) and keeps the selection on
-    // the same entry where it still exists.
     refreshResults() {
         if (!this._built || (this._state !== 'open' && this._state !== 'opening'))
             return;
@@ -1305,8 +1204,6 @@ export class Launcher {
         return this._cfg.bool('action-menu');
     }
 
-    // Ctrl+B or a right click: the actions available for result i, shown as a list of their own. Escape or
-    // Backspace on an empty field goes back to the search exactly as it was.
     _openMenu(i = this._sel) {
         const e = this._results[i];
         if (!e || this._mode !== null || !this._onMenu)
@@ -1339,7 +1236,7 @@ export class Launcher {
     _favoriteSelected() {
         const e = this._results[this._sel];
         if (e && this._onFavorite)
-            this._onFavorite(e); // the change comes back through refreshResults()
+            this._onFavorite(e);
     }
 
     _onKey(ev) {
@@ -1349,7 +1246,6 @@ export class Launcher {
         const ctrl = (mods & Clutter.ModifierType.CONTROL_MASK) !== 0;
         const alt = (mods & Clutter.ModifierType.MOD1_MASK) !== 0;
 
-        // Window-only shortcuts first, so they can override the built-in navigation keys.
         if (this._win.length > 0) {
             const m = mods & MOD_MASK;
             if (m & NEEDS_MOD) {
@@ -1389,9 +1285,6 @@ export class Launcher {
 
         switch (sym) {
         case Clutter.KEY_Escape:
-            // Closes the launcher from anywhere, including clipboard/emoji/accounts. Backspace on an
-            // empty field still steps back from a sub-view to the main search. The action menu is the
-            // exception: Escape closes only the menu.
             if (this.leaveMenu())
                 return Clutter.EVENT_STOP;
             this.close();
@@ -1409,8 +1302,6 @@ export class Launcher {
             this._move(1);
             return Clutter.EVENT_STOP;
         case Clutter.KEY_Up:
-            // Up on the first result (or with nothing listed) recalls earlier searches; once recalling,
-            // every Up goes one further back and Down comes forward again to what was typed.
             if (this._canBrowse() && (this._hCursor >= 0 || this._sel <= 0) && this._historyStep(-1))
                 return Clutter.EVENT_STOP;
             this._move(-1);
@@ -1437,8 +1328,6 @@ export class Launcher {
 
         if (ctrl) {
             switch (sym) {
-            // Ctrl+B opens the action menu when that behaviour is on; then Ctrl+H and Ctrl+F are not used
-            // (everything they did is in the menu). Ctrl+D also marks a favorite.
             case Clutter.KEY_b:
                 if (!this._menuOn())
                     return Clutter.EVENT_PROPAGATE;

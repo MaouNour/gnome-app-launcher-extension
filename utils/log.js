@@ -1,4 +1,3 @@
-// Debug logging is gated so it costs nothing (no string building) when off.
 let enabled = false;
 
 export function setDebug(value) {

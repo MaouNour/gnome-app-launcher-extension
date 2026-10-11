@@ -1,10 +1,3 @@
-// Pure JS (no GI imports): where the launcher window goes on the monitor.
-//
-// The window sits in a full-monitor overlay and is placed with an alignment (start / centre / end) per
-// axis plus margins. Margins can only be positive, so a move towards the anchor's edge shrinks the
-// margin on that edge and a move away from it grows the margin, instead of using a negative number.
-// The result is always a complete set (both alignments and all four margins), so nothing from a
-// previous placement can linger.
 
 export const ANCHORS = [
     ['custom', 'Custom: centred, at the vertical position above'],
@@ -22,12 +15,8 @@ export const ANCHORS = [
 const KNOWN = new Set(ANCHORS.map(a => a[0]));
 const int = (v, d = 0) => (Number.isFinite(Number(v)) ? Math.round(Number(v)) : d);
 
-// One axis. `align` is start | center | end. `inset` is how much of the monitor's edge the shell uses on
-// the anchor side (top bar...), `gap` the distance kept from the edge, `off` the user's move in pixels
-// (positive = right / down), `centerShift` how far the middle of the usable area is from the monitor's
-// middle, `size` the monitor's size on this axis and `win` the most the window can take of it.
 function axis(align, {inset, gap, off, centerShift, size, win}) {
-    const room = Math.max(0, size - win); // keep the window fully on the monitor
+    const room = Math.max(0, size - win);
     let before = 0;
     let after = 0;
     if (align === 'start') {
@@ -35,7 +24,6 @@ function axis(align, {inset, gap, off, centerShift, size, win}) {
     } else if (align === 'end') {
         after = inset + gap - off;
     } else {
-        // A centred actor whose margin on one side is m ends up m/2 off the middle, so m = 2 x the move.
         const d = centerShift + off;
         if (d >= 0)
             before = 2 * d;
@@ -46,10 +34,6 @@ function axis(align, {inset, gap, off, centerShift, size, win}) {
     return {before: Math.min(Math.max(0, before), room), after: Math.min(Math.max(0, after), room)};
 }
 
-// anchor: one of ANCHORS | pos: vertical position in % (the 'custom' anchor) | searchAtBottom: the search bar
-// is below the results | gap, offX, offY: pixels | mon, work: {x, y, width, height} of the monitor and of
-// its usable area (without the top bar) | winW, winH: the largest size the window can have.
-// Returns {xAlign, yAlign, top, bottom, left, right}.
 export function computePlacement({anchor, pos, searchAtBottom, gap, offX, offY, mon, work, winW, winH}) {
     const a = KNOWN.has(anchor) ? anchor : 'custom';
     const g = Math.max(0, int(gap, 24));
@@ -68,8 +52,6 @@ export function computePlacement({anchor, pos, searchAtBottom, gap, offX, offY, 
     const yShift = (w.y + w.height / 2) - (mon.y + mon.height / 2);
 
     if (a === 'custom') {
-        // The original behaviour: centred horizontally, the top (or, with the search bar at the bottom,
-        // the bottom) edge at `pos` percent of the screen height.
         const p = Math.min(95, Math.max(0, int(pos, 18)));
         xAlign = 'center';
         x = axis('center', {...xCommon, gap: 0, inset: 0, centerShift: 0});

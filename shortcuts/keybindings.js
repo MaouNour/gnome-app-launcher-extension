@@ -13,20 +13,18 @@ const NONE = Meta.KeyBindingAction.NONE;
 export class Keybindings {
     constructor() {
         this._mainKey = null;
-        this._custom = new Map(); // action id -> {id, accel, name}
+        this._custom = new Map();
         this._customSig = 0;
 
         this._overlaySig = 0;
         this._shellBlocked = 0;
         this._sessionSig = 0;
         this._superCb = null;
-        this._mainArgs = null;   // {settings, key, callback}: kept so the binding can be put back
-        this._customArgs = null; // {items, callback}
+        this._mainArgs = null;
+        this._customArgs = null;
         this._blocked = false;
     }
 
-    // While true (a blocked application has focus) every launcher shortcut is released, so the keys
-    // reach that application untouched. Event driven: called on focus changes only.
     setBlocked(blocked) {
         if (blocked === this._blocked)
             return;
@@ -42,9 +40,6 @@ export class Keybindings {
         }
     }
 
-    // Main activation shortcut. `key` is the name of an 'as' GSettings key. Mutter keeps ONE
-    // global list of binding names (shared with every extension), so the key name must be
-    // unique, and it is registered once: Mutter itself follows later changes to the setting.
     setMain(settings, key, callback) {
         if (this._mainArgs)
             return true;
@@ -91,18 +86,11 @@ export class Keybindings {
         this._mainArgs = null;
     }
 
-    // Open on a bare Super press (and release, with no other key or click in between: Mutter decides that
-    // and emits `overlay-key`). Shell's overview listens to the same signal, so while this is on its
-    // handlers are blocked and ours is connected after the block. Nothing in GSettings is changed.
-    //
-    // Why not watch key events on the stage: Mutter hands key events straight to the focused
-    // application and the stage never sees them, so that only worked with nothing focused.
     setSuperKey(enabled, callback) {
         this._stopSuper();
         if (!enabled)
             return;
         this._superCb = callback;
-        // An earlier version emptied Mutter's `overlay-key`. If that was left behind (a crash), give it back.
         try {
             const m = new Gio.Settings({schema_id: 'org.gnome.mutter'});
             if (m.get_string('overlay-key') === '') {
@@ -119,19 +107,13 @@ export class Keybindings {
             this._shellBlocked = 0;
             warn('could not block the overview\'s Super handler, hiding the overview instead:', e.message);
         }
-        // The Shell only lets `overlay-key` through in the NORMAL and OVERVIEW action modes. The open launcher
-        // holds a POPUP grab, so without this a second tap on Super could never close it. Session changes
-        // (lock screen, login) reset the allowance, so it is put back whenever the session mode updates.
         this._allowSuper();
         this._sessionSig = Main.sessionMode.connect('updated', () => this._allowSuper());
         this._overlaySig = global.display.connect('overlay-key', () => {
             if (this._blocked) {
-                // An application that is on the blocklist has focus: the launcher steps aside and the Super key
-                // does what the Shell would do without this extension.
                 Main.overview.toggle();
                 return;
             }
-            // Fallback when the handler could not be blocked: close the overview that just opened.
             if (!this._shellBlocked && (Main.overview.visible || Main.overview.animationInProgress))
                 Main.overview.hide();
             this._superCb?.();
@@ -173,8 +155,6 @@ export class Keybindings {
         this._superCb = null;
     }
 
-    // Per-entry shortcuts. `items` = [{id, accel}]. Returns accelerators that could not be
-    // grabbed (conflicts/invalid) so the caller can tell the user. Duplicates: first wins.
     setCustom(items, callback) {
         this._ungrabCustom();
         this._customArgs = {items, callback};

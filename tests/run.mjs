@@ -55,7 +55,6 @@ const eng = new SearchEngine();
 eng.setEntries(apps);
 const ids = (q, o, e = eng) => e.search(q, o).map(x => x.id);
 
-// --- search ---------------------------------------------------------------
 test('exact name ranks first', () => assert.equal(ids('firefox')[0], 'a'));
 test('shorter prefix match ranks first', () => assert.deepEqual(ids('fi').slice(0, 2), ['b', 'a']));
 test('prefix beats substring', () => {
@@ -98,7 +97,7 @@ test('frecency boosts used entries', () => {
     const m = new Map([['a', [50, Math.floor(Date.now() / 1000)]]]);
     e2.stats = {get: id => m.get(id), entries: () => m.entries()};
     assert.equal(e2.search('')[0].id, 'a');
-    assert.equal(ids('fi', {}, e2)[0], 'a'); // Firefox overtakes Files once heavily used
+    assert.equal(ids('fi', {}, e2)[0], 'a');
 });
 test('frecency decays with age', () => {
     const now = 1e9;
@@ -109,7 +108,6 @@ test('empty query gives alphabetical fill', () => assert.equal(eng.search('', {i
 test('limit respected', () => assert.equal(eng.search('e', {limit: 2}).length, 2));
 test('fold lowercases and strips accents', () => assert.equal(fold('ÉCOLE'), 'ecole'));
 
-// --- themes ---------------------------------------------------------------
 test('theme sanitizer blocks CSS injection', () => {
     const t = sanitizeTheme({background: 'red;}x{', fontFamily: 'a;}', radius: 1e9, opacity: -5});
     assert.equal(t.background, '#242424');
@@ -144,7 +142,6 @@ test('theme families only reference existing themes', () => {
         assert.ok(all[light] && all[dark], fam);
 });
 
-// --- commands / actions ---------------------------------------------------
 test('valid command builds an entry with shortcut', () => {
     const r = buildUserEntries([{id: '1', name: 'Terminal', command: 'kgx', icon: 'utilities-terminal', shortcut: '<Control><Alt>t'}], [], {});
     assert.equal(r.entries.length, 1);
@@ -181,8 +178,6 @@ test('sanitizers strip control characters and cap length', () => {
     assert.ok(c.name.length <= 512);
 });
 
-
-// --- calculator -------------------------------------------------------------
 test('calculator basics', () => {
     assert.equal(calculate('2+3*4'), '14');
     assert.equal(calculate('(1+2)^2'), '9');
@@ -198,7 +193,6 @@ test('calculator rejects non-math and unsafe input', () => {
         assert.equal(calculate(bad), null, `should reject ${JSON.stringify(bad).slice(0, 30)}`);
 });
 
-// --- built-in entries -------------------------------------------------------
 test('built-ins include power and clipboard entries', () => {
     const ids = BUILTINS.map(b => b.id);
     for (const id of ['power-off', 'reboot', 'logout', 'suspend', 'lock-screen', 'clipboard', 'clear-clipboard'])
@@ -239,7 +233,6 @@ test('new GNOME actions accepted for user actions', () => {
     assert.ok(validateAction(sanitizeAction({name: 'x', type: 'gnome', target: 'clear-clipboard'})));
 });
 
-// --- static checks on the Shell-facing code ---------------------------------
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 function jsFiles(dir) {
     return readdirSync(dir).flatMap(n => {
@@ -249,10 +242,7 @@ function jsFiles(dir) {
         return statSync(p).isDirectory() ? jsFiles(p) : (p.endsWith('.js') ? [p] : []);
     });
 }
-// Named imports from Shell resource modules fail at load time if the export is moved or
-// removed between versions (this once broke the launcher). Only these are allowed.
 const SAFE_NAMED = new Set(['Extension', 'ExtensionPreferences']);
-// ---- emoji ----------------------------------------------------------------------------------
 const emojiEntries = parseEmoji(EMOJI_DATA, EMOJI_GROUPS).map(prepare);
 const emojiEngine = () => {
     const e = new SearchEngine();
@@ -436,7 +426,6 @@ test('emoji built-in shortcuts are collected like any other built-in', () => {
     assert.deepEqual(r.windowShortcuts.filter(w => w.id === 'system:emoji'), [{id: 'system:emoji', accel: '<Alt>e'}]);
 });
 
-// ---- clipboard images -----------------------------------------------------------------------
 const IMG = {
     png: 'iVBORw0KGgoAAAANSUhEUgAAACUAAAAVCAIAAABOhrD5AAAAJElEQVR4nGP4z8BAT0RXy0btG7Vv1L5R+0btG7Vv1L5R+6iAAEZYBiUyqttGAAAAAElFTkSuQmCC',
     gif: 'R0lGODdhQAAwAIEAAP8AAAAAAAAAAAAAACwAAAAAQAAwAEAIWgABCBxIsKDBgwgTKlzIsKHDhxAjSpxIsaLFixgzatzIsaPHjyBDihxJsqTJkyhTqlzJsqXLlzBjypxJs6bNmzhz6tzJs6fPn0CDCh1KtKjRo0iTKl3KtGnRgAA7',
@@ -485,7 +474,6 @@ test('imagesToDrop removes only the oldest images beyond the limit', () => {
     assert.deepEqual(imagesToDrop(items, 0), [0, 2, 3, 5]);
 });
 
-// ---- accounts -------------------------------------------------------------------------------
 const rnd = n => new Uint8Array(randomBytes(n));
 test('safeUrl accepts http(s) and bare hosts only', () => {
     assert.equal(safeUrl('https://example.com/login'), 'https://example.com/login');
@@ -545,7 +533,6 @@ test('password generation is unbiased (rejection sampling) and survives poor ran
             counts[ch] = (counts[ch] ?? 0) + 1;
     const vals = Object.values(counts);
     assert.ok(Math.max(...vals) / Math.min(...vals) < 1.5, 'distribution too uneven');
-    // A source that always returns 255 is rejected by the sampler and must fail loudly, not loop forever.
     assert.throws(() => generatePassword(() => new Uint8Array(100).fill(255), {length: 8}));
 });
 test('clipboard clear delay is clamped', () => {
@@ -556,7 +543,6 @@ test('clipboard clear delay is clamped', () => {
     assert.equal(clearDelaySeconds('x'), 20);
 });
 
-// ---- regex search ---------------------------------------------------------------------------
 test('regex queries: modes decide what counts as a pattern', () => {
     assert.equal(parseRegexQuery('/fire', 'off'), null);
     assert.equal(parseRegexQuery('firefox', 'prefix'), null);
@@ -680,7 +666,6 @@ test('regexKeywords is stored on commands and actions and defaults to off', () =
     assert.equal(entries[0].keywords, '');
 });
 
-// ---- web / AI fallback ----------------------------------------------------------------------
 test('web provider templates must be http(s) and contain {query}', () => {
     assert.ok(validTemplate('https://example.com/s?q={query}'));
     for (const bad of ['https://example.com/s', 'ftp://x.org/{query}', 'javascript:alert({query})', 'file:///{query}', '', 5, 'https://a b/{query}'])
@@ -767,7 +752,7 @@ test('every settings key used in code exists in the schema', () => {
     const re = /(?:\.(?:str|int|num|bool|strv|json)|get_string|get_int|get_double|get_boolean|get_strv|set_string|set_int|set_strv|(?:switch|spin|entry|combo)Row\(settings,|bump\(settings,|onChanged\()\(?\s*'([a-z][a-z-]+)'/g;
     for (const f of jsFiles(root)) {
         for (const m of readFileSync(f, 'utf8').matchAll(re)) {
-            if (!['color-scheme', 'accent-color', 'overlay-key', 'show-banners'].includes(m[1])) // keys of GNOME's own schemas
+            if (!['color-scheme', 'accent-color', 'overlay-key', 'show-banners'].includes(m[1]))
                 assert.ok(keys.has(m[1]), `${f}: unknown settings key "${m[1]}"`);
         }
     }
@@ -789,7 +774,7 @@ test('Launcher Settings is built in with Ctrl+I as the default window shortcut',
     assert.deepEqual(own.windowShortcuts, [{id: 'system:launcher-settings', accel: '<Control>o'}]);
     const cleared = buildBuiltinEntries({'launcher-settings': {windowShortcut: ''}}, {});
     assert.deepEqual(cleared.windowShortcuts, []);
-    assert.deepEqual(sanitizeBuiltins({reboot: {windowShortcut: ''}}), {}); // '' only means "cleared" where a default exists
+    assert.deepEqual(sanitizeBuiltins({reboot: {windowShortcut: ''}}), {});
 });
 const H = 'a'.repeat(64);
 test('history on disk: text, copied image, linked image and video survive a round trip', () => {
@@ -798,7 +783,7 @@ test('history on disk: text, copied image, linked image and video survive a roun
         {ts: 4, image: {mime: 'image/png', hash: H, size: 10, info: {type: 'PNG', width: 3, height: 2}, path: copyName(H, 'image/png'), linked: false}},
         {ts: 3, image: {mime: 'image/png', hash: H, size: 10, info: null, path: '/home/u/Pictures/Screenshots/a.png', linked: true}},
         {ts: 2, file: {path: '/home/u/Videos/Screencasts/r.webm', kind: 'video', size: 99, name: 'r.webm'}},
-        {ts: 1, image: {mime: 'image/png', hash: H, size: 10, bytes: {}, path: null, linked: false}}, // memory only: not stored
+        {ts: 1, image: {mime: 'image/png', hash: H, size: 10, bytes: {}, path: null, linked: false}},
     ];
     const stored = serializeItems(items);
     assert.equal(stored.length, 4);
@@ -811,8 +796,8 @@ test('history on disk: damaged or hostile index entries are rejected', () => {
     const bad = [
         null, 7, {t: 'text', text: '   '}, {t: 'text', text: 'x'.repeat(20001)},
         {t: 'image', mime: 'image/png', hash: 'zz', path: copyName(H, 'image/png')},
-        {t: 'image', mime: 'image/png', hash: H, path: '../../etc/passwd', linked: false},      // a copy must be a plain img-<hash> name
-        {t: 'image', mime: 'image/png', hash: H, path: 'relative/file.png', linked: true},     // a link must be absolute
+        {t: 'image', mime: 'image/png', hash: H, path: '../../etc/passwd', linked: false},
+        {t: 'image', mime: 'image/png', hash: H, path: 'relative/file.png', linked: true},
         {t: 'image', mime: 'text/plain', hash: H, path: copyName(H, 'image/png')},
         {t: 'file', path: '/x/y.txt', kind: 'script'}, {t: 'file', path: 'rel.webm', kind: 'video'}, {t: 'other'},
     ];
@@ -863,7 +848,7 @@ test('run-a-command prefix', () => {
     assert.equal(parseExec('a !b', '!'), null);
     assert.equal(parseExec('!ls', ''), null);
     assert.equal(parseExec('!ls', '   '), null);
-    assert.deepEqual(parseExec('>> top', '>>'), {command: 'top'});   // any symbol, also several characters
+    assert.deepEqual(parseExec('>> top', '>>'), {command: 'top'});
     assert.equal(parseExec('!ls', undefined), null);
 });
 test('the history never deletes files it only links', () => {
@@ -906,7 +891,7 @@ test('auto-launch: off by default, only for apps/commands/actions, ignores web r
 });
 test('hidden entries: only fixed-id kinds can be hidden, and the engine list is filtered', () => {
     const ext = readFileSync(join(root, 'extension.js'), 'utf8');
-    assert.match(ext, /HIDEABLE_KINDS = new Set\(\['app', 'command', 'action', 'system', 'mode'\]\)/);
+    assert.match(readFileSync(join(root, 'commands/menu.js'), 'utf8'), /HIDEABLE_KINDS = new Set\(\['app', 'command', 'action', 'system', 'mode'\]\)/);
     assert.ok(ext.includes('all.filter(e => !hidden.has(e.id))'));
     const ui = readFileSync(join(root, 'ui/launcher.js'), 'utf8');
     assert.ok(ui.includes('case Clutter.KEY_h:'));
@@ -925,14 +910,14 @@ test('search history: newest first, no duplicates, limit, blank and huge text ig
     assert.equal(h.size, 3);
     h.setMax(1);
     assert.deepEqual(h.list(), ['files']);
-    h.setMax(0); // no limit
+    h.setMax(0);
     for (let i = 0; i < 500; i++)
         h.add(`q${i}`);
     assert.equal(h.size, 501);
 });
 test('search history: Up goes back through the searches, Down returns to what was typed', () => {
     const h = new QueryHistory(10);
-    ['a', 'b', 'c'].forEach(q => h.add(q)); // list: c b a
+    ['a', 'b', 'c'].forEach(q => h.add(q));
     let cur = -1;
     cur = h.step(cur, -1); assert.equal(h.at(cur), 'c');
     cur = h.step(cur, -1); assert.equal(h.at(cur), 'b');
@@ -984,7 +969,6 @@ test('start list: recent entries come first by last use, optionally without fill
 });
 test('grid: no half-filled window, sections laid out in lines, and the emoji view asks for them', () => {
     const ui = readFileSync(join(root, 'ui/launcher.js'), 'utf8');
-    // The first batch must cover the visible height, not just a fixed number of lines.
     assert.ok(ui.includes('this._grow(Math.min(n, Math.max(this._chunk(), this._fillCount(h))))'));
     assert.ok(ui.includes('_layoutGrid()') && ui.includes('_moveLines('));
     assert.ok(!ui.includes('Math.floor(this._sel / cols)'), 'the old fixed-width line arithmetic is gone');
@@ -1223,7 +1207,7 @@ test('blocklist: exact, case, .desktop and wildcard matching', () => {
     assert.ok(!b.test(['firefox', undefined, '']));
     assert.ok(!b.test(['steam']));
     assert.equal(compileBlocklist(undefined).size, 0);
-    assert.ok(!compileBlocklist(['a.b']).test(['axb'])); // dots are literal
+    assert.ok(!compileBlocklist(['a.b']).test(['axb']));
 });
 test('prefs page builders are called with the arguments they declare', () => {
     const src = readFileSync(join(root, 'prefs/pages.js'), 'utf8');
@@ -1261,13 +1245,12 @@ test('prefs page builders are called with the arguments they declare', () => {
         if (params.includes('=') || params.includes('{')) continue;
         const want = params.trim() ? params.split(',').length : 0;
         for (const [at, args] of callArgs(name)) {
-            if (at === m.index + 'function '.length) continue; // the declaration itself
+            if (at === m.index + 'function '.length) continue;
             assert.equal(argc(args), want, `${name}(${args}) passes ${argc(args)} argument(s), expected ${want} (${params})`);
         }
     }
 });
 
-// ---- keyboard layout maps -------------------------------------------------------------------
 test('layout map: the Arabic keys give the Latin letters', () => {
     const maps = compileMaps(DEFAULT_MAPS);
     assert.equal(translateQuery('لىخةث-مشعىؤاثق', maps).text, 'gnome-launcher');
@@ -1451,7 +1434,6 @@ test('keyword lists: whole keywords match as phrases and keep matching while typ
     assert.ok(ids('open term').includes('re') && ids('open shell').includes('re') && ids('go7').includes('re'));
     assert.ok(!ids('open shell now').includes('re'), 'every keyword is an anchored pattern here');
     assert.ok(ids('alpha').includes('plain'), 'entries without a separator work as before');
-    // typing one character at a time must find a phrase that the shorter text did not match
     const fresh = new SearchEngine();
     fresh.setEntries(eng._entries);
     eng.search('q');
@@ -1471,7 +1453,6 @@ test('search field ring is drawn by the launcher, not by the Shell theme', () =>
     assert.ok(buildStyles({...base, ringColor: null}, t).entry.includes('box-shadow: none'));
 });
 test('marker on the highlighted row keeps its colour unless it would vanish', () => {
-    // pale highlight (Solarized light): the accent stays, it no longer turns into the dark text colour
     assert.equal(markOnSelection({mark: '#268bd2', selection: '#eee8d5', background: '#fdf6e3', selectionText: '#073642'}), '#268bd2');
     // translucent highlight on a light window
     assert.equal(markOnSelection({mark: '#e62d42', selection: '#0000000f', background: '#ffffff', selectionText: '#1d1d1f'}), '#e62d42');

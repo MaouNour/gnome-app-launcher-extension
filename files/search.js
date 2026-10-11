@@ -5,10 +5,8 @@ import {dbg, warn} from '../utils/log.js';
 import {locateArgs, parseLines, pathFromUri} from './results.js';
 
 const TIMEOUT_MS = 4000;
-const LOCATE_FETCH = 400; // asked for before the filters (home folder, hidden files) are applied
+const LOCATE_FETCH = 400;
 
-// Where GNOME's file search provider says it lives. The Files app (Nautilus) registers one with the Shell; it is
-// answered from the LocalSearch (Tracker) index that GNOME already keeps, so this extension keeps no index.
 export function findGnomeProvider() {
     const dirs = [GLib.get_user_data_dir(), ...GLib.get_system_data_dirs()];
     for (const d of dirs) {
@@ -38,7 +36,6 @@ export function findLocate() {
     return null;
 }
 
-// One backend query at a time: a new search cancels the one still running.
 export class FileSearch {
     constructor() {
         this._cancel = null;
@@ -47,7 +44,6 @@ export class FileSearch {
         this._locate = undefined;
     }
 
-    // {gnome: boolean, locate: string|null}. Looked up once; the answers do not change while the Shell runs.
     available() {
         this._gnome ??= findGnomeProvider();
         this._locate ??= findLocate() ?? null;
@@ -67,8 +63,6 @@ export class FileSearch {
         }
     }
 
-    // Resolves to a list of absolute paths (possibly empty); rejects on a backend error. A search that was
-    // replaced by a newer one resolves to null.
     async search(backend, terms) {
         this.cancel();
         const cancel = this._cancel = new Gio.Cancellable();

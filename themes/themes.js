@@ -1,6 +1,3 @@
-// Pure JS (no GI imports) so it can be used from both the shell and the prefs process,
-// and unit-tested under plain node. Every value that reaches a CSS string passes
-// through sanitizeTheme(), so imported theme files cannot inject arbitrary CSS.
 
 const HEX = /^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$/;
 const FONT = /^[\w\s,\-'"]{0,120}$/;
@@ -118,10 +115,6 @@ const PARTIAL_BUILTINS = {
         border: '#dfdad9', searchBackground: '#f2e9e1', shadowOpacity: 0.2,
     },
 
-    // Raycast / Vicinae look-alikes: flat near-solid surface, hairline border, a very subtle
-    // row highlight (translucent white/black instead of a solid accent) and a search field
-    // with no fill of its own. Raycast's red (#ff6363) and dark surface (#151515) come from
-    // Raycast's public brand page; the rest are close approximations, not exact copies.
     'raycast-dark': {
         background: '#151515', foreground: '#f9f9f9', secondary: '#9c9c9d',
         accent: '#ff6363', selection: '#ffffff14', selectionText: '#ffffff',
@@ -152,7 +145,6 @@ const PARTIAL_BUILTINS = {
     },
 };
 
-// Name pairs for the "quick preset" row in preferences: one click sets both modes.
 export const THEME_FAMILIES = {
     'Default': ['default-light', 'default-dark'],
     'Raycast': ['raycast-light', 'raycast-dark'],
@@ -165,7 +157,6 @@ export const THEME_FAMILIES = {
     'Rosé Pine': ['rose-pine-dawn', 'rose-pine'],
 };
 
-// Validate/clamp every known field; anything invalid falls back to `base`.
 export function sanitizeTheme(raw, base = THEME_BASE) {
     const out = {};
     const src = raw && typeof raw === 'object' ? raw : {};
@@ -215,7 +206,6 @@ export function themeNames(custom) {
     return names;
 }
 
-// Resolve the effective theme: built-in or custom theme by name, then user overrides.
 export function resolveTheme({custom, name, dark, overrides}) {
     const all = builtinThemes();
     const fallback = all[dark ? 'default-dark' : 'default-light'];

@@ -1,6 +1,4 @@
-// Pure JS (no GI imports): the colour of the "this application is running" marker.
 
-// GNOME's accent colours (org.gnome.desktop.interface accent-color), as libadwaita draws them.
 export const ACCENTS = {
     blue: '#3584e4', teal: '#2190a4', green: '#3a944a', yellow: '#c88800',
     orange: '#ed5b00', red: '#e62d42', pink: '#d56199', purple: '#9141ac', slate: '#6f8396',
@@ -10,10 +8,8 @@ const HEX = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/
 
 export const isColor = s => typeof s === 'string' && HEX.test(s.trim());
 
-// mode: 'system' (the desktop accent colour), 'theme' (the launcher theme's accent) or 'custom'.
-// Always returns a usable colour: whatever is missing or malformed falls back to the next choice.
 export function activeColor({mode, custom, system, theme}) {
-    const sys = ACCENTS[system] ?? system; // the desktop gives a name ("green"), not a colour
+    const sys = ACCENTS[system] ?? system;
     const pick = mode === 'custom' ? [custom, sys, theme] : mode === 'theme' ? [theme, sys, custom] : [sys, theme, custom];
     for (const c of pick) {
         if (isColor(c))
@@ -21,11 +17,6 @@ export function activeColor({mode, custom, system, theme}) {
     }
     return ACCENTS.blue;
 }
-
-// --- the marker on the highlighted row --------------------------------------------------------------------------
-// Highlighting used to force the marker to the selection text colour, which is dark on light highlights (and so
-// almost black on themes with a pale or translucent selection). Now the marker keeps its own colour whenever that
-// is readable on the highlight, and only falls back when it would disappear into it.
 
 function rgba(hex) {
     let h = String(hex).trim().slice(1);
@@ -57,8 +48,6 @@ export function contrastRatio(a, b) {
     return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
 }
 
-// Colour of the marker on the highlighted row: `mark` if it is readable there, else the selection text colour,
-// else black or white, whichever stands out more. All arguments are hex colours.
 export function markOnSelection({mark, selection, background, selectionText}) {
     if (!isColor(mark) || !isColor(selection))
         return isColor(selectionText) ? selectionText : mark;

@@ -7,7 +7,6 @@ import {generatePassword, hostOf, newAccountId, safeUrl, sanitizeAccounts} from 
 import {openVault} from '../accounts/vault.js';
 import {group, shortcutRow, spinRow, switchRow, toast} from './widgets.js';
 
-// Random bytes from the kernel. Used for generated passwords and account ids.
 function randomBytes(n) {
     const stream = Gio.File.new_for_path('/dev/urandom').read(null);
     try {
@@ -27,9 +26,6 @@ function readAccounts(settings) {
 
 const writeAccounts = (settings, list) => settings.set_string('accounts', JSON.stringify(list));
 
-// Add / edit dialog. `account` is the existing record or null. The password is write-only here: it is
-// never read back from the keyring into this window, so editing an account means typing a new
-// one or leaving the field empty to keep the stored one.
 function editDialog(window, settings, vault, account) {
     const dialog = new Adw.Dialog({title: account ? 'Edit account' : 'Add account', content_width: 460});
     const view = new Adw.ToolbarView();

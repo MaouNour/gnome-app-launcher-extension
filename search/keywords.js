@@ -1,12 +1,3 @@
-// Pure JS (no GI imports): the "Search keywords" of custom commands and actions.
-//
-// Without a separator the field is plain words separated by spaces (with optional /regex/ or <regex> tokens,
-// see regex.js). With a separator (";" or "|" or ";;" ...) the field is a LIST: every piece is one keyword that
-// may contain spaces and symbols, and is matched as a whole phrase. With "all regular expressions" every piece
-// is a pattern and needs no slashes.
-//
-// A backslash in front of the separator keeps it inside a keyword ("a\;b" is the keyword a;b). Other
-// backslashes are left alone so that regular expressions such as \d or \\ work as written.
 
 import {checkPattern, extractRegexKeywords} from './regex.js';
 
@@ -16,12 +7,10 @@ const MAX_PATTERNS = 16;
 const WRAPPED_TAG = /^<(regex|re)>([\s\S]*)<\/\1>$/i;
 const WRAPPED_SLASH = /^\/([\s\S]+)\/$/;
 
-// Separators are short, never contain a backslash (that is the escape) or control characters.
 export function sanitizeSeparator(v) {
     return typeof v === 'string' ? v.replace(/[\u0000-\u001f\u007f\\]/g, '').trim().slice(0, MAX_SEPARATOR) : '';
 }
 
-// The pieces of `text` between unescaped separators, trimmed, empty ones dropped.
 export function splitKeywords(text, sep) {
     const s = String(text ?? '');
     if (!sep)
@@ -31,10 +20,10 @@ export function splitKeywords(text, sep) {
     for (let i = 0; i < s.length;) {
         if (s[i] === '\\') {
             if (s.startsWith(sep, i + 1)) {
-                cur += sep; // escaped separator: a literal one inside the keyword
+                cur += sep;
                 i += 1 + sep.length;
             } else if (s[i + 1] === '\\') {
-                cur += '\\\\'; // a pair stays a pair, so "\\" before a real separator still splits
+                cur += '\\\\';
                 i += 2;
             } else {
                 cur += s[i++];
@@ -51,10 +40,6 @@ export function splitKeywords(text, sep) {
     return out.map(x => x.trim()).filter(x => x !== '');
 }
 
-// A list with a separator. Returns {phrases, patterns, items}:
-//   phrases   keywords to match as text
-//   patterns  compiled regular expressions (tested against the whole typed text)
-//   items     one {type: 'phrase'|'regex'|'bad', text, problem?} per piece, for the preferences
 export function parseKeywordList(text, sep, allRegex = false) {
     const phrases = [];
     const patterns = [];
@@ -86,7 +71,6 @@ export function parseKeywordList(text, sep, allRegex = false) {
     return {phrases, patterns, items};
 }
 
-// What the preferences' "try it" box shows for any combination of the three settings.
 export function describeKeywords(text, sep, allRegex = false) {
     if (sep)
         return parseKeywordList(text, sep, allRegex).items;

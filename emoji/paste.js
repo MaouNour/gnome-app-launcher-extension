@@ -5,13 +5,8 @@ import St from 'gi://St';
 import {resolvePasteKeys} from './emoji.js';
 import {dbg, warn} from '../utils/log.js';
 
-// Time for the launcher to release its keyboard grab and for the previously focused window to
-// get focus back before the paste keys are sent.
 const FOCUS_DELAY_MS = 140;
-// Applications read the clipboard asynchronously after receiving the paste keys, so a borrowed
-// clipboard must stay in place for a moment before the user's own text is put back.
 const RESTORE_DELAY_MS = 450;
-// Clipboard history is told to ignore changes for the whole borrow window plus its own debounce.
 const MUTE_MS = FOCUS_DELAY_MS + RESTORE_DELAY_MS + 400;
 
 const CHORDS = () => ({
@@ -20,26 +15,16 @@ const CHORDS = () => ({
     'shift-insert': [Clutter.KEY_Shift_L, Clutter.KEY_Insert],
 });
 
-// Types text into the previously focused window. GNOME Shell has no "insert text" API for other
-// clients, so this does what every clipboard manager does: put the text on the clipboard and
-// send the paste shortcut from a virtual keyboard owned by the compositor (works on Wayland and
-// X11, needs no extra permissions or processes). The virtual keyboard is created on first use.
 export class Paster {
-    // opts: {mute(ms): tells clipboard history to ignore changes, wmClass(): class of the focus window}
     constructor(opts = {}) {
         this._mute = opts.mute ?? (() => {});
         this._wmClass = opts.wmClass ?? (() => null);
         this._dev = null;
         this._timers = new Set();
         this._gen = 0;
-        this._restore = null; // puts the user's own clipboard text back; set while it is borrowed
+        this._restore = null;
     }
 
-    // borrow: the emoji must NOT stay on the clipboard, so the current text is saved first and
-    // put back after pasting. Only text clipboards are preserved (an image on the clipboard is
-    // replaced by an empty text selection).
-    // onFail(): called when keys could not be sent; the text is then left on the clipboard so the
-    // user can paste it by hand.
     paste(text, {keys = 'auto', borrow = false} = {}, onFail = null) {
         this._cancel();
         const gen = ++this._gen;
@@ -56,7 +41,7 @@ export class Paster {
             this._later(FOCUS_DELAY_MS, () => {
                 const chord = resolvePasteKeys(keys, this._wmClass());
                 if (!this._press(chord)) {
-                    this._restore = null; // keep the text on the clipboard for a manual paste
+                    this._restore = null;
                     cb.set_text(St.ClipboardType.CLIPBOARD, text);
                     onFail?.();
                     return;
@@ -109,8 +94,6 @@ export class Paster {
         r?.();
     }
 
-    // Cancelling while the clipboard is borrowed puts the user's text back right away, so a
-    // second quick paste (or disabling the extension) never leaves an emoji behind as "the original".
     _cancel() {
         for (const id of this._timers)
             GLib.source_remove(id);

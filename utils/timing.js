@@ -1,6 +1,5 @@
 import GLib from 'gi://GLib';
 
-// Single-shot timer that coalesces repeated calls. Owners must cancel() in destroy/disable.
 export class Debounce {
     constructor(ms, fn, priority = GLib.PRIORITY_DEFAULT) {
         this._ms = ms;

@@ -1,5 +1,3 @@
-// Pure JS: tiny arithmetic evaluator (recursive descent, NO eval) for the quick-calculator
-// entry. Supports + - * / % ^ ( ) and unary signs; "," or "." as decimal separator.
 const MAX_LEN = 200;
 
 export function calculate(input) {

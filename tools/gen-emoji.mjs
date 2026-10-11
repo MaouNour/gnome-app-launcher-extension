@@ -1,8 +1,3 @@
-// Dev-time generator for emoji/data.js. NOT shipped to users' machines at runtime and the
-// extension never imports it. Usage:
-//   npm install emojibase-data && node tools/gen-emoji.mjs ./node_modules/emojibase-data > emoji/data.js
-// The output is a plain JS module with two exports (GROUPS, DATA); the extension has no
-// dependency on emojibase or any other package.
 import {readFileSync} from 'node:fs';
 import {join} from 'node:path';
 
@@ -13,8 +8,6 @@ const messages = read('messages.json');
 const github = read('shortcodes/github.json');
 const version = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')).version;
 
-// group 2 is the "components" bucket (skin tones, hair); entries without a group are
-// regional-indicator letters. Neither is useful as a pickable emoji.
 const groups = messages.groups.filter(g => g.key !== 'component').sort((a, b) => a.order - b.order);
 const groupIndex = new Map(groups.map((g, i) => [g.order, i]));
 

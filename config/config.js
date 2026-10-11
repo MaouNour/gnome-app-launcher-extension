@@ -1,11 +1,8 @@
-// Thin wrapper over GSettings. JSON-valued keys are parsed once and cached until
-// the key changes, so the hot paths never re-parse or hit GSettings needlessly.
 export class Config {
     constructor(settings) {
         this.settings = settings;
         this._json = new Map();
         this._ids = [];
-        // Connected first, so the cache is invalidated before any other handler runs.
         this._ids.push(settings.connect('changed', (_s, key) => this._json.delete(key)));
     }
 
@@ -15,7 +12,6 @@ export class Config {
     bool(key) { return this.settings.get_boolean(key); }
     strv(key) { return this.settings.get_strv(key); }
 
-    // Parse a JSON string key. Invalid JSON yields `fallback` (never throws).
     json(key, fallback) {
         if (this._json.has(key))
             return this._json.get(key);

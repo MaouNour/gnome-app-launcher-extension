@@ -1,12 +1,5 @@
 import {dbg} from '../utils/log.js';
 
-// Password storage in the GNOME Keyring (Secret Service) through libsecret. Used by both the shell
-// process (look a password up when the user picks an account) and the preferences process
-// (store/delete). Nothing is ever written to a plain file or to GSettings: if libsecret is not
-// available there is simply no vault, and callers say so instead of falling back to something weaker.
-//
-// libsecret is imported on demand so a system without its typelib only loses this feature.
-
 const SCHEMA_NAME = 'org.gnome.shell.extensions.gnome-launcher.account';
 
 let loading = null;
@@ -40,8 +33,6 @@ class Vault {
         });
     }
 
-    // All three are asynchronous so that a locked keyring asking for the login password never
-    // blocks the compositor (or the preferences window).
     store(id, label, password) {
         const S = this._s;
         return call(cb => S.password_store(this._schema, {id}, S.COLLECTION_DEFAULT, label, password, null, cb),

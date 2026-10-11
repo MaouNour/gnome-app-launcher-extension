@@ -1,46 +1,27 @@
-// Pure JS (no GI imports). Regular-expression support for the launcher search.
-//
-// A pattern typed into a search box runs on every keystroke against every entry, and JavaScript's
-// engine backtracks, so a pattern such as (a+)+$ can freeze the shell. Three defences: patterns are
-// length-limited, shapes known to blow up are refused, and callers only ever test short slices of
-// an entry's text.
 
 export const REGEX_MODES = ['off', 'prefix', 'always'];
 
-// Besides /slashes/, a pattern can be wrapped in tags, which never get confused with a path or with a slash
-// inside the pattern: <regex>/home/*</regex>, <re>^a/b$</re>, and in the search box also the prefix
-// "regex:" (regex:/home/*). The text between the tags is taken exactly as written.
 const TAG_OPEN = /^<(regex|re)>/i;
 const WORD_PREFIX = /^regex:[ \t]?/i;
 
 const MAX_PATTERN = 120;
 const META = /[\\^$.*+?()[\]{}|]/;
 const UNBOUNDED = /[+*]|\{\d+,\}/g;
-const MAX_UNBOUNDED = 2; // a.*b.*c.*d on a long string is already quartic
+const MAX_UNBOUNDED = 2;
 
 export function isRiskyPattern(src) {
     if (src.length > MAX_PATTERN)
         return true;
     if (/\\[1-9]/.test(src))
-        return true; // back-references can be exponential
+        return true;
     if (/\(\?<[=!]/.test(src))
-        return true; // look-behind
-    // A repeated group that contains a quantifier or an alternation: (a+)+  (.*)*  (a|aa)+  (a?){0,20}
+        return true;
     const flat = src.replace(/\(\?:/g, '(');
     if (/\((?:[^()\\]|\\.)*(?:[+*?|]|\{\d*,\d*\})(?:[^()\\]|\\.)*\)(?:[+*]|\{\d+,\d*\})/.test(flat))
         return true;
     return (src.match(UNBOUNDED) ?? []).length > MAX_UNBOUNDED;
 }
 
-// What a search box text means as a regular expression:
-//   null                      -> not a regex query, search normally
-//   {re, source}              -> run this
-//   {error}                   -> explicit regex that cannot be used (say why)
-// mode 'prefix': only text starting with "/" ("/chrom|fire" or "/chrom|fire/"), or one of the explicit
-//                forms "<regex>...</regex>" (closing tag optional), "<re>...</re>" and "regex:...".
-//                The explicit forms are used whenever the mode is not 'off'.
-// mode 'always': also plain text that contains regex characters, but only when it compiles
-//                and is safe; otherwise it silently falls back to the normal search.
 export function parseRegexQuery(query, mode) {
     if (mode !== 'prefix' && mode !== 'always')
         return null;
@@ -49,7 +30,6 @@ export function parseRegexQuery(query, mode) {
     let explicit = false;
     const tag = TAG_OPEN.exec(t);
     if (tag) {
-        // The body is taken as typed (slashes and all); only the closing tag is removed.
         explicit = true;
         body = t.slice(tag[0].length).replace(new RegExp(`</${tag[1]}>\\s*$`, 'i'), '');
     } else if (WORD_PREFIX.test(t)) {
@@ -76,7 +56,6 @@ export function parseRegexQuery(query, mode) {
     }
 }
 
-// {re} when the pattern can be used as a keyword, otherwise {error} with the reason (shown by the preferences).
 export function checkPattern(src) {
     if (!src)
         return {error: 'the pattern is empty'};
@@ -89,23 +68,14 @@ export function checkPattern(src) {
     }
 }
 
-// Search keywords of an entry marked "keywords are a regular expression": the whole field is ONE pattern,
-// written without slashes ("^(open )?term(inal)?$"). Returns the compiled pattern, or null when the field is
-// empty, not valid yet or unsafe (the entry then simply has no pattern, like an ignored /regex/ token).
 export function compileKeywordPattern(text) {
     let src = String(text ?? '').trim();
-    const wrapped = /^<(regex|re)>([\s\S]*)<\/\1>$/i.exec(src); // a pasted <regex>...</regex> is fine too
+    const wrapped = /^<(regex|re)>([\s\S]*)<\/\1>$/i.exec(src);
     if (wrapped)
         src = wrapped[2].trim();
     return checkPattern(src).re ?? null;
 }
 
-// Search keywords of custom commands/actions may contain /patterns/ next to ordinary words:
-//   "terminal /^(open )?term(inal)?$/"
-// Returns the ordinary words and the compiled patterns (unsafe or invalid ones are ignored).
-// A pattern is tested against the whole query.
-//   "terminal <regex>^/usr/bin/.*term$</regex>"   (tags: the pattern may hold slashes and spaces freely)
-// `bad` (optional array) collects {text, problem} for the patterns that were ignored.
 export function extractRegexKeywords(text, bad = null) {
     const patterns = [];
     const add = src => {

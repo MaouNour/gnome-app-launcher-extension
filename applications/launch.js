@@ -1,9 +1,6 @@
 import Gio from 'gi://Gio';
 import Shell from 'gi://Shell';
 
-// Launch (or focus) an installed application by desktop-file id. Throws if it is gone,
-// so the caller can notify the user and trigger an index refresh.
-// opts.newWindow: open another window even when the application is already running.
 export function launchApp(appId, opts = {}) {
     const app = Shell.AppSystem.get_default().lookup_app(appId);
     if (app) {
@@ -20,7 +17,6 @@ export function launchApp(appId, opts = {}) {
     info.launch([], global.create_app_launch_context(0, -1));
 }
 
-// One of the actions a desktop file lists (for example "New Private Window").
 export function launchAppAction(appId, action) {
     const info = Gio.DesktopAppInfo.new(appId);
     if (!info)

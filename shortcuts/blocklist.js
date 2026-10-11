@@ -1,7 +1,3 @@
-// Pure JS (no GI imports): matching of window/app names against the user's blocklist.
-// Entries are compared case-insensitively against the window class, the application id and the
-// desktop-file id (".desktop" is ignored). "*" matches any run of characters and "?" one character,
-// so "steam_app_*" covers every Steam game.
 
 const norm = s => String(s ?? '').trim().toLowerCase().replace(/\.desktop$/, '');
 
@@ -10,8 +6,6 @@ function globToRegExp(glob) {
     return new RegExp(`^${src}$`);
 }
 
-// list: string[] from settings. Returns {size, test(names[])}; compiled once per settings change,
-// so a focus change only runs a handful of cheap comparisons.
 export function compileBlocklist(list) {
     const exact = new Set();
     const globs = [];

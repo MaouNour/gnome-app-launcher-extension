@@ -44,14 +44,11 @@ function ownShortcuts(settings) {
     return out;
 }
 
-// Read/write one built-in entry's overrides ({enabled, shortcut, windowShortcut}) in the
-// "builtins" JSON key. Shared by the Built-in Entries page and the Emoji page.
 function builtinsStore(settings) {
     const read = () => sanitizeBuiltins(readJson(settings, 'builtins', {}));
     const write = (id, key, value) => {
         const o = read();
         const e = {...(o[id] ?? {})};
-        // Clearing a shortcut that has a shipped default is stored as '' so the default stays off.
         const hasDefault = key === 'windowShortcut' && BUILTINS.find(b => b.id === id)?.windowShortcut;
         if (value === undefined || (value === '' && !hasDefault))
             delete e[key];
@@ -159,7 +156,7 @@ function builtinsPage(window, settings) {
 
     const g = group('System and utility entries',
         'Shut Down, Restart and Log Out use GNOME\'s own confirmation dialog. A global shortcut works anywhere; a window shortcut only while the launcher is open.');
-    for (const b of BUILTINS.filter(x => !x.page)) { // emoji entries live on the Emoji page
+    for (const b of BUILTINS.filter(x => !x.page)) {
         const row = new Adw.ExpanderRow({title: b.name, subtitle: b.desc});
         const sw = new Gtk.Switch({valign: Gtk.Align.CENTER, active: read()[b.id]?.enabled !== false});
         sw.connect('notify::active', () => write(b.id, 'enabled', sw.active ? undefined : false));
@@ -214,7 +211,6 @@ function shortcuts(window, settings) {
     return p;
 }
 
-// Applications in which the launcher's shortcuts are released, so the keys reach the app.
 function blocklistGroup(window, settings) {
     const g = group('Block the launcher in some applications',
         'While one of these has focus, every launcher shortcut (the main one, the Super key and per-entry shortcuts) is released and goes to the application instead: handy for games, virtual machines and remote desktops. Names match the window class, the application id or the desktop-file id, ignoring case. Use * as a wildcard, for example steam_app_* for every Steam game. To find a window\'s class run: xprop WM_CLASS (X11), or Alt+F2, lg, Windows.');
@@ -275,8 +271,6 @@ function blocklistGroup(window, settings) {
     return g;
 }
 
-// A list of entries stored as JSON [{id, name}] in `key`, each with a button that removes it
-// (the hidden entries and the favorites).
 function entryListGroup(window, settings, o) {
     const g = group(o.title, o.description);
     const all = new Gtk.Button({label: o.allLabel, valign: Gtk.Align.CENTER});
@@ -324,7 +318,6 @@ const hiddenGroup = (window, settings) => entryListGroup(window, settings, {
     doneToast: 'All entries are visible again',
 });
 
-// Favorites: Ctrl+D in the launcher. They are listed first when the launcher opens.
 const favoritesGroup = (window, settings) => {
     return entryListGroup(window, settings, {
         key: 'favorites', title: 'Favorites', allLabel: 'Remove all', buttonLabel: 'Remove',
@@ -334,7 +327,6 @@ const favoritesGroup = (window, settings) => {
     });
 };
 
-// What file search can use on this computer, looked up the same way the Shell does.
 function fileBackends() {
     let gnome = false;
     for (const d of [GLib.get_user_data_dir(), ...GLib.get_system_data_dirs()]) {
@@ -552,7 +544,6 @@ function applications(settings) {
     return p;
 }
 
-// One font slot: family (chosen with the system font dialog; empty = the theme's), size, weight.
 function fontSlot(settings, {title, subtitle, family, size, sizeMin, sizeTitle, weight}) {
     const row = new Adw.ExpanderRow({title, subtitle});
     const famRow = new Adw.ActionRow({title: 'Font family'});
@@ -669,7 +660,6 @@ function layoutGroups(window, settings) {
     return [g, editor.group];
 }
 
-// What each "Use regular expressions" choice does; shown under the choice list, the current one in bold.
 const REGEX_MODE_HELP = [
     ['prefix', 'When the search starts with a slash',
         'Only text that begins with \"/\" is a pattern, e.g. /chrom|fire (the closing slash is optional). Everything else is a normal search, unless you wrap the pattern in tags: <regex>/home/*</regex>, <re>...</re> or regex:...  (those work in this mode and in \"Always\").'],
