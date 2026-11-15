@@ -224,7 +224,7 @@ class GridRow {
     constructor(launcher, cols) {
         this.base = 0;
         this.hasHeader = false;
-        this.actor = new St.BoxLayout({vertical: true, x_expand: true});
+        this.actor = new St.BoxLayout({orientation: Clutter.Orientation.VERTICAL, x_expand: true});
         this.title = new St.Label({x_align: Clutter.ActorAlign.START, y_align: Clutter.ActorAlign.END});
         this.header = new St.Bin({child: this.title, x_expand: true, visible: false});
         this.line = new St.BoxLayout({x_expand: true});
@@ -269,10 +269,10 @@ class Row {
         this.actor = new St.BoxLayout({reactive: true, x_expand: true});
         this.icon = new St.Icon({fallback_icon_name: FALLBACK_ICON, x_align: Clutter.ActorAlign.CENTER});
         // The icon sits in a small vertical box so the running marker can be drawn under it.
-        this.iconBox = new St.BoxLayout({vertical: true, y_align: Clutter.ActorAlign.CENTER});
+        this.iconBox = new St.BoxLayout({orientation: Clutter.Orientation.VERTICAL, y_align: Clutter.ActorAlign.CENTER});
         this.iconBox.add_child(this.icon);
         this.glyph = new St.Label({visible: false, y_align: Clutter.ActorAlign.CENTER});
-        this.text = new St.BoxLayout({vertical: true, x_expand: true, y_align: Clutter.ActorAlign.CENTER});
+        this.text = new St.BoxLayout({orientation: Clutter.Orientation.VERTICAL, x_expand: true, y_align: Clutter.ActorAlign.CENTER});
         this.title = new St.Label({x_expand: true});
         this.sub = new St.Label({x_expand: true});
         this.tag = new St.Label({y_align: Clutter.ActorAlign.CENTER});
@@ -477,7 +477,7 @@ export class Launcher {
             name: IDENTITY.window.name,
             style_class: IDENTITY.window.styleClass,
             accessible_name: IDENTITY.window.accessibleName,
-            vertical: true,
+            orientation: Clutter.Orientation.VERTICAL,
             reactive: true,
             // Both axes expand on purpose. A BinLayout only applies a child's x_align / y_align (and so the
             // window position) on an axis where the child expands; without this the window was always centred
@@ -497,7 +497,7 @@ export class Launcher {
             vscrollbar_policy: St.PolicyType.EXTERNAL,
             overlay_scrollbars: true,
         });
-        this._list = new St.BoxLayout({vertical: true});
+        this._list = new St.BoxLayout({orientation: Clutter.Orientation.VERTICAL});
         this._scroll.set_child(this._list);
         this._empty = new St.Label({text: 'No results', visible: false});
         this._list.add_child(this._empty);
