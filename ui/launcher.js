@@ -36,6 +36,62 @@ function tryConnect(actor, signal, fn) {
     }
 }
 
+const HAS_KEY_CONTROLLER = typeof Clutter.KeyController === 'function';
+
+// Modifier mask of the key press being handled. The controller's own state is used when this Clutter has it,
+// then the event being dispatched, then the keyboard state as seen through the pointer query.
+function heldModifiers(controller) {
+    try {
+        if (typeof controller?.get_state === 'function')
+            return controller.get_state();
+    } catch (_e) { /* try the next source */ }
+    try {
+        const ev = Clutter.get_current_event?.();
+        if (ev)
+            return ev.get_state();
+    } catch (_e) { /* try the next source */ }
+    try {
+        return global.get_pointer()[2];
+    } catch (_e) {
+        return 0;
+    }
+}
+
+// Which modifier was held with Enter: '', 'ctrl', 'alt' or 'shift' (see `_activateIndex`).
+function modsHow(mods) {
+    if (mods & Clutter.ModifierType.CONTROL_MASK)
+        return 'ctrl';
+    if (mods & Clutter.ModifierType.MOD1_MASK)
+        return 'alt';
+    if (mods & Clutter.ModifierType.SHIFT_MASK)
+        return 'shift';
+    return '';
+}
+
+// fn(symbol, modifiers) runs for every key press reaching `actor`; it returns EVENT_STOP or EVENT_PROPAGATE.
+// Shell 51 deprecates the actor's 'key-press-event' signal and its Return no longer arrives there, so a
+// Clutter.KeyController is used when it exists, in the capture phase so it runs before the text field's own
+// handling (which consumes Return). Older Shells get the signal. Returns which path was set up.
+function onKeyPress(actor, fn) {
+    if (HAS_KEY_CONTROLLER) {
+        try {
+            const kc = new Clutter.KeyController();
+            kc.connect('key-press', () => {
+                const [ok, sym] = kc.get_key();
+                if (!ok)
+                    return Clutter.EVENT_PROPAGATE;
+                return fn(sym, heldModifiers(kc));
+            });
+            actor.add_action_full('launcher-keys', Clutter.EventPhase.CAPTURE, kc);
+            return 'controller';
+        } catch (e) {
+            warn(`key controller unavailable: ${e.message}`);
+        }
+    }
+    actor.connect('key-press-event', (_a, ev) => fn(ev.get_key_symbol(), ev.get_state()));
+    return 'signal';
+}
+
 // fn() runs once per primary-button click, tap or touch on `actor`.
 function onPrimaryClick(actor, fn) {
     if (HAS_CLICK_GESTURE) {
@@ -386,6 +442,7 @@ export class Launcher {
         this._runSet = new Set();
         this._lastClick = 0;
         this._lastKey = 0;
+        this._lastEnter = 0;
         this._autoTimer = 0;
         this._textLen = 0;
 
@@ -525,11 +582,13 @@ export class Launcher {
             this._refresh();
             this._autoLaunch(grew && !this._histSet); // a recalled search is never opened by itself
         });
-        ct.connect('key-press-event', (_a, ev) => this._onKey(ev));
-
-        this._overlay.connect('key-press-event', (_a, ev) => {
-            // Focus can leave the entry after a click; keep Escape and navigation working.
-            return this._onKey(ev);
+        // One handler on the overlay sees every key, whether the entry has focus or focus left it after a click
+        // (the overlay is the modal grab actor and an ancestor of the entry).
+        this._keyPath = onKeyPress(this._overlay, (sym, mods) => this._onKey(sym, mods));
+        // Safety net: Enter also arrives as the text field's 'activate'. `_enter` drops the second report when
+        // both paths see the same key press.
+        ct.connect('activate', () => {
+            this._enter(modsHow(heldModifiers(null)));
         });
         tryConnect(this._overlay, 'button-press-event', (_a, ev) => {
             if (this._inside(ev)) {
@@ -1254,6 +1313,18 @@ export class Launcher {
             this._onActivate(entry, how);
     }
 
+    // Enter on the selected result. The key controller and the entry's 'activate' signal can both report one key
+    // press; only the first within 150 ms counts. Nothing happens while the window is hidden or closing.
+    _enter(how = '') {
+        if (this._state !== 'open' && this._state !== 'opening')
+            return;
+        const now = GLib.get_monotonic_time();
+        if (now - this._lastEnter < 150000)
+            return;
+        this._lastEnter = now;
+        this._activateIndex(this._sel, how);
+    }
+
     // A click, tap or touch on result i. Both input paths may report the same click; only the first counts, and
     // nothing happens once the window is on its way out.
     _clicked(i) {
@@ -1342,10 +1413,8 @@ export class Launcher {
             this._onFavorite(e); // the change comes back through refreshResults()
     }
 
-    _onKey(ev) {
+    _onKey(sym, mods) {
         this._lastKey = GLib.get_monotonic_time();
-        const sym = ev.get_key_symbol();
-        const mods = ev.get_state();
         const ctrl = (mods & Clutter.ModifierType.CONTROL_MASK) !== 0;
         const alt = (mods & Clutter.ModifierType.MOD1_MASK) !== 0;
 
@@ -1430,7 +1499,7 @@ export class Launcher {
         case Clutter.KEY_Return:
         case Clutter.KEY_KP_Enter:
         case Clutter.KEY_ISO_Enter:
-            this._activateIndex(this._sel, ctrl ? 'ctrl' : alt ? 'alt' : (mods & Clutter.ModifierType.SHIFT_MASK) ? 'shift' : '');
+            this._enter(modsHow(mods));
             return Clutter.EVENT_STOP;
         default:
         }

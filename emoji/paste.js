@@ -78,7 +78,9 @@ export class Paster {
             return false;
         try {
             if (!this._dev) {
-                const seat = Clutter.get_default_backend().get_default_seat();
+                // Clutter.get_default_backend() was removed in GNOME Shell 51.
+                const backend = global.stage?.context?.get_backend?.() ?? Clutter.get_default_backend();
+                const seat = backend.get_default_seat();
                 this._dev = seat.create_virtual_device(Clutter.InputDeviceType.KEYBOARD_DEVICE);
             }
             for (const key of seq)
